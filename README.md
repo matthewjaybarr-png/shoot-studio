@@ -1,12 +1,14 @@
 # Shoot Studio
 
-A small desktop app for culling a photo shoot on Linux. Open a folder of Canon CR2 and JPEG files, flip through them, and mark picks, rejects and stars from the keyboard.
+A small desktop app for culling and editing a photo shoot on Linux. Open a folder of Canon CR2 and JPEG files, flip through them, mark picks, rejects and stars from the keyboard, and adjust the light and colour of the ones you keep.
 
 - RAW and JPEG files with the same name are shown as one photo.
-- Your originals are only ever read. Ratings live in `<shoot>/.shootstudio/shoot.json`, next to the photos.
+- Your originals are only ever read. Ratings live in `<shoot>/.shootstudio/shoot.json` and edits in `<shoot>/.shootstudio/recipes/`, next to the photos. Delete `.shootstudio` and you're back to the camera files.
 - The app makes no network calls except one update check at launch.
 
 Keys: arrows move, Enter opens the loupe, C compares, Esc goes back to the grid, P picks, X rejects, U unflags, 1–5 set stars, 0 clears stars.
+
+Develop: D edits the current photo. ←/→ go to the previous/next photo, hold \ to see it before your edits, Ctrl+Z / Ctrl+Shift+Z undo and redo, double-click a slider to reset it. RAW files are developed from their sensor data; editing needs WebGL2, which any graphics from the last decade provides.
 
 ## Install (Zorin OS, Ubuntu and similar)
 

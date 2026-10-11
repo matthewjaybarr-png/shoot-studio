@@ -1,4 +1,4 @@
-// Shoot Studio backend: list a shoot folder, serve previews, store ratings.
+// Shoot Studio backend: list a shoot folder, serve previews and RAW pixels, store ratings and edits.
 // Originals are only ever opened for reading; all writes go to <shoot>/.shootstudio/.
 // The one network call is the update check, made here in Rust; the webview stays offline.
 use rawler::formats::tiff::reader::TiffReader;
@@ -19,7 +19,7 @@ use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
 const STATE_DIR: &str = ".shootstudio";
 /// shoot.json format version. Files without one predate it and read as version 1.
-/// Bump it only with a migration in `upgrade_shoot`; updates only move forward.
+/// Bump it only with a migration in `upgrade`; updates only move forward.
 const SHOOT_VERSION: u64 = 1;
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -73,13 +73,7 @@ fn shoot_file(dir: &str, name: &str) -> Result<PathBuf, String> {
 /// with its Orientation tag injected as a tiny EXIF block so the webview rotates it like any JPEG.
 // ponytail: CR2 only; CR3 is ISO-BMFF and needs rawler's CR3 path when a newer body arrives.
 fn cr2_preview(path: &Path) -> Result<Vec<u8>, String> {
-    let source =
-        RawSource::new(path).map_err(|e| format!("could not open {}: {e}", path.display()))?;
-    if source.buf().get(8..10) != Some(b"CR") {
-        return Err("not a Canon CR2 file".into());
-    }
-    let tiff = GenericTiffReader::new_with_buffer(source.buf(), 0, 0, Some(1))
-        .map_err(|e| format!("CR2 unreadable: {e}"))?;
+    let (source, tiff) = cr2_open(path)?;
     let ifd0 = tiff.root_ifd();
     if !ifd0.contains_singlestrip_image() {
         return Err("CR2 has no embedded preview".into());
@@ -90,13 +84,117 @@ fn cr2_preview(path: &Path) -> Result<Vec<u8>, String> {
     if !jpeg.starts_with(&[0xFF, 0xD8]) {
         return Err("CR2 embedded preview is not a JPEG".into());
     }
-    let orientation = ifd0
-        .get_entry(TiffCommonTag::Orientation)
-        .map_or(1, |e| e.value.force_u16(0));
+    let orientation = cr2_orientation(&tiff);
     let mut exif = b"\xFF\xE1\0\x22Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
     exif.extend_from_slice(&orientation.to_le_bytes());
     exif.extend_from_slice(&[0; 6]);
     Ok([&jpeg[..2], &exif, &jpeg[2..]].concat())
+}
+
+fn cr2_open(path: &Path) -> Result<(RawSource, GenericTiffReader), String> {
+    let source =
+        RawSource::new(path).map_err(|e| format!("could not open {}: {e}", path.display()))?;
+    if source.buf().get(8..10) != Some(b"CR") {
+        return Err("not a Canon CR2 file".into());
+    }
+    let tiff = GenericTiffReader::new_with_buffer(source.buf(), 0, 0, Some(1))
+        .map_err(|e| format!("CR2 unreadable: {e}"))?;
+    Ok((source, tiff))
+}
+
+/// EXIF orientation (1–8) from CR2 IFD0. rawler reports these files as Normal, so read the tag.
+fn cr2_orientation(tiff: &GenericTiffReader) -> u16 {
+    tiff.root_ifd()
+        .get_entry(TiffCommonTag::Orientation)
+        .map_or(1, |e| e.value.force_u16(0))
+}
+
+/// Longest edge of the image Develop edits. Export (Step 3) will decode at full size.
+const DEVELOP_EDGE: usize = 3072;
+
+/// A CR2 decoded to linear light (sRGB primaries, camera white balance, values above 1 kept
+/// for highlight recovery), box-downscaled to at most `max_edge` and turned upright.
+fn raw_linear(path: &Path, max_edge: usize) -> Result<(usize, usize, Vec<f32>), String> {
+    use rawler::imgop::develop::{Intermediate, ProcessingStep::*, RawDevelop};
+    let (source, tiff) = cr2_open(path)?;
+    let raw = rawler::decode(&source, &Default::default())
+        .map_err(|e| format!("could not decode {}: {e}", path.display()))?;
+    let steps = [
+        Rescale,
+        Demosaic,
+        CropActiveArea,
+        WhiteBalance,
+        Calibrate,
+        CropDefault,
+    ];
+    let Intermediate::ThreeColor(rgb) = RawDevelop::new_with(&steps)
+        .develop_intermediate(&raw)
+        .map_err(|e| format!("could not develop {}: {e}", path.display()))?
+    else {
+        return Err("not a colour RAW file".into());
+    };
+    let (w, h, small) = downscale(rgb.width, rgb.height, &rgb.data, max_edge);
+    Ok(orient(w, h, &small, cr2_orientation(&tiff)))
+}
+
+/// Average f x f blocks, with f the smallest whole factor that fits `max_edge`.
+fn downscale(
+    w: usize,
+    h: usize,
+    px: &[[f32; 3]],
+    max_edge: usize,
+) -> (usize, usize, Vec<[f32; 3]>) {
+    let f = w.max(h).div_ceil(max_edge).max(1);
+    let (sw, sh) = (w / f, h / f);
+    let mut out = vec![[0f32; 3]; sw * sh];
+    for (y, row) in out.chunks_mut(sw.max(1)).enumerate() {
+        for (x, o) in row.iter_mut().enumerate() {
+            for dy in 0..f {
+                for p in &px[(y * f + dy) * w + x * f..][..f] {
+                    for c in 0..3 {
+                        o[c] += p[c];
+                    }
+                }
+            }
+            o.iter_mut().for_each(|v| *v /= (f * f) as f32);
+        }
+    }
+    (sw, sh, out)
+}
+
+/// Apply an EXIF orientation so the pixels are upright; returns width, height and flat RGB.
+fn orient(w: usize, h: usize, px: &[[f32; 3]], orientation: u16) -> (usize, usize, Vec<f32>) {
+    let swap = (5..=8).contains(&orientation);
+    let (ow, oh) = if swap { (h, w) } else { (w, h) };
+    let mut out = Vec::with_capacity(ow * oh * 3);
+    for y in 0..oh {
+        for x in 0..ow {
+            // Where output (x, y) comes from in the stored image.
+            let (sx, sy) = match orientation {
+                2 => (w - 1 - x, y),
+                3 => (w - 1 - x, h - 1 - y),
+                4 => (x, h - 1 - y),
+                5 => (y, x),
+                6 => (y, h - 1 - x),
+                7 => (w - 1 - y, h - 1 - x),
+                8 => (w - 1 - y, x),
+                _ => (x, y),
+            };
+            out.extend_from_slice(&px[sy * w + sx]);
+        }
+    }
+    (ow, oh, out)
+}
+
+/// Width and height as little-endian u32s, then RGB half floats, ready for an RGB16F texture.
+fn half_float_image(w: usize, h: usize, rgb: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8 + rgb.len() * 2);
+    out.extend_from_slice(&(w as u32).to_le_bytes());
+    out.extend_from_slice(&(h as u32).to_le_bytes());
+    for v in rgb {
+        out.extend_from_slice(&half::f16::from_f32(*v).to_le_bytes());
+    }
+    out
 }
 
 /// <shoot>/.shootstudio[/sub], created if missing. Refuses a symlink or non-folder at any
@@ -192,30 +290,32 @@ fn save_thumb(dir: String, name: String, data: Vec<u8>) -> Result<(), String> {
     write_atomic(&thumb_path(&dir, &name)?, &data)
 }
 
-/// Bring shoot.json up to SHOOT_VERSION. Refuses a file from a newer app rather than
+/// Bring a saved JSON file up to `current`. Refuses a file from a newer app rather than
 /// risk saving over fields it doesn't know.
-fn upgrade_shoot(mut data: Value) -> Result<Value, String> {
+fn upgrade(mut data: Value, current: u64, file: &str) -> Result<Value, String> {
     let Some(fields) = data.as_object_mut() else {
-        return Err("shoot.json is not an object".into());
+        return Err(format!("{file} is not an object"));
     };
     let version = match fields.get("version") {
         None => 1,
-        Some(v) => v.as_u64().ok_or("shoot.json has a bad version")?,
+        Some(v) => v.as_u64().ok_or(format!("{file} has a bad version"))?,
     };
-    if version > SHOOT_VERSION {
+    if version > current {
         return Err(format!(
-            "this shoot was saved by a newer Shoot Studio (format {version}); update the app to open it"
+            "this shoot was saved by a newer Shoot Studio ({file} format {version}); update the app to open it"
         ));
     }
-    fields.insert("version".into(), SHOOT_VERSION.into());
+    fields.insert("version".into(), current.into());
     Ok(data)
 }
 
 #[tauri::command]
 fn load_shoot(dir: String) -> Result<Value, String> {
     match fs::read_to_string(state_dir(&dir, None)?.join("shoot.json")) {
-        Ok(text) => upgrade_shoot(
+        Ok(text) => upgrade(
             serde_json::from_str(&text).map_err(|e| format!("shoot.json is unreadable: {e}"))?,
+            SHOOT_VERSION,
+            "shoot.json",
         ),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Value::Null),
         Err(e) => Err(format!("could not read shoot.json: {e}")),
@@ -224,8 +324,97 @@ fn load_shoot(dir: String) -> Result<Value, String> {
 
 #[tauri::command]
 fn save_shoot(dir: String, data: Value) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(&upgrade_shoot(data)?).map_err(|e| e.to_string())?;
+    let data = upgrade(data, SHOOT_VERSION, "shoot.json")?;
+    let text = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     write_atomic(&state_dir(&dir, None)?.join("shoot.json"), text.as_bytes())
+}
+
+/// Linear RAW pixels for Develop, in the `half_float_image` layout. Async so the
+/// seconds-long decode runs off the main thread and the window stays responsive.
+#[tauri::command]
+async fn develop_source(dir: String, name: String) -> Result<Response, String> {
+    let path = shoot_file(&dir, &name)?;
+    if !name.to_ascii_lowercase().ends_with(".cr2") {
+        return Err(format!("{name} is not a RAW file"));
+    }
+    let (w, h, rgb) = tauri::async_runtime::spawn_blocking(move || raw_linear(&path, DEVELOP_EDGE))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(Response::new(half_float_image(w, h, &rgb)))
+}
+
+/// <shoot>/.shootstudio/recipes/<photo id>.json holds one photo's edit. Bump RECIPE_VERSION
+/// only with a migration in `upgrade`.
+const RECIPE_VERSION: u64 = 1;
+
+fn recipe_path(dir: &str, id: &str) -> Result<PathBuf, String> {
+    shoot_file(dir, id)?;
+    Ok(state_dir(dir, Some("recipes"))?.join(format!("{id}.json")))
+}
+
+/// The rendered look of an edited photo: a 2048 px preview, or its grid thumbnail.
+fn edited_path(dir: &str, id: &str, thumb: bool) -> Result<PathBuf, String> {
+    shoot_file(dir, id)?;
+    let suffix = if thumb { ".thumb" } else { "" };
+    Ok(state_dir(dir, Some("edited"))?.join(format!("{id}{suffix}.jpg")))
+}
+
+/// Every saved recipe in the shoot, by photo id.
+#[tauri::command]
+fn load_recipes(dir: String) -> Result<BTreeMap<String, Value>, String> {
+    let folder = state_dir(&dir, Some("recipes"))?;
+    let mut recipes = BTreeMap::new();
+    for entry in fs::read_dir(&folder).map_err(|e| format!("could not read recipes: {e}"))? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let (Some(id), Some("json")) = (
+            path.file_stem().and_then(|s| s.to_str()),
+            path.extension().and_then(|s| s.to_str()),
+        ) else {
+            continue; // e.g. a temp file left by a crash
+        };
+        let file = format!("recipe {id}");
+        let text = fs::read_to_string(&path).map_err(|e| format!("could not read {file}: {e}"))?;
+        let recipe =
+            serde_json::from_str(&text).map_err(|e| format!("{file} is unreadable: {e}"))?;
+        recipes.insert(id.to_owned(), upgrade(recipe, RECIPE_VERSION, &file)?);
+    }
+    Ok(recipes)
+}
+
+/// Save one photo's recipe, or with none, return the photo to the camera file.
+#[tauri::command]
+fn save_recipe(dir: String, id: String, recipe: Option<Value>) -> Result<(), String> {
+    let path = recipe_path(&dir, &id)?;
+    let Some(recipe) = recipe else {
+        for path in [
+            path,
+            edited_path(&dir, &id, false)?,
+            edited_path(&dir, &id, true)?,
+        ] {
+            match fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(format!("could not remove {}: {e}", path.display()))
+                }
+                _ => {}
+            }
+        }
+        return Ok(());
+    };
+    let recipe = upgrade(recipe, RECIPE_VERSION, &format!("recipe {id}"))?;
+    let text = serde_json::to_string_pretty(&recipe).map_err(|e| e.to_string())?;
+    write_atomic(&path, text.as_bytes())
+}
+
+#[tauri::command]
+fn edited(dir: String, id: String, thumb: bool) -> Result<Response, String> {
+    fs::read(edited_path(&dir, &id, thumb)?)
+        .map(Response::new)
+        .map_err(|_| "no edited preview yet".into())
+}
+
+#[tauri::command]
+fn save_edited(dir: String, id: String, thumb: bool, data: Vec<u8>) -> Result<(), String> {
+    write_atomic(&edited_path(&dir, &id, thumb)?, &data)
 }
 
 #[tauri::command]
@@ -273,7 +462,12 @@ async fn install_update(
     pending: State<'_, PendingUpdate>,
     progress: Channel<u64>,
 ) -> Result<(), String> {
-    let update = pending.0.lock().unwrap().clone().ok_or("no update to install")?;
+    let update = pending
+        .0
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("no update to install")?;
     let mut got = 0u64;
     update
         .download_and_install(
@@ -306,7 +500,12 @@ fn main() {
             thumb,
             save_thumb,
             load_shoot,
-            save_shoot
+            save_shoot,
+            develop_source,
+            load_recipes,
+            save_recipe,
+            edited,
+            save_edited
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shoot Studio");
@@ -471,9 +670,15 @@ mod tests {
 
         let newer = r#"{"version": 99, "ratings": {}, "develop": {}}"#;
         fs::write(&file, newer).unwrap();
-        assert!(load_shoot(d.clone()).unwrap_err().contains("newer Shoot Studio"));
+        assert!(load_shoot(d.clone())
+            .unwrap_err()
+            .contains("newer Shoot Studio"));
         assert!(save_shoot(d.clone(), serde_json::json!({"version": 99})).is_err());
-        assert_eq!(fs::read_to_string(&file).unwrap(), newer, "a newer file is left alone");
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            newer,
+            "a newer file is left alone"
+        );
         for bad in [r#"[]"#, r#"{"version": "one"}"#] {
             fs::write(&file, bad).unwrap();
             assert!(load_shoot(d.clone()).is_err(), "{bad}");
@@ -523,6 +728,152 @@ mod tests {
         assert_eq!(fs::read(dir.join("IMG_1.JPG")).unwrap(), b"original");
         fs::remove_dir_all(dir).unwrap();
         fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn recipes_save_load_and_reset_to_the_camera_file() {
+        let dir = temp_dir("recipes");
+        let d = dir.display().to_string();
+        fs::write(dir.join("IMG_1.CR2"), b"raw").unwrap();
+        assert!(load_recipes(d.clone()).unwrap().is_empty());
+
+        let recipe = serde_json::json!({"exposure": 0.5, "temp": 12});
+        save_recipe(d.clone(), "IMG_1".into(), Some(recipe)).unwrap();
+        save_edited(d.clone(), "IMG_1".into(), false, vec![1, 2]).unwrap();
+        save_edited(d.clone(), "IMG_1".into(), true, vec![3]).unwrap();
+        let loaded = load_recipes(d.clone()).unwrap();
+        assert_eq!(
+            loaded["IMG_1"],
+            serde_json::json!({"version": 1, "exposure": 0.5, "temp": 12})
+        );
+        assert_eq!(
+            fs::read(edited_path(&d, "IMG_1", true).unwrap()).unwrap(),
+            [3]
+        );
+        assert!(edited(d.clone(), "IMG_1".into(), true).is_ok());
+
+        save_recipe(d.clone(), "IMG_1".into(), None).unwrap();
+        assert!(load_recipes(d.clone()).unwrap().is_empty());
+        assert!(
+            edited(d.clone(), "IMG_1".into(), false).is_err(),
+            "edited preview removed"
+        );
+        assert!(
+            edited(d.clone(), "IMG_1".into(), true).is_err(),
+            "edited thumbnail removed"
+        );
+        save_recipe(d.clone(), "IMG_1".into(), None).expect("resetting twice is fine");
+        assert_eq!(
+            fs::read(dir.join("IMG_1.CR2")).unwrap(),
+            b"raw",
+            "original untouched"
+        );
+
+        for bad in ["../IMG_1", ".shootstudio", "a/b", ""] {
+            assert!(
+                save_recipe(d.clone(), bad.into(), Some(serde_json::json!({}))).is_err(),
+                "{bad}"
+            );
+            assert!(
+                save_edited(d.clone(), bad.into(), true, vec![1]).is_err(),
+                "{bad}"
+            );
+        }
+
+        let newer = r#"{"version": 99, "exposure": 1, "masks": []}"#;
+        let file = recipe_path(&d, "IMG_1").unwrap();
+        fs::write(&file, newer).unwrap();
+        assert!(load_recipes(d.clone())
+            .unwrap_err()
+            .contains("newer Shoot Studio"));
+        assert!(save_recipe(
+            d.clone(),
+            "IMG_1".into(),
+            Some(serde_json::json!({"version": 99}))
+        )
+        .is_err());
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            newer,
+            "a newer recipe is left alone"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recipe_symlinks_cannot_redirect_writes() {
+        use std::os::unix::fs::symlink;
+        let (dir, outside) = (temp_dir("recipe-links"), temp_dir("recipe-outside"));
+        let d = dir.display().to_string();
+        fs::create_dir_all(dir.join(STATE_DIR)).unwrap();
+        for sub in ["recipes", "edited"] {
+            symlink(&outside, dir.join(STATE_DIR).join(sub)).unwrap();
+        }
+        assert!(save_recipe(d.clone(), "IMG_1".into(), Some(serde_json::json!({}))).is_err());
+        assert!(save_edited(d.clone(), "IMG_1".into(), false, vec![1]).is_err());
+        assert!(load_recipes(d.clone()).is_err());
+        assert_eq!(
+            fs::read_dir(&outside).unwrap().count(),
+            0,
+            "nothing written outside"
+        );
+        fs::remove_dir_all(dir).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn downscale_averages_blocks() {
+        let px: Vec<[f32; 3]> = (0..16).map(|i| [i as f32, 0.0, 1.0]).collect();
+        let (w, h, out) = downscale(4, 4, &px, 2);
+        assert_eq!((w, h), (2, 2));
+        assert_eq!(
+            out.iter().map(|p| p[0]).collect::<Vec<_>>(),
+            [2.5, 4.5, 10.5, 12.5]
+        );
+        assert!(out.iter().all(|p| p[2] == 1.0));
+        assert_eq!(
+            downscale(4, 4, &px, 4).2,
+            px,
+            "no scaling when it already fits"
+        );
+        assert_eq!(
+            downscale(5, 3, &px[..15], 4).0,
+            2,
+            "factor rounds up so the result fits"
+        );
+    }
+
+    #[test]
+    fn orientation_turns_pixels_upright() {
+        // Stored 3x2: a b c / d e f, one channel used as a label.
+        let px: Vec<[f32; 3]> = (0..6).map(|i| [i as f32; 3]).collect();
+        let labels = |o| {
+            let (w, h, out) = orient(3, 2, &px, o);
+            let s: String = out.chunks(3).map(|p| (b'a' + p[0] as u8) as char).collect();
+            (w, h, s)
+        };
+        assert_eq!(labels(1), (3, 2, "abcdef".into()));
+        assert_eq!(labels(3), (3, 2, "fedcba".into()));
+        assert_eq!(labels(6), (2, 3, "daebfc".into()), "rotate 90° clockwise");
+        assert_eq!(
+            labels(8),
+            (2, 3, "cfbead".into()),
+            "rotate 90° anticlockwise"
+        );
+        assert_eq!(labels(2), (3, 2, "cbafed".into()));
+        assert_eq!(labels(5), (2, 3, "adbecf".into()));
+    }
+
+    #[test]
+    fn half_float_image_layout() {
+        let bytes = half_float_image(2, 1, &[0.0, 0.5, 1.0, 2.0, 0.18, -0.1]);
+        assert_eq!(&bytes[..8], &[2, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(bytes.len(), 8 + 6 * 2);
+        assert_eq!(
+            &bytes[8..14],
+            &[0x00, 0x00, 0x00, 0x38, 0x00, 0x3C],
+            "0, 0.5, 1 as f16"
+        );
     }
 
     /// Width x height from a JPEG's first SOF marker.
@@ -593,6 +944,16 @@ mod tests {
             photos.len(),
             start.elapsed().as_secs_f32()
         );
+        if let Some(raw) = photos.iter().find_map(|p| p.raw.as_ref()) {
+            let start = std::time::Instant::now();
+            let (w, h, rgb) = raw_linear(&shoot_file(&dir, raw).unwrap(), DEVELOP_EDGE).unwrap();
+            let brightest = rgb.iter().cloned().fold(0f32, f32::max);
+            println!(
+                "{raw}: developed to {w}x{h} in {:.1}s, brightest {brightest:.2}",
+                start.elapsed().as_secs_f32()
+            );
+            assert!(w.max(h) <= DEVELOP_EDGE && rgb.len() == w * h * 3);
+        }
         listing(&state, &mut after);
         assert_eq!(state.exists(), existed, "state dir created");
         assert!(before == after, "state dir changed");

@@ -11,6 +11,11 @@
   </header>
   <main id="grid" class="grid" tabindex="-1"></main>
   <section id="loupe" class="viewer hidden" aria-label="Photo viewer"><figure><img alt=""><figcaption></figcaption></figure><figure><img alt=""><figcaption></figcaption></figure></section>
-  <footer><span>←→↑↓ move · Enter loupe · C compare · Esc grid · P pick · X reject · U unflag · 1–5 stars · 0 clear stars</span><span id="version"></span></footer>
+  <section id="develop" class="develop hidden" aria-label="Develop">
+    <div class="stage"><canvas id="canvas"></canvas><p id="develop-note" hidden></p><span id="develop-caption"></span></div>
+    <fieldset id="sliders" disabled></fieldset>
+  </section>
+  <footer><span id="keys"></span><span id="version"></span></footer>
+  <script src="develop.js"></script>
   <script src="app.js"></script>
 </body></html>
