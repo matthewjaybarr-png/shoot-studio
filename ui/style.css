@@ -1,0 +1,30 @@
+:root{--bg:#101116;--panel:#191b22;--deep:#0b0c10;--edge:#303440;--text:#f1f3f7;--muted:#9ba3b4;--accent:#8ab4ff;--success:#a5e6bd;--warning:#f6c488;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,sans-serif}
+header,footer{display:flex;gap:16px;align-items:center;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--edge)}
+footer{border:0;border-top:1px solid var(--edge);color:var(--muted);font-size:12px}
+button,select{padding:6px 12px;border:1px solid var(--edge);border-radius:6px;background:var(--deep);color:var(--text);font:inherit}
+#counts,#status{color:var(--muted)}
+#version{margin-left:auto;white-space:nowrap}
+#update{display:flex;gap:16px;align-items:center;padding:8px 14px;background:var(--accent);color:var(--deep);font-weight:600}
+#update[hidden]{display:none}
+#update button{white-space:nowrap;background:var(--deep);color:var(--text);border-color:var(--deep)}
+#status.error{color:var(--warning)}
+.grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;padding:10px;align-content:start;outline:0}
+.cell{position:relative;height:154px;margin:0;background:var(--deep);border:2px solid transparent;border-radius:6px;overflow:hidden;cursor:pointer}
+.cell img{display:block;width:100%;height:100%;object-fit:contain}
+.cell.current{border-color:var(--accent)}
+.cell.reject img{opacity:.3}
+figcaption{position:absolute;left:6px;bottom:4px;font-size:12px;text-shadow:0 1px 2px #000}
+.pick figcaption::before{content:'⚑ ';color:var(--success)}
+.reject figcaption::before{content:'✕ ';color:var(--warning)}
+.viewer{flex:1;display:flex;gap:6px;min-height:0;background:var(--deep)}
+.viewer figure{position:relative;flex:1;margin:0;display:flex;min-width:0}
+.viewer img{width:100%;height:100%;object-fit:contain}
+.viewer:not(.compare) figure+figure{display:none}
+.viewer.compare figure:last-child{outline:2px solid var(--accent);outline-offset:-2px}
+.viewer figcaption{font-size:14px;bottom:8px;left:10px}
+.hidden{display:none}
+.viewer figure.loading::after,.viewer figure.failed::after{content:'Loading…';position:absolute;inset:0;display:grid;place-items:center;color:var(--muted)}
+.viewer figure.failed::after{content:'Preview unavailable';color:var(--warning)}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Shoot Studio",
+  "version": "0.1.0",
+  "identifier": "dev.matt.shoot-studio",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "title": "Shoot Studio", "width": 1300, "height": 850, "minWidth": 560, "minHeight": 460 }],
+    "security": { "csp": "default-src 'self'; img-src 'self' blob:; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'" }
+  },
+  "bundle": { "active": true, "targets": ["deb", "appimage"], "createUpdaterArtifacts": true, "icon": ["icons/32x32.png"] },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEQ0QxNkE5ODk1MUM0NkQKUldSdHhGR0pxUmJOTGRWdjJYUVBXY3RBTFh6YXhjNTJyRXZ2bDVRV2doQWhheDlhWjVzcW5yTmsK",
+      "endpoints": ["https://github.com/matthewjaybarr-png/shoot-studio/releases/latest/download/latest.json"],
+      "requireSignedVersion": true
+    }
+  }
+}
