@@ -10,6 +10,14 @@ Keys: arrows move, Enter opens the loupe, C compares, Esc goes back to the grid,
 
 Develop: D edits the current photo. ←/→ go to the previous/next photo, hold \ to see it before your edits, Ctrl+Z / Ctrl+Shift+Z undo and redo, double-click a slider to reset it. RAW files are developed from their sensor data; editing needs WebGL2, which any graphics from the last decade provides.
 
+Retouch, in Develop: pick a brush, then paint over what you want gone. Strokes are saved in the recipe and can be undone like any other edit.
+- **J spot heal**: paint over a blemish or dust spot; the app finds clean texture nearby and blends it in to match the light around it.
+- **H heal**: Ctrl+click a clean area first, then paint. Like spot heal, but you choose where the texture comes from.
+- **S clone**: Ctrl+click a source, then paint an exact copy of it, with no blending.
+- **B soften skin**: paint over skin to even out blotchy colour while keeping pores and fine detail. Strength sets how much.
+- [ and ] change the brush size. Heal and clone stay "aligned": the source keeps the same distance from the brush until you Ctrl+click again.
+- Z zooms between the whole photo and 100% (one photo pixel per screen pixel) at the pointer; hold Space and drag, or drag with the middle button, to move around. Esc puts the brush down; a second Esc goes back to the grid.
+
 ## Install (Zorin OS, Ubuntu and similar)
 
 1. Download `Shoot.Studio_<version>_amd64.AppImage` from the [latest release](https://github.com/matthewjaybarr-png/shoot-studio/releases/latest).

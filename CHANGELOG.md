@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Retouch in Develop: spot heal (J), heal from a source you choose (H), clone (S) and soften skin (B). Ctrl+click sets the heal or clone source; [ and ] change the brush size.
+- Z zooms to 100% at the pointer and back; Space+drag or middle-drag moves around a zoomed photo. Esc puts the brush down before it leaves Develop.
+- Strokes are saved in the recipe (now version 2; version 1 recipes still open) and replayed on the photo each time it opens, so the original is never changed. Ctrl+Z undoes a stroke.
+- JPEGs are now decoded and edited at the same quality as RAW files, so retouching works on both.
+
 ## 0.2.0
 
 - Develop: press D to edit a photo with white balance, exposure, contrast, highlights, shadows, whites, blacks, vibrance and saturation.

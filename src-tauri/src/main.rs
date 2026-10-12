@@ -1,19 +1,25 @@
 // Shoot Studio backend: list a shoot folder, serve previews and RAW pixels, store ratings and edits.
 // Originals are only ever opened for reading; all writes go to <shoot>/.shootstudio/.
 // The one network call is the update check, made here in Rust; the webview stays offline.
+#[allow(dead_code)] // copied whole; not every function is used yet
+mod photocraft;
+mod retouch;
+
 use rawler::formats::tiff::reader::TiffReader;
 use rawler::formats::tiff::GenericTiffReader;
 use rawler::rawsource::RawSource;
 use rawler::tags::TiffCommonTag;
+use retouch::{Retouching, Session, Stroke};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use tauri::ipc::{Channel, Response};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
@@ -329,23 +335,133 @@ fn save_shoot(dir: String, data: Value) -> Result<(), String> {
     write_atomic(&state_dir(&dir, None)?.join("shoot.json"), text.as_bytes())
 }
 
-/// Linear RAW pixels for Develop, in the `half_float_image` layout. Async so the
-/// seconds-long decode runs off the main thread and the window stays responsive.
-#[tauri::command]
-async fn develop_source(dir: String, name: String) -> Result<Response, String> {
+/// A JPEG decoded to linear light, turned upright and box-downscaled to at most `max_edge`.
+fn jpeg_linear(path: &Path, max_edge: usize) -> Result<(usize, usize, Vec<f32>), String> {
+    use image::ImageDecoder;
+    let bad = |e: image::ImageError| format!("could not decode {}: {e}", path.display());
+    let file = fs::File::open(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let mut decoder = image::codecs::jpeg::JpegDecoder::new(std::io::BufReader::new(file)).map_err(bad)?;
+    let orientation = decoder.orientation().map_err(bad)?;
+    let mut img = image::DynamicImage::from_decoder(decoder).map_err(bad)?;
+    img.apply_orientation(orientation);
+    let img = img.into_rgb8();
+    let linear: Vec<f32> = (0..=255u8)
+        .map(|v| {
+            let c = v as f32 / 255.0;
+            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        })
+        .collect();
+    let px: Vec<[f32; 3]> = img.pixels().map(|p| p.0.map(|v| linear[v as usize])).collect();
+    let (w, h, small) = downscale(img.width() as usize, img.height() as usize, &px, max_edge);
+    Ok((w, h, small.into_iter().flatten().collect()))
+}
+
+/// Decode a photo for Develop, replay its retouch strokes and keep it as the open session.
+fn open_develop(
+    state: &Retouching,
+    dir: String,
+    name: String,
+    strokes: Vec<Stroke>,
+) -> Result<Vec<u8>, String> {
     let path = shoot_file(&dir, &name)?;
-    if !name.to_ascii_lowercase().ends_with(".cr2") {
-        return Err(format!("{name} is not a RAW file"));
+    retouch::validate(&strokes)?;
+    let ticket = state.opened.fetch_add(1, Ordering::SeqCst) + 1;
+    *state.session.lock().map_err(|e| e.to_string())? = None; // free the last photo first
+    let lower = name.to_ascii_lowercase();
+    let (w, h, rgb) = if lower.ends_with(".cr2") {
+        raw_linear(&path, DEVELOP_EDGE)?
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        jpeg_linear(&path, DEVELOP_EDGE)?
+    } else {
+        return Err(format!("{name} is not a photo Shoot Studio can develop"));
+    };
+    let session = Session::new(dir, name, w, h, rgb, strokes);
+    let bytes = half_float_image(w, h, &session.current);
+    let mut open = state.session.lock().map_err(|e| e.to_string())?;
+    if state.opened.load(Ordering::SeqCst) == ticket {
+        *open = Some(session);
     }
-    let (w, h, rgb) = tauri::async_runtime::spawn_blocking(move || raw_linear(&path, DEVELOP_EDGE))
-        .await
-        .map_err(|e| e.to_string())??;
-    Ok(Response::new(half_float_image(w, h, &rgb)))
+    Ok(bytes)
+}
+
+/// The session for this photo, refusing any other.
+fn with_session<T>(
+    state: &Retouching,
+    dir: &str,
+    name: &str,
+    f: impl FnOnce(&mut Session) -> T,
+) -> Result<T, String> {
+    let mut open = state.session.lock().map_err(|e| e.to_string())?;
+    match open.as_mut() {
+        Some(s) if s.dir == dir && s.name == name => Ok(f(s)),
+        _ => Err(format!("{name} is not the photo open in Develop")),
+    }
+}
+
+/// Bring the open photo to `strokes`. Returns the changed rectangle (x, y, w, h as LE u32s)
+/// then its half floats: just the new strokes' area when they extend the last call, the whole
+/// image after an undo.
+fn retouch_session(
+    state: &Retouching,
+    dir: &str,
+    name: &str,
+    strokes: Vec<Stroke>,
+) -> Result<Vec<u8>, String> {
+    retouch::validate(&strokes)?;
+    with_session(state, dir, name, |s| {
+        let rect = s.update(strokes);
+        s.region(rect)
+    })
+}
+
+/// Linear pixels for Develop, in the `half_float_image` layout, with the retouch strokes
+/// applied. Async so the seconds-long decode runs off the main thread.
+#[tauri::command]
+async fn develop_source(
+    app: AppHandle,
+    dir: String,
+    name: String,
+    strokes: Vec<Stroke>,
+) -> Result<Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        open_develop(&app.state::<Retouching>(), dir, name, strokes)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(Response::new(bytes))
+}
+
+#[tauri::command]
+async fn retouch(
+    app: AppHandle,
+    dir: String,
+    name: String,
+    strokes: Vec<Stroke>,
+) -> Result<Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        retouch_session(&app.state::<Retouching>(), &dir, &name, strokes)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(Response::new(bytes))
+}
+
+/// A nearby clean patch for a spot stroke, as its offset (source minus destination, 0–1 units).
+#[tauri::command]
+async fn spot_source(app: AppHandle, dir: String, name: String, stroke: Stroke) -> Result<[f64; 2], String> {
+    retouch::validate(std::slice::from_ref(&stroke))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        with_session(&app.state::<Retouching>(), &dir, &name, |s| {
+            retouch::spot_source(&s.current, s.w, s.h, &stroke)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// <shoot>/.shootstudio/recipes/<photo id>.json holds one photo's edit. Bump RECIPE_VERSION
-/// only with a migration in `upgrade`.
-const RECIPE_VERSION: u64 = 1;
+/// only with a migration in `upgrade`. Version 2 added `retouch` (absent means none).
+const RECIPE_VERSION: u64 = 2;
 
 fn recipe_path(dir: &str, id: &str) -> Result<PathBuf, String> {
     shoot_file(dir, id)?;
@@ -489,6 +605,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate::default())
+        .manage(Retouching::default())
         .invoke_handler(tauri::generate_handler![
             app_version,
             check_update,
@@ -502,6 +619,8 @@ fn main() {
             load_shoot,
             save_shoot,
             develop_source,
+            retouch,
+            spot_source,
             load_recipes,
             save_recipe,
             edited,
@@ -744,7 +863,7 @@ mod tests {
         let loaded = load_recipes(d.clone()).unwrap();
         assert_eq!(
             loaded["IMG_1"],
-            serde_json::json!({"version": 1, "exposure": 0.5, "temp": 12})
+            serde_json::json!({"version": 2, "exposure": 0.5, "temp": 12})
         );
         assert_eq!(
             fs::read(edited_path(&d, "IMG_1", true).unwrap()).unwrap(),
@@ -797,6 +916,111 @@ mod tests {
             newer,
             "a newer recipe is left alone"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn version_1_recipes_load_and_save_as_version_2_and_3_is_refused() {
+        let dir = temp_dir("recipe-versions");
+        let d = dir.display().to_string();
+        fs::write(dir.join("IMG_1.JPG"), b"jpeg").unwrap();
+        let file = recipe_path(&d, "IMG_1").unwrap();
+        fs::write(&file, r#"{"version": 1, "exposure": 1}"#).unwrap();
+        assert_eq!(
+            load_recipes(d.clone()).unwrap()["IMG_1"],
+            serde_json::json!({"version": 2, "exposure": 1})
+        );
+        let old = serde_json::json!({"version": 1, "exposure": 1});
+        save_recipe(d.clone(), "IMG_1".into(), Some(old)).unwrap();
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(saved["version"], 2);
+        fs::write(&file, r#"{"version": 3, "retouch": []}"#).unwrap();
+        assert!(load_recipes(d.clone()).unwrap_err().contains("newer Shoot Studio"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG of `rgb` with an EXIF orientation tag.
+    fn jpeg_with_orientation(w: u32, h: u32, rgb: &[u8], orientation: u16) -> Vec<u8> {
+        use image::ImageEncoder;
+        let mut plain = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut plain, 100)
+            .write_image(rgb, w, h, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut tiff = b"Exif\0\0II*\0\x08\0\0\0\x01\0".to_vec();
+        tiff.extend_from_slice(&[0x12, 0x01, 3, 0, 1, 0, 0, 0]);
+        tiff.extend_from_slice(&orientation.to_le_bytes());
+        tiff.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        let mut out = vec![0xff, 0xd8, 0xff, 0xe1];
+        out.extend_from_slice(&(tiff.len() as u16 + 2).to_be_bytes());
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&plain[2..]);
+        out
+    }
+
+    #[test]
+    fn portrait_jpeg_develops_upright_and_round_trips() {
+        let (w, h) = (48usize, 32usize);
+        // Smooth so JPEG compression barely changes it, and lopsided so a wrong turn shows.
+        let rgb: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                [(x * 5) as u8, (y * 7) as u8, 128]
+            })
+            .collect();
+        let dir = temp_dir("jpeg-develop");
+        let path = dir.join("IMG_1.JPG");
+        fs::write(&path, jpeg_with_orientation(w as u32, h as u32, &rgb, 8)).unwrap();
+        let (ow, oh, linear) = jpeg_linear(&path, DEVELOP_EDGE).unwrap();
+        assert_eq!((ow, oh), (h, w), "turned to portrait");
+        // Expected: the decoded pixels turned by the same rule as CR2s.
+        let decoded = image::load_from_memory(&fs::read(&path).unwrap()).unwrap().into_rgb8();
+        let px: Vec<[f32; 3]> = decoded.pixels().map(|p| p.0.map(|v| v as f32 / 255.0)).collect();
+        let (_, _, expect) = orient(w, h, &px, 8);
+        let srgb = |v: f32| if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+        let bytes = half_float_image(ow, oh, &linear);
+        let err = bytes[8..]
+            .chunks(2)
+            .map(|b| srgb(half::f16::from_le_bytes([b[0], b[1]]).to_f32()))
+            .zip(&expect)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max);
+        assert!(err <= 1.0 / 255.0, "round trip error {err}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retouch_patches_on_append_replays_on_undo_and_refuses_other_photos() {
+        let (w, h) = (64usize, 48usize);
+        let rgb: Vec<u8> = (0..w * h).flat_map(|i| [(i % w * 3) as u8, 90, 60]).collect();
+        let dir = temp_dir("retouch-session");
+        let d = dir.display().to_string();
+        fs::write(dir.join("IMG_1.JPG"), jpeg_with_orientation(w as u32, h as u32, &rgb, 1)).unwrap();
+        fs::write(dir.join("IMG_2.JPG"), jpeg_with_orientation(w as u32, h as u32, &rgb, 1)).unwrap();
+        let state = Retouching::default();
+        let full = open_develop(&state, d.clone(), "IMG_1.JPG".into(), vec![]).unwrap();
+        assert_eq!(full.len(), 8 + w * h * 6);
+        let spot: Stroke = serde_json::from_value(serde_json::json!(
+            {"tool": "spot", "size": 0.05, "points": [[0.5, 0.5]], "offset": [0.2, 0]}
+        ))
+        .unwrap();
+        let rect = |b: &[u8]| -> Vec<u32> {
+            b[..16].chunks(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect()
+        };
+        let one = retouch_session(&state, &d, "IMG_1.JPG", vec![spot.clone()]).unwrap();
+        let r = rect(&one);
+        assert!(r[2] > 0 && (r[2] as usize) < w && (r[3] as usize) < h, "dirty rect {r:?}");
+        assert_eq!(one.len(), 16 + (r[2] * r[3]) as usize * 6);
+        let undone = retouch_session(&state, &d, "IMG_1.JPG", vec![]).unwrap();
+        assert_eq!(rect(&undone), [0, 0, w as u32, h as u32]);
+        assert_eq!(undone[16..], full[8..], "undo is back to the clean photo");
+        assert!(retouch_session(&state, &d, "IMG_2.JPG", vec![spot.clone()]).is_err());
+        let mut bad = spot.clone();
+        bad.size = f64::NAN;
+        assert!(retouch_session(&state, &d, "IMG_1.JPG", vec![bad]).is_err());
+        // Reopening replays the saved strokes.
+        let reopened = open_develop(&state, d.clone(), "IMG_1.JPG".into(), vec![spot]).unwrap();
+        assert_ne!(reopened, full);
+        assert!(open_develop(&state, d.clone(), "../IMG_1.JPG".into(), vec![]).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -957,5 +1181,58 @@ mod tests {
         listing(&state, &mut after);
         assert_eq!(state.exists(), existed, "state dir created");
         assert!(before == after, "state dir changed");
+    }
+
+    /// Retouch speed on real photos (reads only): SHOOT_DIR=/path cargo test --release retouch_timing -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn retouch_timing() {
+        let dir = std::env::var("SHOOT_DIR").expect("set SHOOT_DIR");
+        let photos = open_shoot(dir.clone()).unwrap();
+        let raw = photos.iter().find_map(|p| p.raw.clone()).expect("a CR2");
+        let jpg = photos.iter().find_map(|p| p.jpg.clone()).expect("a JPEG");
+        let stroke = |json: serde_json::Value| -> Stroke { serde_json::from_value(json).unwrap() };
+        for name in [raw, jpg] {
+            let state = Retouching::default();
+            let t = std::time::Instant::now();
+            let source = open_develop(&state, dir.clone(), name.clone(), vec![]).unwrap();
+            println!("{name}: develop_source {:?}, {} MB", t.elapsed(), source.len() >> 20);
+            // A spot heal as the UI sends it: find a source, then append the stroke.
+            let mut spot = stroke(serde_json::json!({"tool":"spot","size":0.008,"points":[[0.4,0.4],[0.405,0.402]],"offset":[0,0]}));
+            let t = std::time::Instant::now();
+            let offset = with_session(&state, &dir, &name, |s| retouch::spot_source(&s.current, s.w, s.h, &spot)).unwrap();
+            let found = t.elapsed();
+            spot.offset = Some(offset);
+            let t = std::time::Instant::now();
+            let patch = retouch_session(&state, &dir, &name, vec![spot.clone()]).unwrap();
+            let applied = t.elapsed();
+            println!("  spot: source {found:?} + apply {applied:?}, patch {} KB", patch.len() >> 10);
+            assert!(found + applied < std::time::Duration::from_millis(100), "spot stroke too slow");
+            // 50 strokes of every kind, then an undo, which replays them all.
+            let mut strokes = vec![spot];
+            for i in 0..49 {
+                let (x, y) = (0.1 + 0.016 * i as f64, 0.2 + 0.012 * (i % 7) as f64);
+                let path: Vec<[f64; 2]> = (0..20).map(|k| [x + 0.001 * k as f64, y + 0.0005 * k as f64]).collect();
+                strokes.push(match i % 4 {
+                    0 => stroke(serde_json::json!({"tool":"spot","size":0.008,"points":&path[..3],"offset":[0.02,0.0]})),
+                    1 => stroke(serde_json::json!({"tool":"heal","size":0.012,"points":path,"offset":[-0.03,0.01]})),
+                    2 => stroke(serde_json::json!({"tool":"clone","size":0.01,"points":path,"offset":[0.0,0.04]})),
+                    _ => stroke(serde_json::json!({"tool":"soften","size":0.03,"points":path,"strength":0.6})),
+                });
+                retouch_session(&state, &dir, &name, strokes.clone()).unwrap();
+            }
+            strokes.pop();
+            let t = std::time::Instant::now();
+            let all = retouch_session(&state, &dir, &name, strokes).unwrap();
+            let replay = t.elapsed();
+            println!("  replay of 49 strokes after undo: {replay:?}, full patch {} MB", all.len() >> 20);
+            let t = std::time::Instant::now();
+            let state2 = Retouching::default();
+            let mut fifty = with_session(&state, &dir, &name, |s| s.applied.clone()).unwrap();
+            fifty.truncate(50);
+            open_develop(&state2, dir.clone(), name.clone(), fifty).unwrap();
+            println!("  develop_source with 49 strokes: {:?}", t.elapsed());
+            assert!(replay < std::time::Duration::from_secs(2), "replay too slow");
+        }
     }
 }

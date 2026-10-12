@@ -1,6 +1,7 @@
-// Shoot Studio, Step 2: one WebGL2 shader turns a recipe into pixels, for the screen and for saved previews.
-// Sources are linear RAW light (half floats from Rust) or a JPEG (decoded here). At the default recipe a JPEG
-// renders as itself; a RAW gets a gentle base look so it starts close to what the camera would have made.
+// Shoot Studio Develop: one WebGL2 shader turns a recipe into pixels, for the screen and for saved previews.
+// The source is linear light as half floats from Rust (a RAW, or a JPEG linearised there), with any retouch
+// strokes already applied. At the default recipe a JPEG renders as itself; a RAW gets a gentle base look so it
+// starts close to what the camera would have made.
 
 const SLIDERS = [
   { key: 'temp', label: 'Temperature', group: 'White balance', min: -100, max: 100, step: 1 },
@@ -14,12 +15,24 @@ const SLIDERS = [
   { key: 'vibrance', label: 'Vibrance', group: 'Colour', min: -100, max: 100, step: 1 },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1 }
 ];
-const RECIPE_VERSION = 1;
-const DEVELOP_EDGE = 3072; // long edge of the editing image, as in main.rs
+const RECIPE_VERSION = 2;
+
+// Retouch strokes, as retouch.rs checks them: points 0–1 across the upright photo, size the brush radius
+// over the long edge, offset (source minus destination) for the copying tools, strength for soften.
+const TOOLS = { spot: 'Spot heal', heal: 'Heal', clone: 'Clone', soften: 'Soften skin' };
+const STROKE_LIMITS = { strokes: 500, points: 2000, minSize: 0.001, maxSize: 0.1 };
+const unit = v => Number.isFinite(v) && v >= 0 && v <= 1;
+const validStroke = s => !!s && TOOLS[s.tool] && Number.isFinite(s.size) && s.size >= STROKE_LIMITS.minSize && s.size <= STROKE_LIMITS.maxSize
+  && Array.isArray(s.points) && s.points.length >= 1 && s.points.length <= STROKE_LIMITS.points && s.points.every(p => Array.isArray(p) && p.length === 2 && p.every(unit))
+  && (s.tool === 'soften' ? unit(s.strength) && s.offset === undefined
+    : s.strength === undefined && Array.isArray(s.offset) && s.offset.length === 2 && s.offset.every(v => Number.isFinite(v) && Math.abs(v) <= 1));
 
 // A saved recipe with any missing setting at its default, and nothing it doesn't know.
-const fullRecipe = (saved = {}) => Object.fromEntries(SLIDERS.map(s => [s.key, Number.isFinite(saved[s.key]) ? Math.min(s.max, Math.max(s.min, saved[s.key])) : 0]));
-const isDefault = recipe => SLIDERS.every(s => !recipe[s.key]);
+const fullRecipe = (saved = {}) => ({
+  ...Object.fromEntries(SLIDERS.map(s => [s.key, Number.isFinite(saved[s.key]) ? Math.min(s.max, Math.max(s.min, saved[s.key])) : 0])),
+  retouch: Array.isArray(saved.retouch) ? saved.retouch.filter(validStroke).slice(0, STROKE_LIMITS.strokes) : []
+});
+const isDefault = recipe => SLIDERS.every(s => !recipe[s.key]) && !recipe.retouch?.length;
 
 // White balance relative to as shot: warmer adds red and removes blue, positive tint removes green (magenta).
 // Normalised so a neutral grey keeps its brightness. Exactly [1, 1, 1] at 0, 0.
@@ -124,11 +137,15 @@ class Developer {
     gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
     this.uniform = name => gl.getUniformLocation(program, name);
     this.texture = gl.createTexture();
+    this.width = this.height = 0;
     this.clear();
   }
 
-  // Nothing to draw until the next photo's pixels arrive.
-  clear() { this.width = this.height = 0; }
+  // Draw nothing until the next photo's pixels arrive (the texture keeps the last one for saving its look).
+  clear() { this.blank = true; this.fit(); }
+
+  // Zoom: null fits the photo; a number is device pixels per photo pixel. cx, cy: the photo point (0–1) at the centre.
+  fit() { this.view = { zoom: null, cx: 0.5, cy: 0.5 }; }
 
   #upload(setup) {
     const gl = this.gl;
@@ -138,17 +155,22 @@ class Developer {
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
   }
 
-  // `bytes`: the develop_source layout, width and height as u32s then RGB half floats.
-  setRaw(bytes) {
+  // `bytes`: the develop_source layout, width and height as u32s then linear RGB half floats.
+  // `raw` picks the RAW base look; a JPEG's pixels are shown as they are.
+  setRaw(bytes, raw = true) {
     const [w, h] = new Uint32Array(bytes, 0, 2);
     this.#upload(gl => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB16F, w, h, 0, gl.RGB, gl.HALF_FLOAT, new Uint16Array(bytes, 8, w * h * 3)));
-    Object.assign(this, { width: w, height: h, raw: true });
+    Object.assign(this, { width: w, height: h, raw, blank: false });
+    this.fit();
   }
 
-  // An ImageBitmap or canvas holding sRGB pixels; the texture format linearises them before filtering.
-  setImage(image) {
-    this.#upload(gl => gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, image));
-    Object.assign(this, { width: image.width, height: image.height, raw: false });
+  // `bytes`: the retouch layout, a rectangle's x, y, width and height as u32s then its half floats.
+  patch(bytes) {
+    const [x, y, w, h] = new Uint32Array(bytes, 0, 4), gl = this.gl;
+    if (!w || !h) return;
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGB, gl.HALF_FLOAT, new Uint16Array(bytes, 16, w * h * 3));
   }
 
   #draw(recipe, flip) {
@@ -161,16 +183,53 @@ class Developer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  // Fit the photo into the canvas's on-screen box at device resolution.
+  // Where the photo sits on the canvas in CSS pixels ({ x, y, w, h }), fitted or zoomed and panned.
+  placement() {
+    const box = this.canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, v = this.view;
+    if (!this.width || this.blank) return null;
+    const fit = Math.min(box.width / this.width, box.height / this.height);
+    const scale = v.zoom ? Math.max(fit, v.zoom / dpr) : fit, w = this.width * scale, h = this.height * scale;
+    // Zoomed in, keep the photo covering the view where it can.
+    const centre = (c0, size, box) => size <= box ? 0.5 : Math.min(1 - box / 2 / size, Math.max(box / 2 / size, c0));
+    if (v.zoom) { v.cx = centre(v.cx, w, box.width); v.cy = centre(v.cy, h, box.height); }
+    return { x: box.width / 2 - v.cx * w, y: box.height / 2 - v.cy * h, w, h };
+  }
+
+  // A point on screen as photo coordinates, 0–1 across and down the upright photo (outside it is <0 or >1).
+  toImage(clientX, clientY) {
+    const p = this.placement(), box = this.canvas.getBoundingClientRect();
+    return p ? [(clientX - box.left - p.x) / p.w, (clientY - box.top - p.y) / p.h] : null;
+  }
+
+  // And back, relative to the canvas's top left in CSS pixels.
+  fromImage([x, y]) { const p = this.placement(); return p && [p.x + x * p.w, p.y + y * p.h]; }
+
+  // Z: between fitting the photo and 100% (one photo pixel per screen pixel), keeping the point under the pointer still.
+  toggleZoom(clientX, clientY) {
+    const at = this.toImage(clientX, clientY), box = this.canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    if (!at) return;
+    if (this.view.zoom) return this.fit();
+    const scale = 1 / dpr, w = this.width * scale, h = this.height * scale;
+    this.view = { zoom: 1, cx: at[0] + (box.width / 2 - (clientX - box.left)) / w, cy: at[1] + (box.height / 2 - (clientY - box.top)) / h };
+  }
+
+  // Drag the photo by (dx, dy) CSS pixels.
+  pan(dx, dy) {
+    const p = this.placement();
+    if (!p || !this.view.zoom) return;
+    this.view.cx -= dx / p.w; this.view.cy -= dy / p.h;
+  }
+
   show(recipe) {
     const gl = this.gl, c = this.canvas, dpr = window.devicePixelRatio || 1;
     const bw = Math.max(1, Math.round(c.clientWidth * dpr)), bh = Math.max(1, Math.round(c.clientHeight * dpr));
     if (c.width !== bw || c.height !== bh) Object.assign(c, { width: bw, height: bh });
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.clearColor(0.043, 0.047, 0.063, 1); gl.clear(gl.COLOR_BUFFER_BIT);
-    if (!this.width) return;
-    const scale = Math.min(bw / this.width, bh / this.height), w = Math.round(this.width * scale), h = Math.round(this.height * scale);
-    gl.viewport((bw - w) >> 1, (bh - h) >> 1, w, h);
+    const p = this.placement();
+    if (!p) return;
+    const w = Math.round(p.w * dpr), h = Math.round(p.h * dpr), x = Math.round(p.x * dpr);
+    gl.viewport(x, bh - Math.round(p.y * dpr) - h, w, h);
     this.#draw(recipe, false);
   }
 

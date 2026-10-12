@@ -7,10 +7,11 @@ const cp = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-studio-check-'));
 const ui = name => fs.readFileSync(path.join(__dirname, 'ui', name), 'utf8');
 const mock = `<script>
-window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.offer = null; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
+window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.offer = null; window.sourceSize = [4, 2]; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
 // Half floats for develop_source's layout: width and height as u32s, then RGB.
 const half = v => { const i = new Uint32Array(new Float32Array([v]).buffer)[0], e = ((i >>> 23) & 255) - 112; return ((i >>> 16) & 0x8000) | (e <= 0 ? 0 : e >= 31 ? 0x7c00 : (e << 10) | ((i & 0x7fffff) >>> 13)); };
-const rawImage = (w, h, rgb) => { const b = new ArrayBuffer(8 + w * h * 6); new Uint32Array(b, 0, 2).set([w, h]); new Uint16Array(b, 8).set(rgb.map(half)); return b; };
+// rgb: every value in order, or one value for them all.
+const rawImage = (w, h, rgb) => { const b = new ArrayBuffer(8 + w * h * 6), px = new Uint16Array(b, 8); new Uint32Array(b, 0, 2).set([w, h]); if (Array.isArray(rgb)) px.set(rgb.map(half)); else px.fill(half(rgb)); return b; };
 const jpeg = () => new Promise(done => { const c = document.createElement('canvas'); c.width = 60; c.height = 40; c.getContext('2d').fillRect(0, 0, 60, 40); c.toBlob(b => b.arrayBuffer().then(done), 'image/jpeg'); });
 window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (command, args) => {
   calls.push({ command, args });
@@ -32,7 +33,10 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   const edited = args.dir + '/edited/' + args.id + (args.thumb ? '.thumb' : '');
   if (command === 'save_edited') { disk[edited] = new Uint8Array(args.data); return null; }
   if (command === 'edited') { if (disk[edited]) return disk[edited].buffer; throw 'no edited preview'; }
-  if (command === 'develop_source') return rawImage(4, 2, Array(24).fill(0.18));
+  if (command === 'develop_source') return rawImage(...sourceSize, 0.18);
+  // A 1×1 patch at the top left: x, y, width, height, then one pixel.
+  if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
+  if (command === 'spot_source') return [0.05, 0];
   const key = args.dir + '/' + args.name;
   if (command === 'thumb') { if (disk[key]) return disk[key].buffer; throw 'no thumbnail yet'; }
   if (command === 'save_thumb') { disk[key] = new Uint8Array(args.data); return null; }
@@ -183,11 +187,12 @@ const test = `<script>
     for (let i = 0; i < 256; i++) { ctx.fillStyle = 'rgb(' + i + ',' + (i * 7) % 256 + ',' + (255 - i) + ')'; ctx.fillRect(i % 16, i >> 4, 1, 1); }
     for (let x = 0; x < 16; x++) { ctx.fillStyle = 'rgb(' + [x * 17, x * 17, x * 17] + ')'; ctx.fillRect(x, 15, 1, 1); } // a grey row
     const want = ctx.getImageData(0, 0, 16, 16).data;
-    dev.setImage(await createImageBitmap(src));
+    const lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    // A JPEG arrives from Rust already linearised, as half floats.
+    dev.setRaw(rawImage(16, 16, Array.from(want).filter((_, i) => i % 4 !== 3).map(lin)), false);
     const out = recipe => dev.pixels(recipe, 16).data;
     const worst = (a, b) => { let m = 0; for (let i = 0; i < a.length; i++) if (i % 4 !== 3) m = Math.max(m, Math.abs(a[i] - b[i])); return m; };
     step(worst(out({}), want) <= 1, 'a JPEG at the default recipe renders as itself (off by ' + worst(out({}), want) + ')');
-    const lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
     const enc = v => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
     const bright = out({ exposure: 1 });
     let off = 0;
@@ -217,7 +222,7 @@ const test = `<script>
     await until(() => editing?.ready && !sliders.disabled, 'D develops the photo');
     step(!develop.classList.contains('hidden') && grid.classList.contains('hidden') && calls.at(-1).command === 'develop_source' && calls.at(-1).args.name === 'IMG_0001.CR2', 'a RAW+JPEG pair develops from its RAW');
     slide('exposure', 1);
-    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 1, 'a slider change saves the recipe');
+    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 2, 'a slider change saves the recipe');
     step($('#develop-caption').textContent.includes('Edited') && sliders.querySelector('[data-key="exposure"]').previousElementSibling.textContent === '+1.00', 'caption says Edited; the slider shows its value');
     ctrl('z');
     await until(() => !savedRecipe('IMG_0001') && sliders.querySelector('[data-key="exposure"]').value === '0', 'Ctrl+Z undoes back to the camera file');
@@ -235,7 +240,7 @@ const test = `<script>
     press('ArrowRight');
     await until(() => count('save_edited') === looks + 2 && disk[dir + '/edited/IMG_0001.thumb'], 'leaving a photo saves its edited look and thumbnail');
     await until(() => editing?.ready && editing.photo.id === 'IMG_0002', 'ArrowRight develops the next photo');
-    step(!calls.some(c => c.command === 'develop_source' && c.args.name.startsWith('IMG_0002')), 'a JPEG-only photo develops from its JPEG');
+    step(calls.some(c => c.command === 'develop_source' && c.args.name === 'IMG_0002.JPG') && !editing.photo.raw && !developer.raw, 'a JPEG-only photo develops from its JPEG');
     step(grid.querySelector('[data-id="IMG_0001"] figcaption').textContent.includes('Edited'), 'the grid marks the photo Edited');
     press('Escape'); move(1); press('Enter');
     await until(() => loupe.querySelector('img').dataset.name === 'edited:IMG_0001', 'the loupe shows the edited look');
@@ -254,6 +259,70 @@ const test = `<script>
     $('#reset').click();
     await until(() => !savedRecipe('IMG_0001') && !disk[dir + '/edited/IMG_0001'] && !grid.children[1].textContent.includes('Edited'), 'Reset all goes back to the camera file');
     press('Escape');
+
+    // Retouch: brush strokes land in the recipe as points across the photo (0–1), at fit and zoomed in.
+    sourceSize = [1600, 1200];
+    move(13); press('d');
+    await until(() => editing?.ready && editing.photo.id === 'IMG_0013' && developer.width === 1600, 'develop a 1600×1200 photo');
+    const box = canvas.getBoundingClientRect(), fit = Math.min(box.width / 1600, box.height / 1200);
+    const fitted = (x, y) => [(x - box.left - (box.width - 1600 * fit) / 2) / (1600 * fit), (y - box.top - (box.height - 1200 * fit) / 2) / (1200 * fit)];
+    const near = (a, b) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 2e-4);
+    const nearAll = (a, b) => a.length === b.length && a.every((p, i) => near(p, b[i]));
+    const mouse = (type, x, y, extra = {}) => canvas.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1, pointerId: 1, bubbles: true, ...extra }));
+    const drag = (path, extra) => { mouse('pointerdown', ...path[0], extra); for (const p of path.slice(1)) mouse('pointermove', ...p, extra); mouse('pointerup', ...path.at(-1), extra); };
+    const strokes = () => savedRecipe('IMG_0013')?.retouch || [];
+    const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+    press('j');
+    step(tool === 'spot' && sliders.querySelector('[data-tool="spot"]').classList.contains('active') && $('.stage').classList.contains('brush'), 'J picks spot heal');
+    const spotPath = [[cx, cy], [cx + 15, cy], [cx + 30, cy + 5], [cx + 45, cy + 10]];
+    drag(spotPath);
+    await until(() => strokes().length === 1, 'a spot stroke is saved');
+    let saved = strokes()[0];
+    step(saved.tool === 'spot' && nearAll(saved.points, spotPath.map(p => fitted(...p))) && saved.size === 0.01 && near(saved.offset, [0.05, 0]) && saved.strength === undefined, 'at fit, the stroke is saved at the photo points it covered, with the source Rust picked (' + JSON.stringify(saved) + ')');
+    step(calls.some(c => c.command === 'spot_source' && c.args.name === 'IMG_0013.CR2' && near(c.args.stroke.points[0], saved.points[0])), 'spot heal asks Rust for its source');
+    await until(() => calls.some(c => c.command === 'retouch' && c.args.strokes.length === 1 && c.args.name === 'IMG_0013.CR2'), 'and Rust applies the stroke');
+    step(savedRecipe('IMG_0013').version === 2 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
+
+    press(']');
+    step(Math.abs(brush.size - 0.0125) < 1e-9 && sliders.querySelector('[data-brush="size"]').previousElementSibling.textContent === '20 px', '] makes the brush bigger');
+    press('['); press('[');
+    step(Math.abs(brush.size - 0.008) < 1e-9, '[ makes it smaller');
+
+    // Z zooms to 100% around the pointer; Space+drag pans. At 100%, one screen pixel is one photo pixel here.
+    mouse('pointermove', cx, cy, { buttons: 0 });
+    const centre = fitted(cx, cy);
+    press('z');
+    step(developer.view.zoom === 1 && near(developer.toImage(cx, cy), centre), 'Z zooms to 100% keeping the point under the pointer (' + JSON.stringify(developer.view) + ' ' + developer.toImage(cx, cy) + ' vs ' + centre + ')');
+    press(' ');
+    drag([[cx, cy], [cx - 60, cy - 20], [cx - 100, cy - 50]]);
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+    step(strokes().length === 1, 'Space+drag pans without painting');
+    const zoomed = (x, y) => [centre[0] + (x - cx + 100) / 1600, centre[1] + (y - cy + 50) / 1200];
+    step(near(developer.toImage(cx, cy), zoomed(cx, cy)), 'the pan moved the photo by the drag (' + developer.toImage(cx, cy) + ' vs ' + zoomed(cx, cy) + ')');
+
+    press('h');
+    drag([[cx, cy], [cx + 20, cy]]);
+    step(strokes().length === 1 && $('#status').textContent.includes('Ctrl+click'), 'heal waits for a source');
+    mouse('pointerdown', cx - 80, cy - 40, { ctrlKey: true }); mouse('pointerup', cx - 80, cy - 40, { ctrlKey: true });
+    const healPath = [[cx, cy], [cx + 10, cy], [cx + 20, cy + 10]];
+    drag(healPath);
+    await until(() => strokes().length === 2, 'Ctrl+click then a drag saves a heal stroke');
+    saved = strokes()[1];
+    const from = zoomed(cx - 80, cy - 40), first = zoomed(...healPath[0]);
+    step(saved.tool === 'heal' && saved.size === 0.008 && nearAll(saved.points, healPath.map(p => zoomed(...p))) && near(saved.offset, [from[0] - first[0], from[1] - first[1]]), 'at 100% after a pan, the heal points and source offset are right (' + JSON.stringify(saved) + ')');
+    drag([[cx + 50, cy], [cx + 60, cy]]);
+    await until(() => strokes().length === 3, 'a second heal stroke');
+    step(near(strokes()[2].offset, saved.offset), 'the source stays aligned: the same offset for the next stroke');
+    await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.length === 3, 'Rust gets all three strokes');
+
+    ctrl('z');
+    await until(() => strokes().length === 2 && calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.length === 2, 'Ctrl+Z removes the last stroke and Rust replays the rest');
+    press('Escape');
+    step(tool === null && !develop.classList.contains('hidden') && !$('.stage').classList.contains('brush'), 'Esc drops the tool and stays in Develop');
+    press('Escape');
+    step(develop.classList.contains('hidden') && !grid.classList.contains('hidden'), 'a second Esc goes to the grid');
+    await until(() => disk[dir + '/edited/IMG_0013.thumb'], 'leaving saves the retouched look');
+    sourceSize = [4, 2];
 
     // Updates.
     step($('#update').hidden && $('#version').textContent === 'Shoot Studio 0.1.0', 'no banner without an update; version shown');
