@@ -15,6 +15,7 @@ button,select{padding:6px 12px;border:1px solid var(--edge);border-radius:6px;ba
 .cell{position:relative;height:154px;margin:0;background:var(--deep);border:2px solid transparent;border-radius:6px;overflow:hidden;cursor:pointer}
 .cell img{display:block;width:100%;height:100%;object-fit:contain}
 .cell.current{border-color:var(--accent)}
+.cell.selected{outline:2px solid var(--accent);outline-offset:-6px}
 .cell.reject img{opacity:.3}
 figcaption{position:absolute;left:6px;bottom:4px;font-size:12px;text-shadow:0 1px 2px #000}
 .pick figcaption::before{content:'⚑ ';color:var(--success)}
@@ -40,6 +41,14 @@ figcaption{position:absolute;left:6px;bottom:4px;font-size:12px;text-shadow:0 1p
 #sliders output{color:var(--muted);font-variant-numeric:tabular-nums}
 #sliders input{grid-column:1/-1;width:100%;margin:2px 0;accent-color:var(--accent)}
 #sliders button{width:100%;margin-top:18px}
+#sliders .presets{display:grid;grid-template-columns:1fr auto auto;gap:6px}
+#sliders .presets button{margin:0;width:auto;padding:6px 8px}
+#sliders select,#preset-name{width:100%;min-width:0}
+#preset-name{box-sizing:border-box;margin-top:6px;padding:6px 8px;border:1px solid var(--edge);border-radius:6px;background:var(--deep);color:var(--text);font:inherit}
+#look{margin:4px 0 2px}
+#sliders input:disabled{opacity:.35}
+#sliders input.hue{appearance:none;height:8px;border-radius:4px;margin:8px 0}
+#sliders input.hue::-webkit-slider-thumb{appearance:none;width:14px;height:14px;border-radius:50%;background:var(--text);border:2px solid var(--deep)}
 #sliders .tools{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 #sliders .tools button{margin:0;padding:6px 4px}
 #sliders .tools button.active{background:var(--accent);color:var(--deep);border-color:var(--accent)}

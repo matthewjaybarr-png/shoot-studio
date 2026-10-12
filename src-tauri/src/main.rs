@@ -460,8 +460,10 @@ async fn spot_source(app: AppHandle, dir: String, name: String, stroke: Stroke) 
 }
 
 /// <shoot>/.shootstudio/recipes/<photo id>.json holds one photo's edit. Bump RECIPE_VERSION
-/// only with a migration in `upgrade`. Version 2 added `retouch` (absent means none).
-const RECIPE_VERSION: u64 = 2;
+/// only with a migration in `upgrade`. Version 2 added `retouch` (absent means none); version 3
+/// added looks, split toning, finishing and red-eye strokes (absent means none), so an older
+/// app refuses a recipe it would show without its look.
+const RECIPE_VERSION: u64 = 3;
 
 fn recipe_path(dir: &str, id: &str) -> Result<PathBuf, String> {
     shoot_file(dir, id)?;
@@ -531,6 +533,52 @@ fn edited(dir: String, id: String, thumb: bool) -> Result<Response, String> {
 #[tauri::command]
 fn save_edited(dir: String, id: String, thumb: bool, data: Vec<u8>) -> Result<(), String> {
     write_atomic(&edited_path(&dir, &id, thumb)?, &data)
+}
+
+/// Presets are named settings saved for every shoot, in the app's config folder as
+/// `presets.json`: `{"version": 1, "presets": [{"name": "...", "recipe": {...}}]}`.
+/// The UI fills in and clamps each recipe the same way it does a photo's.
+const PRESETS_VERSION: u64 = 1;
+const MAX_PRESETS: usize = 200;
+
+fn read_presets(folder: &Path) -> Result<Vec<Value>, String> {
+    let text = match fs::read_to_string(folder.join("presets.json")) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        other => other.map_err(|e| format!("could not read presets: {e}"))?,
+    };
+    let data = serde_json::from_str(&text).map_err(|e| format!("presets.json is damaged: {e}"))?;
+    let data = upgrade(data, PRESETS_VERSION, "presets.json")?;
+    Ok(data.get("presets").and_then(Value::as_array).cloned().unwrap_or_default())
+}
+
+fn write_presets(folder: &Path, presets: Vec<Value>) -> Result<(), String> {
+    if presets.len() > MAX_PRESETS {
+        return Err(format!("too many presets (at most {MAX_PRESETS})"));
+    }
+    for p in &presets {
+        let name = p.get("name").and_then(Value::as_str).unwrap_or("");
+        if name.trim().is_empty() || name.chars().count() > 60 || !p.get("recipe").is_some_and(Value::is_object) {
+            return Err("a preset needs a name of 1–60 characters and its settings".into());
+        }
+    }
+    fs::create_dir_all(folder).map_err(|e| format!("could not create the settings folder: {e}"))?;
+    let data = serde_json::json!({"version": PRESETS_VERSION, "presets": presets});
+    let text = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    write_atomic(&folder.join("presets.json"), text.as_bytes())
+}
+
+fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path().app_config_dir().map_err(|e| format!("no settings folder: {e}"))
+}
+
+#[tauri::command]
+fn load_presets(app: AppHandle) -> Result<Vec<Value>, String> {
+    read_presets(&config_dir(&app)?)
+}
+
+#[tauri::command]
+fn save_presets(app: AppHandle, presets: Vec<Value>) -> Result<(), String> {
+    write_presets(&config_dir(&app)?, presets)
 }
 
 #[tauri::command]
@@ -624,7 +672,9 @@ fn main() {
             load_recipes,
             save_recipe,
             edited,
-            save_edited
+            save_edited,
+            load_presets,
+            save_presets
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shoot Studio");
@@ -850,6 +900,28 @@ mod tests {
     }
 
     #[test]
+    fn presets_save_load_and_refuse_bad_ones() {
+        let dir = temp_dir("presets").join("config");
+        assert!(read_presets(&dir).unwrap().is_empty(), "no file yet means no presets");
+        let mine = serde_json::json!({"name": "Soft sepia", "recipe": {"look": "sepia", "lookAmount": 60}});
+        write_presets(&dir, vec![mine.clone()]).unwrap();
+        assert_eq!(read_presets(&dir).unwrap(), vec![mine.clone()]);
+        let saved: Value = serde_json::from_str(&fs::read_to_string(dir.join("presets.json")).unwrap()).unwrap();
+        assert_eq!(saved["version"], PRESETS_VERSION);
+        for bad in [
+            serde_json::json!({"name": "", "recipe": {}}),
+            serde_json::json!({"name": "x".repeat(61), "recipe": {}}),
+            serde_json::json!({"name": "No settings"}),
+        ] {
+            assert!(write_presets(&dir, vec![bad]).is_err());
+        }
+        assert!(write_presets(&dir, vec![mine.clone(); MAX_PRESETS + 1]).is_err());
+        assert_eq!(read_presets(&dir).unwrap(), vec![mine], "a refused save leaves the file alone");
+        fs::write(dir.join("presets.json"), r#"{"version": 9, "presets": []}"#).unwrap();
+        assert!(read_presets(&dir).is_err(), "presets from a newer app are not misread");
+    }
+
+    #[test]
     fn recipes_save_load_and_reset_to_the_camera_file() {
         let dir = temp_dir("recipes");
         let d = dir.display().to_string();
@@ -863,7 +935,7 @@ mod tests {
         let loaded = load_recipes(d.clone()).unwrap();
         assert_eq!(
             loaded["IMG_1"],
-            serde_json::json!({"version": 2, "exposure": 0.5, "temp": 12})
+            serde_json::json!({"version": 3, "exposure": 0.5, "temp": 12})
         );
         assert_eq!(
             fs::read(edited_path(&d, "IMG_1", true).unwrap()).unwrap(),
@@ -920,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn version_1_recipes_load_and_save_as_version_2_and_3_is_refused() {
+    fn older_recipes_load_and_save_as_version_3_and_4_is_refused() {
         let dir = temp_dir("recipe-versions");
         let d = dir.display().to_string();
         fs::write(dir.join("IMG_1.JPG"), b"jpeg").unwrap();
@@ -928,13 +1000,13 @@ mod tests {
         fs::write(&file, r#"{"version": 1, "exposure": 1}"#).unwrap();
         assert_eq!(
             load_recipes(d.clone()).unwrap()["IMG_1"],
-            serde_json::json!({"version": 2, "exposure": 1})
+            serde_json::json!({"version": 3, "exposure": 1})
         );
         let old = serde_json::json!({"version": 1, "exposure": 1});
         save_recipe(d.clone(), "IMG_1".into(), Some(old)).unwrap();
         let saved: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-        assert_eq!(saved["version"], 2);
-        fs::write(&file, r#"{"version": 3, "retouch": []}"#).unwrap();
+        assert_eq!(saved["version"], 3);
+        fs::write(&file, r#"{"version": 4, "retouch": []}"#).unwrap();
         assert!(load_recipes(d.clone()).unwrap_err().contains("newer Shoot Studio"));
         fs::remove_dir_all(dir).unwrap();
     }

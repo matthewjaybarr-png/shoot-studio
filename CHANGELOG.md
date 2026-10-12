@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Looks in Develop: 18 of them in black & white, toned (sepia, warm brown, cool selenium) and colour (warm & soft, bright & airy, moody, golden hour, teal & orange, vintage and more), each with a 0–100% strength and every slider still working on top.
+- Split toning for shadows and highlights; Finishing adds vignette, grain and fade.
+- Presets: save the current settings under a name, apply them to any photo in any shoot, delete them. They live in the app's settings folder.
+- Ctrl+C / Ctrl+V copy and paste settings, onto the open photo or onto a grid selection (Ctrl+click, Shift+click, Ctrl+A; Esc clears).
+- Red eye (E) in Retouch: click the pupil or drag a circle over the eye; the catchlight stays.
+- Recipes are now version 3; older ones still open.
+
 ## 0.3.0
 
 - Retouch in Develop: spot heal (J), heal from a source you choose (H), clone (S) and soften skin (B). Ctrl+click sets the heal or clone source; [ and ] change the brush size.

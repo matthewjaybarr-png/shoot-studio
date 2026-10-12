@@ -16,6 +16,13 @@ Retouch, in Develop: pick a brush, then paint over what you want gone. Strokes a
 - **S clone**: Ctrl+click a source, then paint an exact copy of it, with no blending.
 - **B soften skin**: paint over skin to even out blotchy colour while keeping pores and fine detail. Strength sets how much.
 - [ and ] change the brush size. Heal and clone stay "aligned": the source keeps the same distance from the brush until you Ctrl+click again.
+- **E red eye**: click a red pupil, or drag out a circle over the eye. Only strongly red pixels are darkened, so the white catchlight stays.
+
+Looks, in Develop: pick one from the Look list (black & white, toned such as sepia, or a colour look), then set its strength from 0 to 100%. Every slider still works on top of it. Split toning tints shadows and highlights separately; Finishing adds a vignette (darker or lighter corners), film grain and a faded, matte black.
+
+Presets save the current settings under a name for every shoot; choose one from the Presets list to apply it, and Ctrl+Z takes it back off. Retouch strokes belong to one photo, so presets and copy/paste leave them alone.
+
+Copy and paste: Ctrl+C copies a photo's settings and Ctrl+V pastes them, onto the open photo in Develop or onto the selected photos in the grid. Ctrl+click adds a photo to the selection, Shift+click adds a run of photos, Ctrl+A selects them all and Esc clears it.
 - Z zooms between the whole photo and 100% (one photo pixel per screen pixel) at the pointer; hold Space and drag, or drag with the middle button, to move around. Esc puts the brush down; a second Esc goes back to the grid.
 
 ## Install (Zorin OS, Ubuntu and similar)

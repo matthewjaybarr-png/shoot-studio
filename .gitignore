@@ -1,2 +1,4 @@
 src-tauri/target/
 src-tauri/gen/
+PROJECT_NOTES.md
+PROJECT_NOTES.md.bak*

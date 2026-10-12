@@ -13,26 +13,65 @@ const SLIDERS = [
   { key: 'whites', label: 'Whites', min: -100, max: 100, step: 1 },
   { key: 'blacks', label: 'Blacks', min: -100, max: 100, step: 1 },
   { key: 'vibrance', label: 'Vibrance', group: 'Colour', min: -100, max: 100, step: 1 },
-  { key: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1 }
+  { key: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1 },
+  { key: 'lookAmount', label: 'Strength', group: 'Look', min: 0, max: 100, step: 1, default: 100, unit: '%' },
+  { key: 'split', label: 'Amount', group: 'Split toning', min: 0, max: 100, step: 1 },
+  { key: 'splitShadow', label: 'Shadow colour', min: 0, max: 359, step: 1, default: 220, unit: '°', hue: true },
+  { key: 'splitHighlight', label: 'Highlight colour', min: 0, max: 359, step: 1, default: 50, unit: '°', hue: true },
+  { key: 'vignette', label: 'Vignette', group: 'Finishing', min: -100, max: 100, step: 1 },
+  { key: 'grain', label: 'Grain', min: 0, max: 100, step: 1 },
+  { key: 'fade', label: 'Fade', min: 0, max: 100, step: 1 }
 ];
-const RECIPE_VERSION = 2;
+const RECIPE_VERSION = 3;
+const SETTINGS = [...SLIDERS.map(s => s.key), 'look']; // everything but retouch: what copy, paste and presets carry
+
+// Looks: one grade each, faded in by the Strength slider. Every field is optional:
+// mono turns it black and white (filter: how much red, green and blue make the grey),
+// lift/gamma/gain are per channel (lift raises blacks, gamma above 1 darkens the middle, gain scales),
+// contrast and sat (saturation, 1 = unchanged), shadows and highlights tint by [OkLab hue in degrees, amount],
+// fade and grain add to the Finishing sliders (1 = slider at 100).
+const LOOKS = [
+  { id: 'bw', name: 'Neutral', group: 'Black & white', mono: 1 },
+  { id: 'bw-contrast', name: 'High contrast', mono: 1, filter: [0.3, 0.6, 0.1], contrast: 0.5 },
+  { id: 'bw-matte', name: 'Soft matte', mono: 1, contrast: -0.2, fade: 0.6 },
+  { id: 'bw-film', name: 'Film grain', mono: 1, contrast: 0.25, grain: 0.5, fade: 0.15 },
+  { id: 'sepia', name: 'Sepia', group: 'Toned', mono: 1, contrast: -0.05, shadows: [65, 0.05], highlights: [80, 0.04] },
+  { id: 'warm-brown', name: 'Warm brown', mono: 1, shadows: [50, 0.075], highlights: [75, 0.035] },
+  { id: 'selenium', name: 'Cool selenium', mono: 1, contrast: 0.1, shadows: [285, 0.035], highlights: [250, 0.01] },
+  { id: 'warm-soft', name: 'Warm & soft', group: 'Colour', gain: [1.04, 1, 0.94], contrast: -0.15, sat: 0.95, fade: 0.2 },
+  { id: 'bright-airy', name: 'Bright & airy', lift: [0.03, 0.03, 0.04], gamma: [0.82, 0.82, 0.8], contrast: -0.2, sat: 0.85 },
+  { id: 'clean-contrast', name: 'Clean contrast', contrast: 0.3, sat: 1.08 },
+  { id: 'moody', name: 'Moody & dark', gamma: [1.2, 1.2, 1.15], contrast: 0.2, sat: 0.75, shadows: [230, 0.02] },
+  { id: 'golden-hour', name: 'Golden hour', gain: [1.08, 1, 0.86], contrast: 0.05, sat: 1.1, highlights: [70, 0.035] },
+  { id: 'teal-orange', name: 'Cinematic (teal & orange)', contrast: 0.15, shadows: [215, 0.05], highlights: [60, 0.04] },
+  { id: 'pastel', name: 'Pastel', lift: [0.05, 0.05, 0.06], gamma: [0.9, 0.9, 0.9], contrast: -0.25, sat: 0.65 },
+  { id: 'vintage', name: 'Vintage faded film', lift: [0.03, 0.02, 0.05], gain: [1.03, 1, 0.9], contrast: -0.05, sat: 0.7, fade: 0.6, grain: 0.2 },
+  { id: 'matte', name: 'Matte film', contrast: 0.1, sat: 0.9, fade: 0.8 },
+  { id: 'portra', name: 'Warm portrait film', gain: [1.04, 1, 0.95], gamma: [0.96, 0.96, 0.96], contrast: -0.08, sat: 0.9, highlights: [70, 0.015], grain: 0.1 },
+  { id: 'cross', name: 'Cross-process', gamma: [0.9, 0.95, 1.2], gain: [1.05, 1.05, 0.85], lift: [0, 0, 0.08], contrast: 0.25, sat: 1.2 }
+];
+const lookOf = id => LOOKS.find(l => l.id === id);
 
 // Retouch strokes, as retouch.rs checks them: points 0–1 across the upright photo, size the brush radius
 // over the long edge, offset (source minus destination) for the copying tools, strength for soften.
-const TOOLS = { spot: 'Spot heal', heal: 'Heal', clone: 'Clone', soften: 'Soften skin' };
+const TOOLS = { spot: 'Spot heal', heal: 'Heal', clone: 'Clone', soften: 'Soften skin', redeye: 'Red eye' };
 const STROKE_LIMITS = { strokes: 500, points: 2000, minSize: 0.001, maxSize: 0.1 };
 const unit = v => Number.isFinite(v) && v >= 0 && v <= 1;
 const validStroke = s => !!s && TOOLS[s.tool] && Number.isFinite(s.size) && s.size >= STROKE_LIMITS.minSize && s.size <= STROKE_LIMITS.maxSize
   && Array.isArray(s.points) && s.points.length >= 1 && s.points.length <= STROKE_LIMITS.points && s.points.every(p => Array.isArray(p) && p.length === 2 && p.every(unit))
   && (s.tool === 'soften' ? unit(s.strength) && s.offset === undefined
+    : s.tool === 'redeye' ? s.strength === undefined && s.offset === undefined
     : s.strength === undefined && Array.isArray(s.offset) && s.offset.length === 2 && s.offset.every(v => Number.isFinite(v) && Math.abs(v) <= 1));
 
 // A saved recipe with any missing setting at its default, and nothing it doesn't know.
 const fullRecipe = (saved = {}) => ({
-  ...Object.fromEntries(SLIDERS.map(s => [s.key, Number.isFinite(saved[s.key]) ? Math.min(s.max, Math.max(s.min, saved[s.key])) : 0])),
+  ...Object.fromEntries(SLIDERS.map(s => [s.key, Number.isFinite(saved[s.key]) ? Math.min(s.max, Math.max(s.min, saved[s.key])) : s.default ?? 0])),
+  look: lookOf(saved.look) ? saved.look : '',
   retouch: Array.isArray(saved.retouch) ? saved.retouch.filter(validStroke).slice(0, STROKE_LIMITS.strokes) : []
 });
-const isDefault = recipe => SLIDERS.every(s => !recipe[s.key]) && !recipe.retouch?.length;
+const isDefault = recipe => SLIDERS.every(s => recipe[s.key] === (s.default ?? 0)) && !recipe.look && !recipe.retouch?.length;
+// A recipe's settings without its retouch strokes, which belong to one photo.
+const settingsOf = recipe => Object.fromEntries(SETTINGS.map(key => [key, fullRecipe(recipe)[key]]));
 
 // White balance relative to as shot: warmer adds red and removes blue, positive tint removes green (magenta).
 // Normalised so a neutral grey keeps its brightness. Exactly [1, 1, 1] at 0, 0.
@@ -55,6 +94,10 @@ uniform sampler2D u_src;
 uniform bool u_raw;
 uniform vec3 u_wb;
 uniform float u_exposure, u_contrast, u_highlights, u_shadows, u_whites, u_blacks, u_vibrance, u_saturation;
+// The look, and the finishing that goes on any photo.
+uniform float u_look, u_mono, u_lookContrast, u_lookSat, u_fade, u_grain, u_vignette;
+uniform vec3 u_filter, u_lift, u_gamma, u_gain;
+uniform vec2 u_toneLo, u_toneHi, u_splitLo, u_splitHi;
 in vec2 v_uv; out vec4 color;
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -92,6 +135,22 @@ vec3 fromOklab(vec3 lab) {
   return mat3(4.0767416621, -1.2684380046, -0.0041960863, -3.3077115913, 2.6097574011, -0.7034186147, 0.2309699292, -0.3413193965, 1.7076147010) * (lms * lms * lms);
 }
 
+// Saturation and tinting in OkLab: shadows pushed toward one colour, highlights toward another,
+// easing off at pure black and white so they stay clean.
+vec3 grade(vec3 d, float sat, vec2 lo, vec2 hi) {
+  vec3 lab = oklab(toLinear(d));
+  float l = clamp(lab.x, 0.0, 1.0), ends = smoothstep(0.0, 0.15, l) * (1.0 - smoothstep(0.92, 1.0, l));
+  lab.yz = lab.yz * sat + (lo * (1.0 - l) + hi * l) * ends;
+  return toSrgb(clamp(fromOklab(lab), 0.0, 1.0));
+}
+
+// Film grain: smooth noise about 1.5 photo pixels across, the same wherever the photo is drawn.
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+
 void main() {
   vec3 c = texture(u_src, v_uv).rgb * u_wb * u_exposure;
   vec3 d = clamp(u_raw ? baseLook(c) : toSrgb(c), 0.0, 1.0);
@@ -110,7 +169,26 @@ void main() {
     lab.yz *= (1.0 + u_saturation) * (1.0 + u_vibrance * (1.0 - smoothstep(0.0, 0.25, chroma)) * skin);
     d = toSrgb(clamp(fromOklab(lab), 0.0, 1.0));
   }
-  color = vec4(d, 1.0);
+  if (u_look > 0.0) {
+    vec3 o = d;
+    if (u_mono > 0.0) d = vec3(dot(d, u_filter));
+    d = pow(clamp(d * u_gain + u_lift * (1.0 - d), 0.0, 1.0), u_gamma);
+    if (u_lookContrast != 0.0) d = contrast(d, u_lookContrast);
+    d = grade(d, u_lookSat, u_toneLo, u_toneHi);
+    d = mix(o, d, u_look);
+  }
+  if (u_splitLo != vec2(0) || u_splitHi != vec2(0)) d = grade(d, 1.0, u_splitLo, u_splitHi);
+  // Fade lifts the blacks and dims the whites a little, like a faded print.
+  d = u_fade * 0.15 + d * (1.0 - u_fade * 0.2);
+  if (u_vignette != 0.0) {
+    float edge = smoothstep(0.3, 1.0, length(v_uv - 0.5) * 1.4142);
+    d = u_vignette < 0.0 ? d * (1.0 + 0.8 * u_vignette * edge) : mix(d, vec3(1), 0.8 * u_vignette * edge);
+  }
+  if (u_grain > 0.0) {
+    float n = noise(v_uv * vec2(textureSize(u_src, 0)) / 1.5) + noise(v_uv * vec2(textureSize(u_src, 0)) / 0.8 + 17.0) - 1.0;
+    d += n * u_grain * 0.12 * (0.3 + 2.8 * d * (1.0 - d));
+  }
+  color = vec4(clamp(d, 0.0, 1.0), 1.0);
 }`;
 
 class Developer {
@@ -179,7 +257,23 @@ class Developer {
     gl.uniform1i(u('u_flip'), flip ? 1 : 0);
     gl.uniform3fv(u('u_wb'), whiteBalance(r.temp, r.tint));
     gl.uniform1f(u('u_exposure'), 2 ** r.exposure);
-    for (const key of ['contrast', 'highlights', 'shadows', 'whites', 'blacks', 'vibrance', 'saturation']) gl.uniform1f(u('u_' + key), r[key] / 100);
+    for (const key of ['contrast', 'highlights', 'shadows', 'whites', 'blacks', 'vibrance', 'saturation', 'vignette']) gl.uniform1f(u('u_' + key), r[key] / 100);
+    const look = lookOf(r.look) || {}, amount = look.id ? r.lookAmount / 100 : 0;
+    const tint = ([hue, amount] = [0, 0], k = 1) => [k * amount * Math.cos(hue * Math.PI / 180), k * amount * Math.sin(hue * Math.PI / 180)];
+    gl.uniform1f(u('u_look'), amount);
+    gl.uniform1f(u('u_mono'), look.mono || 0);
+    gl.uniform3fv(u('u_filter'), look.filter || [0.2126, 0.7152, 0.0722]);
+    gl.uniform3fv(u('u_lift'), look.lift || [0, 0, 0]);
+    gl.uniform3fv(u('u_gamma'), look.gamma || [1, 1, 1]);
+    gl.uniform3fv(u('u_gain'), look.gain || [1, 1, 1]);
+    gl.uniform1f(u('u_lookContrast'), look.contrast || 0);
+    gl.uniform1f(u('u_lookSat'), look.sat ?? 1);
+    gl.uniform2fv(u('u_toneLo'), tint(look.shadows));
+    gl.uniform2fv(u('u_toneHi'), tint(look.highlights));
+    gl.uniform2fv(u('u_splitLo'), tint([r.splitShadow, 0.08], r.split / 100));
+    gl.uniform2fv(u('u_splitHi'), tint([r.splitHighlight, 0.08], r.split / 100));
+    gl.uniform1f(u('u_fade'), Math.min(1, (look.fade || 0) * amount + r.fade / 100));
+    gl.uniform1f(u('u_grain'), Math.min(1, (look.grain || 0) * amount + r.grain / 100));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 

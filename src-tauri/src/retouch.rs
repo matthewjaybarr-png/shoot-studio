@@ -21,6 +21,8 @@ pub enum Tool {
     Clone,
     /// Smooth skin while keeping its fine texture.
     Soften,
+    /// Turn strongly red pixels into a dark pupil; the white catchlight isn't red, so it stays.
+    Redeye,
 }
 
 /// One brush stroke. Points are 0–1 across the upright image, `size` is the brush radius over
@@ -77,6 +79,7 @@ pub fn validate(strokes: &[Stroke]) -> Result<(), String> {
         }
         match (s.tool, s.offset, s.strength) {
             (Tool::Soften, None, Some(k)) if (0.0..=1.0).contains(&k) => {}
+            (Tool::Redeye, None, None) => {}
             (Tool::Spot | Tool::Heal | Tool::Clone, Some(o), None)
                 if o.iter().all(|v| (-1.0..=1.0).contains(v)) => {}
             _ => return bad("a bad offset or strength"),
@@ -210,6 +213,17 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
             }
             out
         }
+        Tool::Redeye => {
+            let mut out = Vec::with_capacity(rect.w * rect.h * 3);
+            for y in rect.y..rect.y + rect.h {
+                for x in rect.x..rect.x + rect.w {
+                    let d = (y * w + x) * 3;
+                    let (r, g, b) = (img[d], img[d + 1], img[d + 2]);
+                    out.extend(red_eye(r, g, b));
+                }
+            }
+            out
+        }
     };
     let amount = stroke.strength.unwrap_or(1.0) as f32;
     for y in 0..rect.h {
@@ -225,6 +239,17 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
         }
     }
     rect
+}
+
+/// One red-eye pixel in linear light. How red it is: red's lead over the larger of green and
+/// blue, as a share of red. A red pupil is about 0.95, skin about 0.5, a white catchlight 0.
+/// Clearly red pixels become a neutral grey as dark as their green and blue; the rest stay.
+fn red_eye(r: f32, g: f32, b: f32) -> [f32; 3] {
+    let redness = (r - g.max(b)) / r.max(1e-6);
+    let t = ((redness - 0.7) / 0.15).clamp(0.0, 1.0);
+    let k = if r < 0.01 { 0.0 } else { t * t * (3.0 - 2.0 * t) };
+    let pupil = 0.5 * (g + b);
+    [r + (pupil - r) * k, g + (pupil - g) * k, b + (pupil - b) * k]
 }
 
 /// A nearby clean patch for a spot stroke: source minus destination, normalised like points.
@@ -337,6 +362,7 @@ mod tests {
     fn stroke(tool: Tool, size: f64, points: &[[f64; 2]]) -> Stroke {
         let (offset, strength) = match tool {
             Tool::Soften => (None, Some(1.0)),
+            Tool::Redeye => (None, None),
             _ => (Some([0.0, 0.0]), None),
         };
         Stroke { tool, size, points: points.to_vec(), offset, strength }
@@ -425,6 +451,10 @@ mod tests {
         let mut strong = soften.clone();
         strong.strength = Some(1.5);
         assert!(validate(&[strong]).is_err());
+        let mut eye = stroke(Tool::Redeye, 0.02, &[[0.5, 0.5]]);
+        assert!(validate(&[eye.clone()]).is_ok());
+        eye.offset = Some([0.0, 0.0]);
+        assert!(validate(&[eye]).is_err());
         assert!(validate(&vec![ok.clone(); MAX_STROKES]).is_ok());
         assert!(validate(&vec![ok; MAX_STROKES + 1]).is_err());
         let json = r#"{"tool":"spot","size":0.01,"points":[[0.5,0.5]],"offset":[0.1,0]}"#;
@@ -461,6 +491,37 @@ mod tests {
         assert!(mid_out < mid_in * 0.5, "mid band {mid_in} -> {mid_out}");
         let (hi_in, hi_out) = (var(&|x, y| high(&img, x, y)), var(&|x, y| high(&out, x, y)));
         assert!((hi_out / hi_in - 1.0).abs() < 0.1, "fine texture {hi_in} -> {hi_out}");
+    }
+
+    #[test]
+    fn red_eye_darkens_the_red_pupil_and_keeps_the_catchlight_and_skin() {
+        let (w, h) = (200, 200);
+        // Skin, a red pupil of radius 8 at the centre, and a white catchlight in it.
+        let mut img = Vec::with_capacity(w * h * 3);
+        for y in 0..h {
+            for x in 0..w {
+                let d = ((x as f32 - 100.0).powi(2) + (y as f32 - 100.0).powi(2)).sqrt();
+                img.extend(if (x, y) == (98, 98) {
+                    [0.9, 0.9, 0.9]
+                } else if d < 8.0 {
+                    [0.5, 0.03, 0.04]
+                } else {
+                    [0.7, 0.32, 0.21]
+                });
+            }
+        }
+        let clean = img.clone();
+        apply(&mut img, w, h, &stroke(Tool::Redeye, 0.1, &[[0.5, 0.5]]));
+        let px = |x: usize, y: usize| &img[(y * w + x) * 3..(y * w + x) * 3 + 3];
+        let pupil = px(100, 101);
+        assert!(pupil[0] < 0.05 && (pupil[0] - pupil[2]).abs() < 0.01, "pupil {pupil:?}");
+        assert_eq!(px(98, 98), &[0.9, 0.9, 0.9], "the catchlight stays");
+        for (i, (a, b)) in img.iter().zip(&clean).enumerate() {
+            let (x, y) = ((i / 3) % w, i / 3 / w);
+            if ((x as f32 - 100.0).powi(2) + (y as f32 - 100.0).powi(2)).sqrt() >= 8.0 {
+                assert_eq!(a, b, "skin at {x},{y} changed");
+            }
+        }
     }
 
     #[test]

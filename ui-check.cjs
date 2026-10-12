@@ -24,6 +24,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'open_shoot') return Array.from({ length: 500 }, (_, i) => { const id = 'IMG_' + String(i).padStart(4, '0'); return { id, jpg: i % 3 ? id + '.JPG' : null, raw: i % 3 < 2 ? id + '.CR2' : null }; });
   if (command === 'load_shoot') return disk[args.dir] ? JSON.parse(disk[args.dir]) : null;
   if (command === 'save_shoot') { disk[args.dir] = JSON.stringify(args.data); return null; }
+  if (command === 'load_presets') return JSON.parse(disk.presets || '[]');
+  if (command === 'save_presets') { disk.presets = JSON.stringify(args.presets); return null; }
   if (command === 'load_recipes') return JSON.parse(disk['recipes:' + args.dir] || '{}');
   if (command === 'save_recipe') {
     const all = JSON.parse(disk['recipes:' + args.dir] || '{}');
@@ -198,7 +200,9 @@ const test = `<script>
     let off = 0;
     for (let i = 0; i < want.length; i++) if (i % 4 !== 3 && lin(want[i]) <= 0.5) off = Math.max(off, Math.abs(bright[i] - enc(2 * lin(want[i]))));
     step(off <= 1.5, 'exposure +1 doubles linear light (off by ' + off.toFixed(2) + ')');
-    for (const s of SLIDERS) step(worst(out({ [s.key]: s.max / 2 }), want) > 2, s.label + ' changes the picture');
+    // Look strength and the split-toning hues only matter with a look or split toning on.
+    for (const s of SLIDERS) if (!['lookAmount', 'splitShadow', 'splitHighlight'].includes(s.key)) step(worst(out({ [s.key]: s.max / 2 }), want) > 2, s.label + ' changes the picture');
+    for (const l of LOOKS) step(worst(out({ look: l.id }), want) > 2, l.name + ' changes the picture');
     const at = (data, x, y) => Array.from(data.slice((y * 16 + x) * 4, (y * 16 + x) * 4 + 3));
     const grey = out({ saturation: -100 });
     let spread = 0;
@@ -213,6 +217,18 @@ const test = `<script>
     step(raw[0] > 90 && raw[0] < 160 && Math.abs(raw[0] - raw[2]) <= 1, 'RAW mid grey lands mid-tone and neutral (' + Array.from(raw.slice(0, 3)) + ')');
     step(raw[4] >= raw[5] && raw[5] >= raw[6] && raw[6] > 200, 'a RAW highlight above white rolls off without changing hue (' + Array.from(raw.slice(4, 7)) + ')');
     step(warm[0] > warm[2] && cool[2] > cool[0], 'temperature warms and cools');
+    dev.setRaw(rawImage(16, 16, Array.from(want).filter((_, i) => i % 4 !== 3).map(lin)), false);
+    const spreadOf = recipe => { let m = 0; for (let i = 0; i < 256; i++) { const p = at(out(recipe), i % 16, i >> 4); m = Math.max(m, Math.max(...p) - Math.min(...p)); } return m; };
+    step(spreadOf({ look: 'bw' }) <= 2, 'the black & white look is grey (spread ' + spreadOf({ look: 'bw' }) + ')');
+    const half = spreadOf({ look: 'bw', lookAmount: 50 });
+    step(half > 20 && half < spreadOf({}) - 20, 'at 50% strength it keeps half the colour (spread ' + half + ')');
+    const sepia = pixel({ look: 'sepia' }, 8, 15);
+    step(sepia[0] > sepia[2] + 10, 'sepia tones grey warm (' + sepia + ')');
+    const split = [pixel({ split: 100 }, 3, 15), pixel({ split: 100 }, 12, 15)];
+    step(split[0][2] > split[0][0] && split[1][0] > split[1][2], 'split toning: blue shadows, warm highlights by default (' + split + ')');
+    step(luma(pixel({ vignette: -100 }, 0, 0)) < luma(pixel({}, 0, 0)) && worst(out({ vignette: -100 }).slice((7 * 16 + 7) * 4, (7 * 16 + 8) * 4), want.slice((7 * 16 + 7) * 4, (7 * 16 + 8) * 4)) <= 1, 'vignette darkens the corners, not the centre');
+    step(luma(pixel({ fade: 100 }, 0, 15)) > luma(pixel({}, 0, 15)) + 10, 'fade lifts black');
+    step(fullRecipe({ look: 'not-a-look' }).look === '' && settingsOf({ exposure: 1, retouch: [{}] }).retouch === undefined, 'an unknown look is dropped; settings leave out strokes');
 
     // Develop: the view.
     const ctrl = (key, shiftKey = false) => grid.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey, bubbles: true }));
@@ -222,7 +238,7 @@ const test = `<script>
     await until(() => editing?.ready && !sliders.disabled, 'D develops the photo');
     step(!develop.classList.contains('hidden') && grid.classList.contains('hidden') && calls.at(-1).command === 'develop_source' && calls.at(-1).args.name === 'IMG_0001.CR2', 'a RAW+JPEG pair develops from its RAW');
     slide('exposure', 1);
-    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 2, 'a slider change saves the recipe');
+    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 3, 'a slider change saves the recipe');
     step($('#develop-caption').textContent.includes('Edited') && sliders.querySelector('[data-key="exposure"]').previousElementSibling.textContent === '+1.00', 'caption says Edited; the slider shows its value');
     ctrl('z');
     await until(() => !savedRecipe('IMG_0001') && sliders.querySelector('[data-key="exposure"]').value === '0', 'Ctrl+Z undoes back to the camera file');
@@ -258,7 +274,49 @@ const test = `<script>
     await until(() => editing?.ready && sliders.querySelector('[data-key="contrast"]').value === '30', 'the sliders show the saved recipe');
     $('#reset').click();
     await until(() => !savedRecipe('IMG_0001') && !disk[dir + '/edited/IMG_0001'] && !grid.children[1].textContent.includes('Edited'), 'Reset all goes back to the camera file');
+
+    // Looks, presets, copy and paste.
+    const choose = (id, value) => { $(id).value = value; $(id).dispatchEvent(new Event('change', { bubbles: true })); };
+    const strength = sliders.querySelector('[data-key="lookAmount"]');
+    step(strength.disabled && $('#look').querySelectorAll('optgroup').length === 3 && $('#look').options.length === LOOKS.length + 1, 'every look is in the list; strength is off without one');
+    choose('#look', 'sepia');
+    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 3, 'choosing a look saves it');
+    step(!strength.disabled && strength.previousElementSibling.textContent === '100%', 'its strength slider turns on at 100%');
+    slide('lookAmount', 40); slide('grain', 20);
+    await until(() => savedRecipe('IMG_0001')?.lookAmount === 40 && savedRecipe('IMG_0001').grain === 20, 'strength and grain save on top of the look');
+    ctrl('c');
+    step(clipboard?.look === 'sepia' && clipboard.lookAmount === 40 && !('retouch' in clipboard), 'Ctrl+C copies the settings, not strokes');
+    $('#preset-save').click();
+    step(!$('#preset-name').hidden, 'Save asks for a preset name');
+    $('#preset-name').value = 'Soft sepia';
+    $('#preset-name').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await until(() => presets.length === 1 && JSON.parse(disk.presets || '[]')[0]?.recipe.lookAmount === 40 && $('#preset-name').hidden, 'the preset saves to the settings folder');
+    ctrl('z'); ctrl('z'); ctrl('z');
+    await until(() => !savedRecipe('IMG_0001') && $('#look').value === '', 'undo back to the camera file');
+    choose('#preset', '0');
+    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').grain === 20 && $('#look').value === 'sepia', 'applying a preset sets its settings');
+    ctrl('z');
+    await until(() => !savedRecipe('IMG_0001'), 'a preset is one undo step');
+    ctrl('v');
+    await until(() => savedRecipe('IMG_0001')?.look === 'sepia', 'Ctrl+V in Develop pastes onto the open photo');
+    choose('#preset', '0'); $('#preset-delete').click();
+    step(presets.length === 1 && $('#preset-delete').textContent === 'Sure?', 'Delete asks once more');
+    $('#preset-delete').click();
+    await until(() => !presets.length && disk.presets === '[]', 'a second click deletes the preset');
     press('Escape');
+    const click = (i, extra = {}) => grid.children[i].dispatchEvent(new MouseEvent('click', { bubbles: true, ...extra }));
+    click(5); click(6, { ctrlKey: true }); click(8, { shiftKey: true });
+    step(selected.size === 4 && ['5', '6', '7', '8'].every(i => grid.children[i].classList.contains('selected')) && $('#counts').textContent.includes('4 selected'), 'Ctrl+click and Shift+click select photos');
+    ctrl('v');
+    const pasted = ['IMG_0005', 'IMG_0006', 'IMG_0007', 'IMG_0008'];
+    await until(() => pasted.every(id => savedRecipe(id)?.lookAmount === 40 && disk[dir + '/edited/' + id + '.thumb']) && $('#status').textContent === 'Pasted onto 4 photos', () => 'Ctrl+V pastes onto every selected photo and saves their looks: ' + $('#status').textContent);
+    step(pasted.every(id => grid.querySelector('[data-id="' + id + '"] figcaption').textContent.includes('Edited')), 'the pasted photos show as Edited');
+    click(3);
+    step(!selected.size && !grid.querySelector('.selected'), 'a plain click clears the selection');
+    ctrl('a');
+    step(selected.size === visible.length, 'Ctrl+A selects them all');
+    press('Escape');
+    step(!selected.size && !grid.classList.contains('hidden'), 'Esc clears the selection');
 
     // Retouch: brush strokes land in the recipe as points across the photo (0–1), at fit and zoomed in.
     sourceSize = [1600, 1200];
@@ -281,7 +339,7 @@ const test = `<script>
     step(saved.tool === 'spot' && nearAll(saved.points, spotPath.map(p => fitted(...p))) && saved.size === 0.01 && near(saved.offset, [0.05, 0]) && saved.strength === undefined, 'at fit, the stroke is saved at the photo points it covered, with the source Rust picked (' + JSON.stringify(saved) + ')');
     step(calls.some(c => c.command === 'spot_source' && c.args.name === 'IMG_0013.CR2' && near(c.args.stroke.points[0], saved.points[0])), 'spot heal asks Rust for its source');
     await until(() => calls.some(c => c.command === 'retouch' && c.args.strokes.length === 1 && c.args.name === 'IMG_0013.CR2'), 'and Rust applies the stroke');
-    step(savedRecipe('IMG_0013').version === 2 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
+    step(savedRecipe('IMG_0013').version === 3 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
 
     press(']');
     step(Math.abs(brush.size - 0.0125) < 1e-9 && sliders.querySelector('[data-brush="size"]').previousElementSibling.textContent === '20 px', '] makes the brush bigger');
@@ -317,6 +375,14 @@ const test = `<script>
 
     ctrl('z');
     await until(() => strokes().length === 2 && calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.length === 2, 'Ctrl+Z removes the last stroke and Rust replays the rest');
+    press('e');
+    drag([[cx, cy], [cx + 4, cy], [cx + 8, cy]]);
+    await until(() => strokes().length === 3, 'E then a drag saves a red-eye circle');
+    saved = strokes()[2];
+    step(saved.tool === 'redeye' && Math.abs(saved.size - 8 / 1600) < 1e-4 && saved.points.length === 1 && near(saved.points[0], zoomed(cx, cy)) && !('offset' in saved) && !('strength' in saved), 'its centre and radius are where it was dragged, with no source (' + JSON.stringify(saved) + ')');
+    await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.at(-1)?.tool === 'redeye', 'Rust applies it');
+    ctrl('z');
+    await until(() => strokes().length === 2, 'and it undoes');
     press('Escape');
     step(tool === null && !develop.classList.contains('hidden') && !$('.stage').classList.contains('brush'), 'Esc drops the tool and stays in Develop');
     press('Escape');

@@ -4,15 +4,18 @@ const invoke = window.__TAURI__.core.invoke;
 const $ = selector => document.querySelector(selector);
 const grid = $('#grid'), loupe = $('#loupe'), develop = $('#develop'), canvas = $('#canvas'), sliders = $('#sliders');
 let dir = null, opening = false, updating = false, photos = [], ratings = {}, recipes = {}, visible = [], cursor = 0, view = 'grid', anchor = null, saving = Promise.resolve();
+const selected = new Set(); // photo ids picked with Ctrl/Shift+click in the grid, for pasting settings onto
+let clipboard = null;       // settings copied with Ctrl+C
 const thumbs = new Map();   // photo id -> blob URL, small, kept for the whole session
 const previews = new Map(); // previewKey -> blob URL, full size, capped below
 
 const CULL_KEYS = 'P pick · X reject · U unflag · 1–5 stars · 0 clear stars';
+const COPY_KEYS = 'Ctrl+C copy settings · Ctrl+V paste';
 const KEYS = {
-  grid: `←→↑↓ move · Enter loupe · D develop · C compare · ${CULL_KEYS}`,
-  loupe: `←→ move · Enter or Esc grid · D develop · C compare · ${CULL_KEYS}`,
+  grid: `←→↑↓ move · Enter loupe · D develop · C compare · ${CULL_KEYS} · Ctrl/Shift+click select · Ctrl+A select all · ${COPY_KEYS} (onto the selection)`,
+  loupe: `←→ move · Enter or Esc grid · D develop · C compare · ${CULL_KEYS} · ${COPY_KEYS}`,
   compare: `←→ change the right photo · C one photo · Esc grid · ${CULL_KEYS}`,
-  develop: '←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · J spot heal · H heal · S clone · B soften · [ ] brush size · Ctrl+click heal/clone source · Z zoom · Space+drag pan · Esc drop tool, then grid'
+  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · [ ] brush size · Ctrl+click heal/clone source · Z zoom · Space+drag pan · Esc drop tool, then grid`
 };
 
 const fileOf = photo => photo.jpg || photo.raw;
@@ -86,7 +89,7 @@ const watcher = new IntersectionObserver(entries => {
 
 function paintCell(cell, photo) {
   const r = rating(photo);
-  cell.className = 'cell' + (r.flag ? ' ' + r.flag : '') + (visible[cursor] === photo ? ' current' : '');
+  cell.className = 'cell' + (r.flag ? ' ' + r.flag : '') + (visible[cursor] === photo ? ' current' : '') + (selected.has(photo.id) ? ' selected' : '');
   cell.querySelector('figcaption').textContent = caption(photo);
 }
 
@@ -95,6 +98,7 @@ const shown = photo => { const filter = $('#filter').value, r = rating(photo); r
 function renderGrid() {
   const current = visible[cursor];
   visible = photos.filter(shown);
+  for (const id of selected) if (!visible.some(p => p.id === id)) selected.delete(id);
   cursor = Math.max(0, Math.min(visible.includes(current) ? visible.indexOf(current) : cursor, visible.length - 1));
   watcher.disconnect();
   wanted.length = 0;
@@ -114,7 +118,7 @@ function renderGrid() {
 
 function counts() {
   const all = Object.values(ratings);
-  $('#counts').textContent = `${photos.length} photos · ${all.filter(r => r.flag === 'pick').length} picks · ${all.filter(r => r.flag === 'reject').length} rejects`;
+  $('#counts').textContent = `${photos.length} photos · ${all.filter(r => r.flag === 'pick').length} picks · ${all.filter(r => r.flag === 'reject').length} rejects` + (selected.size ? ` · ${selected.size} selected` : '');
 }
 
 let shownToken = 0;
@@ -168,7 +172,7 @@ function move(to) {
 // change and when you leave it, while its pixels are still on the GPU.
 let developer = null, editing = null, before = false, dragStart = null, frame = 0;
 const note = text => { $('#develop-note').textContent = text; $('#develop-note').hidden = !text; };
-const sameRecipe = (a, b) => SLIDERS.every(s => a[s.key] === b[s.key]) && a.retouch === b.retouch;
+const sameRecipe = (a, b) => SETTINGS.every(key => a[key] === b[key]) && a.retouch === b.retouch;
 
 // Everything that touches the open photo's pixels runs in order, one step at a time: loading a photo,
 // applying retouch strokes in Rust and patching them in, and reading the look to save. So the strokes
@@ -184,15 +188,30 @@ const sizeToSlider = size => Math.round(100 * Math.log(size / STROKE_LIMITS.minS
 const sliderToSize = v => STROKE_LIMITS.minSize * 100 ** (v / 100);
 const round = v => Math.round(v * 1e5) / 1e5;
 const overlay = $('#overlay'), stage = $('.stage');
-const showValue = (s, v) => (v > 0 ? '+' : '') + (s.step < 1 ? v.toFixed(2) : v);
+const showValue = (s, v) => s.unit ? v + s.unit : (v > 0 && s.min < 0 ? '+' : '') + (s.step < 1 ? v.toFixed(2) : v);
 const repaintCell = photo => { const cell = grid.children[visible.indexOf(photo)]; if (cell?.classList.contains('cell')) paintCell(cell, photo); };
 
+// A hue slider's track shows the colours it tints with: OkLab at a mid lightness, as sRGB.
+const hueTrack = () => 'linear-gradient(to right,' + Array.from({ length: 13 }, (_, i) => {
+  const h = i * 30 * Math.PI / 180, [L, a, b] = [0.72, 0.12 * Math.cos(h), 0.12 * Math.sin(h)];
+  const [l, m, q] = [L + 0.3963377774 * a + 0.2158037573 * b, L - 0.1055613458 * a - 0.0638541728 * b, L - 0.0894841775 * a - 1.291485548 * b].map(v => v ** 3);
+  const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * q];
+  return 'rgb(' + rgb.map(v => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)))) + ')';
+}) + ')';
+sliders.insertAdjacentHTML('beforeend', `<h3>Presets</h3><div class="presets"><select id="preset" aria-label="Presets"></select><button id="preset-save" type="button">Save</button><button id="preset-delete" type="button">Delete</button></div>
+  <input id="preset-name" maxlength="60" placeholder="Preset name, then Enter" hidden>`);
 for (const s of SLIDERS) {
   if (s.group) sliders.insertAdjacentHTML('beforeend', `<h3>${s.group}</h3>`);
-  sliders.insertAdjacentHTML('beforeend', `<label><span>${s.label}</span><output></output><input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="0" data-key="${s.key}"></label>`);
+  if (s.group === 'Look') sliders.insertAdjacentHTML('beforeend', `<select id="look" aria-label="Look"><option value="">None</option>${
+    [...new Set(LOOKS.map(l => l.group).filter(Boolean))].map(group => `<optgroup label="${group}"></optgroup>`).join('')}</select>`);
+  sliders.insertAdjacentHTML('beforeend', `<label><span>${s.label}</span><output></output><input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.default ?? 0}" data-key="${s.key}"${s.hue ? ` class="hue" style="background:${hueTrack()}"` : ''}></label>`);
+}
+{ // each look under the group named on it or the one before
+  let group;
+  for (const l of LOOKS) { group = l.group || group; $(`#look optgroup[label="${group}"]`).append(new Option(l.name, l.id)); }
 }
 sliders.insertAdjacentHTML('beforeend', `<h3>Retouch</h3><div class="tools">${Object.entries(TOOLS).map(([key, label]) =>
-  `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B' }[key]}</kbd></button>`).join('')}</div>
+  `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E' }[key]}</kbd></button>`).join('')}</div>
   <label><span>Brush size</span><output></output><input type="range" min="0" max="100" step="1" data-brush="size"></label>
   <label id="strength"><span>Strength</span><output></output><input type="range" min="0" max="100" step="1" data-brush="strength"></label>
   <p id="tool-hint"></p>`);
@@ -202,7 +221,8 @@ const HINTS = {
   spot: 'Paint over a spot; Shoot Studio finds clean skin nearby to blend in.',
   heal: 'Ctrl+click a clean area, then paint. Its texture is blended into the colour around the stroke.',
   clone: 'Ctrl+click a source, then paint an exact copy of it.',
-  soften: 'Paint over skin to smooth blotches while keeping pores and fine detail.'
+  soften: 'Paint over skin to smooth blotches while keeping pores and fine detail.',
+  redeye: 'Click a red pupil, or drag out a circle over the eye. Only strongly red pixels darken; the white catchlight stays.'
 };
 function paintTools() {
   for (const button of sliders.querySelectorAll('[data-tool]')) button.classList.toggle('active', button.dataset.tool === tool);
@@ -220,11 +240,60 @@ function paintSliders() {
   sliders.disabled = !editing?.ready || updating;
   paintTools();
   for (const input of sliders.querySelectorAll('input[data-key]')) {
-    const s = SLIDERS.find(s => s.key === input.dataset.key), v = editing ? editing.recipe[s.key] : 0;
+    const s = SLIDERS.find(s => s.key === input.dataset.key), v = editing ? editing.recipe[s.key] : s.default ?? 0;
     input.value = v;
     input.previousElementSibling.textContent = showValue(s, v);
   }
+  $('#look').value = editing?.recipe.look || '';
+  sliders.querySelector('[data-key=lookAmount]').disabled = !editing?.recipe.look;
 }
+
+// Presets: her own named settings, kept for every shoot in the app's settings folder.
+let presets = [];
+function paintPresets() {
+  const chosen = $('#preset').value;
+  $('#preset').replaceChildren(new Option(presets.length ? 'Apply a preset…' : 'No presets yet', ''), ...presets.map((p, i) => new Option(p.name, i)));
+  $('#preset').value = presets[chosen] ? chosen : '';
+  $('#preset-delete').disabled = !$('#preset').value;
+  $('#preset-delete').textContent = 'Delete';
+}
+const savePresets = (next, done) => invoke('save_presets', { presets: next }).then(() => { presets = next; paintPresets(); status(done); }, error => status('Presets not saved: ' + error, true));
+invoke('load_presets').then(list => { presets = list.filter(p => p && typeof p.name === 'string' && p.recipe); paintPresets(); }, error => { paintPresets(); status('Presets not loaded: ' + error, true); });
+// A preset or a paste: the settings change together, as one undo step; the strokes stay.
+function applySettings(settings) {
+  if (!editing?.ready) return;
+  const was = editing.recipe;
+  editing.recipe = { ...was, ...settingsOf(settings) };
+  commit(editing, was);
+}
+$('#preset').onchange = () => {
+  const p = presets[$('#preset').value];
+  paintPresets();
+  if (p) { applySettings(p.recipe); status(`Applied ${p.name}`); }
+};
+$('#preset-save').onclick = () => { $('#preset-name').hidden = false; $('#preset-name').focus(); };
+$('#preset-name').onkeydown = event => {
+  const input = event.target, name = input.value.trim();
+  if (event.key === 'Escape') { input.value = ''; input.hidden = true; return; }
+  if (event.key !== 'Enter' || !name || !editing) return;
+  // The same name replaces the older preset.
+  const next = [...presets.filter(p => p.name !== name), { name, recipe: settingsOf(editing.recipe) }].sort((a, b) => a.name.localeCompare(b.name));
+  input.value = ''; input.hidden = true;
+  savePresets(next, `Saved preset ${name}`).then(() => { $('#preset').value = presets.findIndex(p => p.name === name); paintPresets(); });
+};
+// Delete asks once more: the first click turns the button into "Sure?".
+$('#preset-delete').onclick = () => {
+  const button = $('#preset-delete'), p = presets[$('#preset').value];
+  if (!p) return;
+  if (button.textContent !== 'Sure?') { button.textContent = 'Sure?'; return setTimeout(() => { button.textContent = 'Delete'; }, 3000); }
+  savePresets(presets.filter(x => x !== p), `Deleted preset ${p.name}`);
+};
+$('#look').onchange = () => {
+  if (!editing?.ready) return;
+  const was = editing.recipe;
+  editing.recipe = { ...was, look: $('#look').value };
+  commit(editing, was);
+};
 
 function draw() {
   $('#develop-caption').textContent = editing ? caption(editing.photo) + (before ? ' · Before' : '') : '';
@@ -241,10 +310,12 @@ function paintOverlay() {
   g.clearRect(0, 0, w, h);
   const e = editing, place = e?.ready && developer.placement();
   if (!tool || !place) return;
-  const radius = brush.size * Math.max(place.w, place.h);
   const ring = (x, y, r) => {
     for (const [colour, width] of [['rgba(0,0,0,.6)', 3], ['#fff', 1]]) { g.strokeStyle = colour; g.lineWidth = width; g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); g.stroke(); }
   };
+  // Red eye: the circle being dragged out from the pupil's centre.
+  if (stroke?.tool === 'redeye') { const [x, y] = developer.fromImage(stroke.points[0]); return ring(x, y, stroke.size * Math.max(place.w, place.h)); }
+  const radius = brush.size * Math.max(place.w, place.h);
   if (stroke?.points.length > 1) {
     g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 2 * radius; g.lineCap = g.lineJoin = 'round';
     g.beginPath();
@@ -339,13 +410,21 @@ function saveLook(e) {
   clearTimeout(e.timer);
   if (!e.ready || !e.dirty) return;
   e.dirty = false;
-  const { photo, shoot } = e, id = photo.id, key = 'edited:' + id, recipe = recipes[id];
+  writeLook(e.photo, e.shoot, () => {
+    if (developer.owner !== e) throw 'the photo is no longer on the GPU'; // the GPU only holds the open photo
+  });
+}
+
+// `load` puts the photo's pixels on the GPU (or checks they are there); then its look is read,
+// once the strokes before this have landed, and encoded and saved later.
+function writeLook(photo, shoot, load) {
+  const id = photo.id, key = 'edited:' + id, recipe = recipes[id];
   if (previews.has(key)) { URL.revokeObjectURL(previews.get(key)); previews.delete(key); }
   for (const img of loupe.querySelectorAll('img')) if (img.dataset.name === key) img.dataset.name = '';
-  // Pixels are read once the strokes before this have landed, and encoded later.
-  const reading = queue(() => {
-    if (developer.owner !== e) throw 'the photo is no longer on the GPU'; // the GPU only holds the open photo
-    return recipe && [developer.jpeg(recipe, 2048), developer.jpeg(recipe, 480, 0.8)];
+  const reading = queue(async () => {
+    if (!recipe) return null;
+    await load();
+    return [developer.jpeg(recipe, 2048), developer.jpeg(recipe, 480, 0.8)];
   });
   saving = saving.then(async () => {
     const bytes = async blob => Array.from(new Uint8Array(await blob.arrayBuffer()));
@@ -361,6 +440,39 @@ function saveLook(e) {
     if (small) { thumbs.set(id, URL.createObjectURL(small)); if (img) img.src = thumbs.get(id); }
     else { wanted.push(photo); pump(); } // back to the camera's thumbnail
   }).catch(error => status('Edited look not saved: ' + error, true));
+  return reading;
+}
+
+// Copy and paste settings (everything but retouch strokes, which belong to one photo).
+const current = () => view === 'develop' ? editing?.photo : visible[cursor];
+function copySettings() {
+  const photo = current();
+  if (!photo) return;
+  clipboard = settingsOf(view === 'develop' && editing ? editing.recipe : recipes[photo.id]);
+  status(`Copied the settings of ${photo.id}`);
+}
+async function pasteSettings() {
+  if (!clipboard) return status('Copy a photo\'s settings first (Ctrl+C).');
+  if (view === 'develop') return applySettings(clipboard);
+  const shoot = dir, list = selected.size ? visible.filter(p => selected.has(p.id)) : [visible[cursor]].filter(Boolean);
+  try { developer ||= new Developer(canvas); } catch (error) { return status(`Can't paste: ${error.message}`, true); }
+  // Each photo's look is rendered from its own pixels, one at a time, in the background.
+  let done = 0;
+  const looks = list.map(photo => {
+    const next = fullRecipe({ ...recipes[photo.id], ...clipboard }), recipe = isDefault(next) ? null : { version: RECIPE_VERSION, ...next };
+    if (recipe) recipes[photo.id] = recipe; else delete recipes[photo.id];
+    saving = saving.then(() => invoke('save_recipe', { dir: shoot, id: photo.id, recipe })).catch(error => status('Not saved: ' + error, true));
+    repaintCell(photo);
+    return writeLook(photo, shoot, async () => {
+      status(`Pasting… ${++done} of ${list.length}`);
+      const bytes = await invoke('develop_source', { dir: shoot, name: photo.raw || photo.jpg, strokes: recipe.retouch });
+      stale(shoot);
+      developer.setRaw(bytes, !!photo.raw);
+      developer.owner = null; // no Develop session owns these pixels
+    }).catch(() => {});
+  });
+  await Promise.all(looks); await saving;
+  if (shoot === dir) status(`Pasted onto ${list.length} photo${list.length === 1 ? '' : 's'}`);
 }
 
 sliders.addEventListener('click', event => {
@@ -386,7 +498,7 @@ sliders.addEventListener('dblclick', event => {
   if (!editing || !key) return;
   const was = dragStart || editing.recipe;
   dragStart = null;
-  editing.recipe = { ...editing.recipe, [key]: 0 };
+  editing.recipe = { ...editing.recipe, [key]: SLIDERS.find(s => s.key === key).default ?? 0 };
   commit(editing, was);
 });
 $('#reset').onclick = () => {
@@ -416,6 +528,7 @@ stage.addEventListener('pointerdown', event => {
   }
   const at = developer.toImage(event.clientX, event.clientY);
   if (event.button !== 0 || !tool || !inside(at)) return;
+  if (tool === 'redeye') { stroke = { e, tool, size: brush.size, points: [at.map(round)] }; capture(event); return draw(); }
   if (COPIES[tool] && (event.ctrlKey || event.metaKey)) { e.from = at; e.offset = null; return draw(); }
   if (COPIES[tool] && !e.from) return status('Ctrl+click where to copy from first.');
   // Aligned: the source keeps the same distance from the brush for every stroke until the next Ctrl+click.
@@ -429,6 +542,11 @@ stage.addEventListener('pointermove', event => {
   if (panning) {
     developer.pan(event.clientX - panning.x, event.clientY - panning.y);
     panning = { x: event.clientX, y: event.clientY };
+  } else if (stroke?.tool === 'redeye') {
+    // Dragging sets the circle's radius; a plain click keeps the brush size.
+    const at = developer.toImage(event.clientX, event.clientY), [x, y] = stroke.points[0];
+    const r = Math.hypot((at[0] - x) * developer.width, (at[1] - y) * developer.height) / Math.max(developer.width, developer.height);
+    if (r * Math.max(developer.width, developer.height) >= 3) stroke.size = Math.min(STROKE_LIMITS.maxSize, Math.max(STROKE_LIMITS.minSize, r));
   } else if (stroke && stroke.points.length < STROKE_LIMITS.points) {
     const at = developer.toImage(event.clientX, event.clientY).map(v => round(Math.min(1, Math.max(0, v))));
     const last = stroke.points.at(-1), long = Math.max(developer.width, developer.height);
@@ -450,6 +568,7 @@ async function finishStroke() {
   if (!s || editing !== s.e) return;
   const e = s.e, done = { tool: s.tool, size: round(s.size), points: s.points };
   if (s.tool === 'soften') done.strength = round(s.strength);
+  else if (s.tool === 'redeye') { brush.size = s.size; paintTools(); }
   else if (COPIES[s.tool]) done.offset = e.offset;
   else {
     // Spot heal: Rust picks the best nearby source before the stroke is saved, so it replays the same way.
@@ -491,6 +610,7 @@ async function openShoot(path) {
     for (const url of [...thumbs.values(), ...previews.values()]) URL.revokeObjectURL(url);
     thumbs.clear(); previews.clear();
     for (const img of loupe.querySelectorAll('img')) { img.removeAttribute('src'); img.dataset.name = ''; }
+    selected.clear();
     dir = path; photos = list; ratings = saved?.ratings || {}; recipes = edits; cursor = 0; view = 'grid'; visible = [];
     $('#shoot-name').textContent = path.split(/[\\/]/).filter(Boolean).pop();
     status('');
@@ -531,7 +651,23 @@ checkForUpdate();
 $('#open').onclick = async () => { const path = await invoke('pick_shoot'); if (path) openShoot(path); };
 invoke('startup_shoot').then(path => { if (path) openShoot(path); });
 $('#filter').onchange = () => { renderGrid(); showViewer(); $('#filter').blur(); grid.focus(); };
-grid.onclick = event => { const cell = event.target.closest('.cell'); if (cell) move(+cell.dataset.i); };
+// Ctrl+click adds or removes a photo from the selection, Shift+click adds the run from the current photo.
+grid.onclick = event => {
+  const cell = event.target.closest('.cell');
+  if (!cell) return;
+  const i = +cell.dataset.i, id = visible[i].id;
+  if (event.shiftKey) for (let j = Math.min(i, cursor); j <= Math.max(i, cursor); j++) selected.add(visible[j].id);
+  else if (event.ctrlKey || event.metaKey) {
+    if (!selected.size && visible[cursor]) selected.add(visible[cursor].id);
+    if (selected.has(id) && i !== cursor) selected.delete(id); else selected.add(id);
+  } else selected.clear();
+  move(i);
+  paintSelection();
+};
+function paintSelection() {
+  for (const cell of grid.querySelectorAll('.cell')) cell.classList.toggle('selected', selected.has(cell.dataset.id));
+  counts();
+}
 grid.ondblclick = event => { if (event.target.closest('.cell')) { view = 'loupe'; showViewer(); } };
 
 document.addEventListener('keydown', event => {
@@ -544,7 +680,12 @@ document.addEventListener('keydown', event => {
   if (view === 'develop' && event.key === ' ') { event.preventDefault(); spaceHeld = true; return; } // hold to pan
   if (event.ctrlKey || event.metaKey) {
     const letter = event.key.toLowerCase();
-    if (view === 'develop' && (letter === 'z' || letter === 'y')) { event.preventDefault(); undo(letter === 'y' || event.shiftKey); }
+    const ctrl = {
+      ...view === 'develop' && { z: () => undo(letter === 'y' || event.shiftKey), y: () => undo(true) },
+      c: copySettings, v: pasteSettings,
+      ...view === 'grid' && { a: () => { for (const p of visible) selected.add(p.id); paintSelection(); } }
+    };
+    if (ctrl[letter]) { event.preventDefault(); ctrl[letter](); }
     return;
   }
   const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
@@ -555,11 +696,11 @@ document.addEventListener('keydown', event => {
     ArrowDown: () => view === 'grid' ? move(cursor + columns) : move(cursor + 1),
     Enter: () => { view = view === 'grid' ? 'loupe' : 'grid'; showViewer(); },
     ' ': () => { view = view === 'grid' ? 'loupe' : 'grid'; showViewer(); },
-    Escape: () => { if (view === 'develop' && tool) return pickTool(null); view = 'grid'; showViewer(); },
+    Escape: () => { if (view === 'develop' && tool) return pickTool(null); if (view === 'grid' && selected.size) { selected.clear(); return paintSelection(); } view = 'grid'; showViewer(); },
     d: () => { view = 'develop'; showViewer(); },
     '\\': () => { if (view === 'develop' && !before) { before = true; draw(); } },
     ...view === 'develop' && {
-      j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'),
+      j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'),
       '[': () => resize(1 / 1.25), ']': () => resize(1.25),
       z: () => { const box = canvas.getBoundingClientRect(); developer?.toggleZoom(pointer?.clientX ?? box.left + box.width / 2, pointer?.clientY ?? box.top + box.height / 2); draw(); }
     },
