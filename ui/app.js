@@ -6,6 +6,7 @@ const grid = $('#grid'), loupe = $('#loupe'), develop = $('#develop'), canvas = 
 let dir = null, opening = false, updating = false, photos = [], ratings = {}, recipes = {}, visible = [], cursor = 0, view = 'grid', anchor = null, saving = Promise.resolve();
 const selected = new Set(); // photo ids picked with Ctrl/Shift+click in the grid, for pasting settings onto
 let clipboard = null;       // settings copied with Ctrl+C
+let deliverSettings = null; // the shoot's last Deliver choices, saved in shoot.json
 const thumbs = new Map();   // photo id -> blob URL, small, kept for the whole session
 const previews = new Map(); // previewKey -> blob URL, full size, capped below
 
@@ -15,7 +16,7 @@ const KEYS = {
   grid: `←→↑↓ move · Enter loupe · D develop · C compare · ${CULL_KEYS} · Ctrl/Shift+click select · Ctrl+A select all · ${COPY_KEYS} (onto the selection)`,
   loupe: `←→ move · Enter or Esc grid · D develop · C compare · ${CULL_KEYS} · ${COPY_KEYS}`,
   compare: `←→ change the right photo · C one photo · Esc grid · ${CULL_KEYS}`,
-  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · [ ] brush size · Ctrl+click heal/clone source · Z zoom · Space+drag pan · Esc drop tool, then grid`
+  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · [ ] brush size · Ctrl+click heal/clone source · R crop · Z zoom · Space+drag pan · Esc drop tool, then grid`
 };
 
 const fileOf = photo => photo.jpg || photo.raw;
@@ -172,7 +173,7 @@ function move(to) {
 // change and when you leave it, while its pixels are still on the GPU.
 let developer = null, editing = null, before = false, dragStart = null, frame = 0;
 const note = text => { $('#develop-note').textContent = text; $('#develop-note').hidden = !text; };
-const sameRecipe = (a, b) => SETTINGS.every(key => a[key] === b[key]) && a.retouch === b.retouch;
+const sameRecipe = (a, b) => SETTINGS.every(key => a[key] === b[key]) && a.retouch === b.retouch && sameCrop(a.crop, b.crop);
 
 // Everything that touches the open photo's pixels runs in order, one step at a time: loading a photo,
 // applying retouch strokes in Rust and patching them in, and reading the look to save. So the strokes
@@ -210,6 +211,11 @@ for (const s of SLIDERS) {
   let group;
   for (const l of LOOKS) { group = l.group || group; $(`#look optgroup[label="${group}"]`).append(new Option(l.name, l.id)); }
 }
+const ASPECTS = ['Original', 'Free', '1:1', '4:5', '5:7', '2:3', '16:9'];
+sliders.insertAdjacentHTML('beforeend', `<h3>Crop</h3><div class="crop"><button id="crop" type="button"></button>
+  <select id="aspect" aria-label="Aspect ratio">${ASPECTS.map(a => `<option>${a}</option>`).join('')}</select><button id="aspect-swap" type="button" title="Swap width and height">Swap</button></div>
+  <label><span>Straighten</span><output></output><input type="range" min="${-MAX_ANGLE}" max="${MAX_ANGLE}" step="0.1" value="0" data-crop="angle"></label>
+  <p id="crop-hint"></p><button id="crop-reset" type="button">Reset crop</button>`);
 sliders.insertAdjacentHTML('beforeend', `<h3>Retouch</h3><div class="tools">${Object.entries(TOOLS).map(([key, label]) =>
   `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E' }[key]}</kbd></button>`).join('')}</div>
   <label><span>Brush size</span><output></output><input type="range" min="0" max="100" step="1" data-brush="size"></label>
@@ -220,12 +226,12 @@ sliders.insertAdjacentHTML('beforeend', '<button id="reset" type="button">Reset 
 const HINTS = {
   spot: 'Paint over a spot; Shoot Studio finds clean skin nearby to blend in.',
   heal: 'Ctrl+click a clean area, then paint. Its texture is blended into the colour around the stroke.',
-  clone: 'Ctrl+click a source, then paint an exact copy of it.',
+  clone: 'Ctrl+click a source, then paint. Exact copy, no blending. For skin, use Heal.',
   soften: 'Paint over skin to smooth blotches while keeping pores and fine detail.',
   redeye: 'Click a red pupil, or drag out a circle over the eye. Only strongly red pixels darken; the white catchlight stays.'
 };
 function paintTools() {
-  for (const button of sliders.querySelectorAll('[data-tool]')) button.classList.toggle('active', button.dataset.tool === tool);
+  for (const button of sliders.querySelectorAll('[data-tool]')) { button.classList.toggle('active', button.dataset.tool === tool); button.disabled = !!cropping; }
   const size = sliders.querySelector('[data-brush=size]'), strength = sliders.querySelector('[data-brush=strength]');
   size.value = sizeToSlider(brush.size);
   size.previousElementSibling.textContent = developer?.width ? Math.max(1, Math.round(brush.size * Math.max(developer.width, developer.height))) + ' px' : '';
@@ -246,6 +252,13 @@ function paintSliders() {
   }
   $('#look').value = editing?.recipe.look || '';
   sliders.querySelector('[data-key=lookAmount]').disabled = !editing?.recipe.look;
+  const crop = cropping?.crop || editing?.recipe.crop || NO_CROP, angle = sliders.querySelector('[data-crop=angle]');
+  angle.value = crop.angle;
+  angle.previousElementSibling.textContent = (crop.angle > 0 ? '+' : '') + crop.angle.toFixed(1) + '°';
+  $('#aspect').value = aspect;
+  $('#crop').innerHTML = cropping ? 'Apply <kbd>Enter</kbd>' : 'Crop <kbd>R</kbd>';
+  $('#crop-hint').textContent = cropping ? 'Drag a corner or edge to crop, inside to move. Enter or R applies, Esc cancels.' : 'Crop and straighten; the original file is never changed.';
+  stage.classList.toggle('cropping', !!cropping);
 }
 
 // Presets: her own named settings, kept for every shoot in the app's settings folder.
@@ -297,11 +310,14 @@ $('#look').onchange = () => {
 
 function draw() {
   $('#develop-caption').textContent = editing ? caption(editing.photo) + (before ? ' · Before' : '') : '';
+  // Cropping shows the whole straightened photo, with the crop drawn over it.
+  if (developer) developer.crop = !editing ? NO_CROP : cropping ? { ...NO_CROP, angle: cropping.crop.angle } : editing.recipe.crop;
   if (developer && !frame) frame = requestAnimationFrame(() => { frame = 0; developer.show(before || !editing ? {} : editing.recipe); paintOverlay(); });
 }
 new ResizeObserver(draw).observe(canvas);
 
-// The brush circle under the pointer, the stroke being painted, and a crosshair where it copies from.
+// The brush circle under the pointer, the stroke being painted, and a crosshair where it copies from
+// (joined to the brush by a dashed line while painting).
 function paintOverlay() {
   const dpr = window.devicePixelRatio || 1, w = Math.round(overlay.clientWidth * dpr), h = Math.round(overlay.clientHeight * dpr);
   if (overlay.width !== w || overlay.height !== h) Object.assign(overlay, { width: w, height: h });
@@ -309,13 +325,15 @@ function paintOverlay() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   const e = editing, place = e?.ready && developer.placement();
+  if (cropping && place) return paintCrop(g);
   if (!tool || !place) return;
   const ring = (x, y, r) => {
     for (const [colour, width] of [['rgba(0,0,0,.6)', 3], ['#fff', 1]]) { g.strokeStyle = colour; g.lineWidth = width; g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); g.stroke(); }
   };
   // Red eye: the circle being dragged out from the pupil's centre.
-  if (stroke?.tool === 'redeye') { const [x, y] = developer.fromImage(stroke.points[0]); return ring(x, y, stroke.size * Math.max(place.w, place.h)); }
-  const radius = brush.size * Math.max(place.w, place.h);
+  const long = Math.max(developer.width, developer.height) * place.scale; // the photo's long edge on screen
+  if (stroke?.tool === 'redeye') { const [x, y] = developer.fromImage(stroke.points[0]); return ring(x, y, stroke.size * long); }
+  const radius = brush.size * long;
   if (stroke?.points.length > 1) {
     g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 2 * radius; g.lineCap = g.lineJoin = 'round';
     g.beginPath();
@@ -331,8 +349,150 @@ function paintOverlay() {
       ring(x, y, radius);
       g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath();
       g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.moveTo(x, y - 6); g.lineTo(x, y + 6); g.stroke();
+      if (stroke && at) {
+        const [bx, by] = developer.fromImage(at);
+        g.setLineDash([4, 4]); g.beginPath(); g.moveTo(bx, by); g.lineTo(x, y); g.stroke(); g.setLineDash([]);
+      }
     }
   }
+}
+
+// Crop mode (R): the whole straightened photo, the crop over it. Nothing changes until Enter or R
+// applies it as one undo step; Esc puts it back. `ratio` is width over height in pixels, null when free.
+let cropping = null, aspect = 'Original';
+const RATIOS = { '1:1': 1, '4:5': 4 / 5, '5:7': 5 / 7, '2:3': 2 / 3, '16:9': 16 / 9 };
+const pixelRatio = c => c.w * developer.width / (c.h * developer.height);
+// The aspect's ratio, turned the same way as the crop `like` (wide or tall).
+function ratioOf(name, like) {
+  if (name === 'Free') return null;
+  const r = name === 'Original' ? developer.width / developer.height : RATIOS[name];
+  return pixelRatio(like) >= 1 ? Math.max(r, 1 / r) : Math.min(r, 1 / r);
+}
+// The largest crop of `ratio` around the crop's centre that stays on the photo.
+function reshape(c, ratio) {
+  const W = developer.width, H = developer.height;
+  let w = 1, h = W / (ratio * H);
+  if (h > 1) { h = 1; w = ratio * H / W; }
+  const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+  return fitCrop({ ...c, x: Math.min(1 - w, Math.max(0, cx - w / 2)), y: Math.min(1 - h, Math.max(0, cy - h / 2)), w, h }, W, H);
+}
+function startCrop() {
+  const e = editing;
+  if (cropping || !e?.ready || updating) return cropping;
+  tool = stroke = null;
+  cropping = { e, crop: e.recipe.crop, ratio: ratioOf(aspect, e.recipe.crop) };
+  // A fresh crop takes the chosen shape; an existing one that doesn't match it is free.
+  if (cropping.ratio && sameCrop(cropping.crop, NO_CROP)) cropping.crop = reshape(cropping.crop, cropping.ratio);
+  else if (cropping.ratio && Math.abs(pixelRatio(cropping.crop) / cropping.ratio - 1) > 1e-3) { aspect = 'Free'; cropping.ratio = null; }
+  developer.fit(); paintSliders(); draw();
+  return cropping;
+}
+function endCrop(apply) {
+  const c = cropping;
+  if (!c) return;
+  cropping = null;
+  developer.fit();
+  stage.style.cursor = '';
+  if (apply && editing === c.e) {
+    const was = c.e.recipe;
+    c.e.recipe = { ...was, crop: c.crop };
+    commit(c.e, was);
+  }
+  paintSliders(); draw();
+}
+const toggleCrop = () => cropping ? endCrop(true) : startCrop();
+function setAspect(name) {
+  if (!startCrop()) return;
+  aspect = name;
+  cropping.ratio = ratioOf(name, cropping.crop);
+  if (cropping.ratio) cropping.crop = reshape(cropping.crop, cropping.ratio);
+  paintSliders(); draw();
+}
+function setAngle(angle) {
+  if (!startCrop()) return;
+  cropping.base ||= cropping.crop; // a straighten drag fits from where it began, so it doesn't keep shrinking
+  cropping.crop = fitCrop({ ...cropping.base, angle }, developer.width, developer.height);
+  paintSliders(); draw();
+}
+$('#crop').onclick = () => { $('#crop').blur(); toggleCrop(); };
+$('#aspect').onchange = () => { $('#aspect').blur(); setAspect($('#aspect').value); };
+$('#aspect-swap').onclick = () => {
+  $('#aspect-swap').blur();
+  if (!startCrop()) return;
+  const ratio = 1 / pixelRatio(cropping.crop);
+  if (cropping.ratio) cropping.ratio = ratio;
+  cropping.crop = reshape(cropping.crop, ratio);
+  paintSliders(); draw();
+};
+$('#crop-reset').onclick = () => {
+  $('#crop-reset').blur();
+  if (!editing?.ready) return;
+  if (aspect !== 'Free') aspect = 'Original';
+  if (cropping) { cropping.crop = NO_CROP; cropping.ratio = ratioOf(aspect, NO_CROP); paintSliders(); return draw(); }
+  const was = editing.recipe;
+  editing.recipe = { ...was, crop: NO_CROP };
+  commit(editing, was);
+};
+sliders.addEventListener('input', event => { if (event.target.dataset.crop) setAngle(+event.target.value); });
+sliders.addEventListener('change', event => { if (event.target.dataset.crop && cropping) cropping.base = null; });
+sliders.addEventListener('dblclick', event => { if (event.target.dataset.crop && editing?.ready) { setAngle(0); cropping.base = null; } });
+
+// The crop's corners and edge midpoints on screen, and what a press at (x, y) on the canvas grabs.
+function cropHandles() {
+  const c = cropping.crop, [x0, y0] = developer.fromView([c.x, c.y]), [x1, y1] = developer.fromView([c.x + c.w, c.y + c.h]), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  return { nw: [x0, y0], n: [mx, y0], ne: [x1, y0], e: [x1, my], se: [x1, y1], s: [mx, y1], sw: [x0, y1], w: [x0, my], box: [x0, y0, x1, y1] };
+}
+function cropGrab(clientX, clientY) {
+  const box = canvas.getBoundingClientRect(), x = clientX - box.left, y = clientY - box.top, h = cropHandles(), [x0, y0, x1, y1] = h.box;
+  const handle = Object.keys(h).find(k => k !== 'box' && Math.hypot(h[k][0] - x, h[k][1] - y) <= 12);
+  return handle || (x > x0 && x < x1 && y > y0 && y < y1 ? 'move' : null);
+}
+const CURSORS = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', move: 'move' };
+
+// Where a drag of (dx, dy) across the straightened photo would put the crop, before keeping it on the photo.
+function dragged(from, grab, dx, dy, ratio) {
+  const MIN = 0.02, W = developer.width, H = developer.height;
+  let x0 = from.x, y0 = from.y, x1 = from.x + from.w, y1 = from.y + from.h;
+  if (grab.includes('w')) x0 = Math.min(x0 + dx, x1 - MIN);
+  if (grab.includes('e')) x1 = Math.max(x1 + dx, x0 + MIN);
+  if (grab.includes('n')) y0 = Math.min(y0 + dy, y1 - MIN);
+  if (grab.includes('s')) y1 = Math.max(y1 + dy, y0 + MIN);
+  let w = x1 - x0, h = y1 - y0;
+  if (ratio) {
+    const sideways = grab === 'e' || grab === 'w' || (grab.length === 2 && Math.abs(dx * W) >= Math.abs(dy * H));
+    if (sideways) h = w * W / (ratio * H); else w = h * H * ratio / W;
+    // An edge grows both ways from the middle; a corner grows away from the opposite corner.
+    if (grab.length === 1) { if (sideways) y0 = from.y + from.h / 2 - h / 2; else x0 = from.x + from.w / 2 - w / 2; }
+    else { if (grab.includes('w')) x0 = x1 - w; if (grab.includes('n')) y0 = y1 - h; }
+  }
+  return { ...from, x: x0, y: y0, w, h };
+}
+// As far as the drag can go toward `to` with the crop still on the photo.
+function toward(from, to) {
+  const W = developer.width, H = developer.height, at = t => ({ ...from, ...Object.fromEntries(['x', 'y', 'w', 'h'].map(k => [k, from[k] + (to[k] - from[k]) * t])) });
+  if (cropFits(to, W, H)) return to;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (cropFits(at(mid), W, H)) lo = mid; else hi = mid; }
+  return at(lo);
+}
+function dragCrop(clientX, clientY) {
+  const d = cropping.drag, v = developer.toView(clientX, clientY), dx = v[0] - d.start[0], dy = v[1] - d.start[1];
+  // Moving slides along an edge it meets, so sideways and up-down are kept on the photo one at a time.
+  if (d.grab !== 'move') return void (cropping.crop = toward(d.from, dragged(d.from, d.grab, dx, dy, cropping.ratio)));
+  const across = toward(d.from, { ...d.from, x: d.from.x + dx });
+  cropping.crop = toward(across, { ...across, y: d.from.y + dy });
+}
+
+function paintCrop(g) {
+  const h = cropHandles(), [x0, y0, x1, y1] = h.box;
+  g.fillStyle = 'rgba(0,0,0,.55)';
+  g.beginPath(); g.rect(0, 0, overlay.clientWidth, overlay.clientHeight); g.rect(x0, y0, x1 - x0, y1 - y0); g.fill('evenodd');
+  g.strokeStyle = 'rgba(255,255,255,.4)'; g.lineWidth = 1; g.beginPath();
+  for (const k of [1, 2]) { const x = x0 + (x1 - x0) * k / 3, y = y0 + (y1 - y0) * k / 3; g.moveTo(x, y0); g.lineTo(x, y1); g.moveTo(x0, y); g.lineTo(x1, y); }
+  g.stroke();
+  g.strokeStyle = '#fff'; g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  g.fillStyle = '#fff';
+  for (const k of Object.keys(CURSORS)) if (h[k]) g.fillRect(h[k][0] - 4, h[k][1] - 4, 8, 8);
 }
 
 async function openDevelop(photo) {
@@ -364,6 +524,7 @@ async function openDevelop(photo) {
 function leaveDevelop() {
   const e = editing;
   if (!e) return;
+  endCrop(true); // leaving the photo keeps its crop
   editing = null; before = false; dragStart = stroke = panning = null;
   saveLook(e);
   paintSliders();
@@ -504,11 +665,13 @@ sliders.addEventListener('dblclick', event => {
 $('#reset').onclick = () => {
   $('#reset').blur();
   if (!editing) return;
+  endCrop(false);
   const was = editing.recipe;
   editing.recipe = fullRecipe();
   commit(editing, was);
 };
 function pickTool(next) {
+  if (cropping) return;
   tool = next;
   stroke = null;
   paintTools(); draw();
@@ -526,12 +689,17 @@ stage.addEventListener('pointerdown', event => {
     panning = { x: event.clientX, y: event.clientY };
     return capture(event);
   }
+  if (cropping) {
+    const grab = event.button === 0 && cropGrab(event.clientX, event.clientY);
+    if (grab) { cropping.drag = { grab, start: developer.toView(event.clientX, event.clientY), from: cropping.crop }; capture(event); }
+    return;
+  }
   const at = developer.toImage(event.clientX, event.clientY);
-  if (event.button !== 0 || !tool || !inside(at)) return;
+  if (event.button !== 0 || !tool || !inside(at) || !inside(developer.toView(event.clientX, event.clientY))) return;
   if (tool === 'redeye') { stroke = { e, tool, size: brush.size, points: [at.map(round)] }; capture(event); return draw(); }
   if (COPIES[tool] && (event.ctrlKey || event.metaKey)) { e.from = at; e.offset = null; return draw(); }
   if (COPIES[tool] && !e.from) return status('Ctrl+click where to copy from first.');
-  // Aligned: the source keeps the same distance from the brush for every stroke until the next Ctrl+click.
+  // Each stroke starts copying from the Ctrl+clicked spot, then follows the brush at that distance.
   if (COPIES[tool] && !e.offset) e.offset = [round(e.from[0] - at[0]), round(e.from[1] - at[1])];
   stroke = { e, tool, size: brush.size, strength: brush.strength, points: [at.map(round)] };
   capture(event);
@@ -542,7 +710,9 @@ stage.addEventListener('pointermove', event => {
   if (panning) {
     developer.pan(event.clientX - panning.x, event.clientY - panning.y);
     panning = { x: event.clientX, y: event.clientY };
-  } else if (stroke?.tool === 'redeye') {
+  } else if (cropping?.drag) dragCrop(event.clientX, event.clientY);
+  else if (cropping) stage.style.cursor = editing?.ready ? CURSORS[cropGrab(event.clientX, event.clientY)] || '' : '';
+  else if (stroke?.tool === 'redeye') {
     // Dragging sets the circle's radius; a plain click keeps the brush size.
     const at = developer.toImage(event.clientX, event.clientY), [x, y] = stroke.points[0];
     const r = Math.hypot((at[0] - x) * developer.width, (at[1] - y) * developer.height) / Math.max(developer.width, developer.height);
@@ -558,10 +728,11 @@ stage.addEventListener('pointermove', event => {
 stage.addEventListener('mousedown', event => { if (event.button === 1) event.preventDefault(); }); // no autoscroll on middle-drag
 stage.addEventListener('pointerleave', () => { pointer = null; draw(); });
 stage.addEventListener('pointerup', finishStroke);
-stage.addEventListener('pointercancel', () => { stroke = panning = null; draw(); });
+stage.addEventListener('pointercancel', () => { stroke = panning = null; if (cropping) cropping.drag = null; draw(); });
 
 async function finishStroke() {
   panning = null;
+  if (cropping) { cropping.drag = null; return; }
   const s = stroke;
   stroke = null;
   draw();
@@ -569,7 +740,7 @@ async function finishStroke() {
   const e = s.e, done = { tool: s.tool, size: round(s.size), points: s.points };
   if (s.tool === 'soften') done.strength = round(s.strength);
   else if (s.tool === 'redeye') { brush.size = s.size; paintTools(); }
-  else if (COPIES[s.tool]) done.offset = e.offset;
+  else if (COPIES[s.tool]) { done.offset = e.offset; e.offset = null; } // the next stroke starts from the Ctrl+clicked spot again
   else {
     // Spot heal: Rust picks the best nearby source before the stroke is saved, so it replays the same way.
     try {
@@ -583,15 +754,19 @@ async function finishStroke() {
   commit(e, was);
 }
 
+// shoot.json: ratings and the Deliver choices. Saves are chained so the last change always lands last.
+function saveShoot() {
+  const data = { version: 1, ratings: { ...ratings }, ...deliverSettings && { deliver: deliverSettings } }, shoot = dir;
+  saving = saving.then(() => invoke('save_shoot', { dir: shoot, data })).then(() => status('Saved'), error => status('Not saved: ' + error, true));
+}
+
 function rate(change) {
   const photo = visible[cursor];
   if (!photo) return;
   const next = { ...rating(photo), ...change };
   for (const key of Object.keys(next)) if (!next[key]) delete next[key];
   if (Object.keys(next).length) ratings[photo.id] = next; else delete ratings[photo.id];
-  const data = { version: 1, ratings: { ...ratings } }, shoot = dir;
-  // Saves are chained so the last change always lands last.
-  saving = saving.then(() => invoke('save_shoot', { dir: shoot, data })).then(() => status('Saved'), error => status('Not saved: ' + error, true));
+  saveShoot();
   if (shown(photo)) paintCell(grid.children[cursor], photo);
   else renderGrid(); // it left the filter; the next photo takes its place
   counts();
@@ -611,14 +786,141 @@ async function openShoot(path) {
     thumbs.clear(); previews.clear();
     for (const img of loupe.querySelectorAll('img')) { img.removeAttribute('src'); img.dataset.name = ''; }
     selected.clear();
-    dir = path; photos = list; ratings = saved?.ratings || {}; recipes = edits; cursor = 0; view = 'grid'; visible = [];
+    dir = path; photos = list; ratings = saved?.ratings || {}; deliverSettings = saved?.deliver && typeof saved.deliver === 'object' ? saved.deliver : null; recipes = edits; cursor = 0; view = 'grid'; visible = [];
     $('#shoot-name').textContent = path.split(/[\\/]/).filter(Boolean).pop();
     status('');
+    $('#deliver-open').disabled = false;
     renderGrid();
     showViewer();
     grid.focus();
   } catch (error) { status(String(error), true); } finally { opening = false; $('#open').disabled = false; }
 }
+
+// Deliver (Ctrl+E): finished JPEGs for the client, rendered from the recipes at full size or for the web,
+// into a folder outside the shoot's own. One photo at a time; Cancel stops after the current one.
+const WEB_EDGE = 2048;
+const deliverBox = $('#deliver');
+let delivering = null, exporter = null;
+const fileSafe = text => text.trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+const markText = () => $('#deliver-mark').value.trim() || 'PROOF';
+const deliverForm = () => ({
+  which: deliverBox.querySelector('[name=deliver-which]:checked')?.value || 'all',
+  size: $('#deliver-size').value, quality: +$('#deliver-quality').value, names: $('#deliver-names').value,
+  client: $('#deliver-client').value.trim(), folder: deliverBox.dataset.folder || null,
+  watermark: $('#deliver-watermark').checked, mark: markText()
+});
+// The photos to deliver, in shoot order.
+function deliverList(which) {
+  if (which === 'picks') return photos.filter(p => rating(p).flag === 'pick');
+  if (which === 'selected') return photos.filter(p => selected.has(p.id));
+  return photos.filter(p => rating(p).flag !== 'reject');
+}
+const deliverName = (s, photo, i) => (s.names === 'client' ? fileSafe(s.client) + '-' + String(i + 1).padStart(4, '0') : photo.id) + '.jpg';
+const deliverFolder = s => s.folder || dir.replace(/[\\/]+$/, '') + '/Delivered' + (s.names === 'client' && fileSafe(s.client) ? '/' + fileSafe(s.client) : '');
+function paintDeliver() {
+  const s = deliverForm(), list = deliverList(s.which), busy = !!delivering;
+  deliverBox.querySelector('[value=selected]').disabled = !selected.size;
+  $('#deliver-count').textContent = `${list.length} photo${list.length === 1 ? '' : 's'}`;
+  $('#deliver-quality-value').textContent = s.quality;
+  $('#deliver-client-row').hidden = s.names !== 'client';
+  $('#deliver-mark').disabled = !s.watermark;
+  $('#deliver-preview').textContent = list.length && (s.names !== 'client' || fileSafe(s.client)) ? list.slice(0, 2).map((p, i) => deliverName(s, p, i)).join(', ') + (list.length > 2 ? ' …' : '') : '';
+  $('#deliver-folder').textContent = '\u200e' + deliverFolder(s) + '\u200e'; // keeps the slashes in place in the right-aligned ellipsis
+  $('#deliver-folder').title = deliverFolder(s);
+  $('#deliver-form').disabled = busy;
+  $('#deliver-go').disabled = busy || !list.length || (s.names === 'client' && !fileSafe(s.client));
+  $('#deliver-cancel').textContent = busy ? 'Stop' : 'Close';
+}
+function openDeliver() {
+  if (!dir || opening || updating || delivering) return;
+  endCrop(true);
+  const s = deliverSettings || {}, has = which => deliverList(which).length;
+  const which = selected.size ? 'selected' : has('picks') ? 'picks' : 'all';
+  deliverBox.querySelector(`[value=${which}]`).checked = true;
+  $('#deliver-size').value = s.size === 'web' ? 'web' : 'full';
+  $('#deliver-quality').value = Number.isFinite(s.quality) ? s.quality : 90;
+  $('#deliver-names').value = s.names === 'original' ? 'original' : 'client';
+  $('#deliver-client').value = typeof s.client === 'string' ? s.client : '';
+  deliverBox.dataset.folder = typeof s.folder === 'string' ? s.folder : '';
+  $('#deliver-watermark').checked = !!s.watermark;
+  $('#deliver-mark').value = typeof s.mark === 'string' ? s.mark : localStorage.getItem('deliver-mark') || 'PROOF';
+  $('#deliver-progress').textContent = ''; $('#deliver-progress').classList.remove('error');
+  $('#deliver-ask').hidden = true;
+  paintDeliver();
+  deliverBox.showModal();
+}
+deliverBox.addEventListener('input', paintDeliver);
+deliverBox.addEventListener('change', paintDeliver);
+deliverBox.addEventListener('cancel', event => { if (delivering) { event.preventDefault(); delivering.stop = true; } }); // Esc
+deliverBox.addEventListener('close', () => grid.focus());
+$('#deliver-open').onclick = () => { $('#deliver-open').blur(); openDeliver(); };
+$('#deliver-cancel').onclick = () => { if (delivering) { delivering.stop = true; $('#deliver-progress').textContent = 'Stopping after this photo…'; } else deliverBox.close(); };
+$('#deliver-change').onclick = async () => {
+  const path = await invoke('pick_shoot', { title: 'Deliver to folder' });
+  if (path) { deliverBox.dataset.folder = path; paintDeliver(); }
+};
+// One question for the whole run: replace files already there, or skip them.
+function askReplace() {
+  const ask = $('#deliver-ask');
+  ask.querySelector('span').textContent = 'Some of these photos are already in that folder.';
+  ask.hidden = false;
+  $('#deliver-skip').focus();
+  return new Promise(done => { $('#deliver-replace').onclick = () => done(true); $('#deliver-skip').onclick = () => done(false); })
+    .finally(() => { ask.hidden = true; });
+}
+// The rendered photo as a JPEG, with the proof watermark at the bottom right if asked for.
+function deliverJpeg(image, s) {
+  const out = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height }), g = out.getContext('2d');
+  g.putImageData(image, 0, 0);
+  if (s.watermark) {
+    const size = Math.max(10, Math.round(0.03 * Math.max(image.width, image.height)));
+    g.font = `600 ${size}px sans-serif`; g.fillStyle = 'rgba(255,255,255,.4)'; g.textAlign = 'right'; g.textBaseline = 'bottom';
+    g.fillText(s.mark, image.width - size, image.height - size);
+  }
+  return new Promise((done, fail) => out.toBlob(blob => blob ? done(blob) : fail('could not make the JPEG'), 'image/jpeg', s.quality / 100));
+}
+$('#deliver-go').onclick = async () => {
+  const s = deliverForm(), list = deliverList(s.which), shoot = dir, folder = deliverFolder(s), full = s.size === 'full';
+  if (!list.length || delivering) return;
+  deliverSettings = { size: s.size, quality: s.quality, names: s.names, client: s.client, folder: s.folder, watermark: s.watermark, mark: s.mark };
+  localStorage.setItem('deliver-mark', s.mark);
+  saveShoot();
+  const progress = $('#deliver-progress'), run = delivering = { stop: false };
+  progress.classList.remove('error');
+  paintDeliver();
+  let done = 0, skipped = 0, replace = null;
+  try {
+    try { exporter ||= new Developer(document.createElement('canvas')); } catch (error) { throw `this computer can't render photos (${error.message})`; }
+    const limit = exporter.maxEdge();
+    for (const [i, photo] of list.entries()) {
+      if (run.stop) break;
+      progress.textContent = `Delivering ${i + 1} of ${list.length}…`;
+      const recipe = fullRecipe(recipes[photo.id]), name = deliverName(s, photo, i);
+      const bytes = await invoke('export_source', { dir: shoot, name: photo.raw || photo.jpg, strokes: recipe.retouch, full });
+      stale(shoot);
+      const [w, h] = new Uint32Array(bytes, 0, 2);
+      if (Math.max(w, h) > limit) throw `${photo.id} is ${w}×${h}; this computer's graphics can make photos up to ${limit} pixels across. Choose Web size`;
+      exporter.setRaw(bytes, !!photo.raw);
+      const jpeg = new Uint8Array(await (await deliverJpeg(exporter.pixels(recipe, full ? Infinity : WEB_EDGE), s)).arrayBuffer());
+      const save = replace => invoke('save_export', jpeg, { headers: { dir: encodeURIComponent(shoot), folder: encodeURIComponent(folder), name: encodeURIComponent(name), replace: String(replace) } });
+      try { await save(!!replace); done++; } catch (error) {
+        if (!String(error).endsWith('already exists')) throw error;
+        if (replace === null) replace = await askReplace();
+        if (replace) { await save(true); done++; } else skipped++;
+      }
+    }
+    const message = `${done} photo${done === 1 ? '' : 's'} in ${folder}` + (skipped ? ` · ${skipped} already there, skipped` : '') + (run.stop && done + skipped < list.length ? ' · stopped' : '');
+    progress.textContent = message;
+    if (shoot === dir) status(message);
+  } catch (error) {
+    progress.textContent = `Stopped after ${done} photo${done === 1 ? '' : 's'}: ${error}`;
+    progress.classList.add('error');
+  } finally {
+    delivering = null;
+    paintDeliver();
+    $('#deliver-cancel').focus(); // the locked form dropped the focus
+  }
+};
 
 // Updates: one check at launch; nothing shows offline. Installing waits for the last rating to save, then restarts.
 async function checkForUpdate() {
@@ -672,6 +974,7 @@ grid.ondblclick = event => { if (event.target.closest('.cell')) { view = 'loupe'
 
 document.addEventListener('keydown', event => {
   const target = event.target;
+  if ($('#deliver').open) return; // the dialog has its own keys
   if (target.matches('input[type=range]')) {
     if (event.key === 'Escape') { event.preventDefault(); return target.blur(); }
     if (/^(Arrow|Page|Home|End)/.test(event.key)) return; // a focused slider keeps its own keys
@@ -681,8 +984,8 @@ document.addEventListener('keydown', event => {
   if (event.ctrlKey || event.metaKey) {
     const letter = event.key.toLowerCase();
     const ctrl = {
-      ...view === 'develop' && { z: () => undo(letter === 'y' || event.shiftKey), y: () => undo(true) },
-      c: copySettings, v: pasteSettings,
+      ...view === 'develop' && !cropping && { z: () => undo(letter === 'y' || event.shiftKey), y: () => undo(true) },
+      c: copySettings, v: pasteSettings, e: openDeliver,
       ...view === 'grid' && { a: () => { for (const p of visible) selected.add(p.id); paintSelection(); } }
     };
     if (ctrl[letter]) { event.preventDefault(); ctrl[letter](); }
@@ -694,13 +997,13 @@ document.addEventListener('keydown', event => {
     ArrowLeft: () => move(cursor - 1), ArrowRight: () => move(cursor + 1),
     ArrowUp: () => view === 'grid' ? move(cursor - columns) : move(cursor - 1),
     ArrowDown: () => view === 'grid' ? move(cursor + columns) : move(cursor + 1),
-    Enter: () => { view = view === 'grid' ? 'loupe' : 'grid'; showViewer(); },
+    Enter: () => { if (cropping) return endCrop(true); view = view === 'grid' ? 'loupe' : 'grid'; showViewer(); },
     ' ': () => { view = view === 'grid' ? 'loupe' : 'grid'; showViewer(); },
-    Escape: () => { if (view === 'develop' && tool) return pickTool(null); if (view === 'grid' && selected.size) { selected.clear(); return paintSelection(); } view = 'grid'; showViewer(); },
+    Escape: () => { if (cropping) return endCrop(false); if (view === 'develop' && tool) return pickTool(null); if (view === 'grid' && selected.size) { selected.clear(); return paintSelection(); } view = 'grid'; showViewer(); },
     d: () => { view = 'develop'; showViewer(); },
     '\\': () => { if (view === 'develop' && !before) { before = true; draw(); } },
     ...view === 'develop' && {
-      j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'),
+      r: toggleCrop, j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'),
       '[': () => resize(1 / 1.25), ']': () => resize(1.25),
       z: () => { const box = canvas.getBoundingClientRect(); developer?.toggleZoom(pointer?.clientX ?? box.left + box.width / 2, pointer?.clientY ?? box.top + box.height / 2); draw(); }
     },

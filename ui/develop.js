@@ -22,8 +22,8 @@ const SLIDERS = [
   { key: 'grain', label: 'Grain', min: 0, max: 100, step: 1 },
   { key: 'fade', label: 'Fade', min: 0, max: 100, step: 1 }
 ];
-const RECIPE_VERSION = 3;
-const SETTINGS = [...SLIDERS.map(s => s.key), 'look']; // everything but retouch: what copy, paste and presets carry
+const RECIPE_VERSION = 4;
+const SETTINGS = [...SLIDERS.map(s => s.key), 'look']; // everything but retouch and crop: what copy, paste and presets carry
 
 // Looks: one grade each, faded in by the Strength slider. Every field is optional:
 // mono turns it black and white (filter: how much red, green and blue make the grey),
@@ -63,14 +63,24 @@ const validStroke = s => !!s && TOOLS[s.tool] && Number.isFinite(s.size) && s.si
     : s.tool === 'redeye' ? s.strength === undefined && s.offset === undefined
     : s.strength === undefined && Array.isArray(s.offset) && s.offset.length === 2 && s.offset.every(v => Number.isFinite(v) && Math.abs(v) <= 1));
 
+// Crop: a rectangle (x, y, w, h, 0–1) of the straightened photo, which is the upright photo turned
+// `angle` degrees clockwise about its centre (keeping its size), then cropped. Copied rather than shared
+// between photos, so it stays out of SETTINGS.
+const NO_CROP = { x: 0, y: 0, w: 1, h: 1, angle: 0 };
+const MAX_ANGLE = 45;
+const validCrop = c => !!c && ['x', 'y', 'w', 'h', 'angle'].every(k => Number.isFinite(c[k])) && c.x >= 0 && c.y >= 0 && c.w >= 0.001 && c.h >= 0.001
+  && c.x + c.w <= 1 + 1e-9 && c.y + c.h <= 1 + 1e-9 && Math.abs(c.angle) <= MAX_ANGLE;
+const sameCrop = (a, b) => ['x', 'y', 'w', 'h', 'angle'].every(k => a[k] === b[k]);
+
 // A saved recipe with any missing setting at its default, and nothing it doesn't know.
 const fullRecipe = (saved = {}) => ({
   ...Object.fromEntries(SLIDERS.map(s => [s.key, Number.isFinite(saved[s.key]) ? Math.min(s.max, Math.max(s.min, saved[s.key])) : s.default ?? 0])),
   look: lookOf(saved.look) ? saved.look : '',
-  retouch: Array.isArray(saved.retouch) ? saved.retouch.filter(validStroke).slice(0, STROKE_LIMITS.strokes) : []
+  retouch: Array.isArray(saved.retouch) ? saved.retouch.filter(validStroke).slice(0, STROKE_LIMITS.strokes) : [],
+  crop: validCrop(saved.crop) ? { x: saved.crop.x, y: saved.crop.y, w: saved.crop.w, h: saved.crop.h, angle: saved.crop.angle } : NO_CROP
 });
-const isDefault = recipe => SLIDERS.every(s => recipe[s.key] === (s.default ?? 0)) && !recipe.look && !recipe.retouch?.length;
-// A recipe's settings without its retouch strokes, which belong to one photo.
+const isDefault = recipe => SLIDERS.every(s => recipe[s.key] === (s.default ?? 0)) && !recipe.look && !recipe.retouch?.length && sameCrop(recipe.crop || NO_CROP, NO_CROP);
+// A recipe's settings without its retouch strokes and crop, which belong to one photo.
 const settingsOf = recipe => Object.fromEntries(SETTINGS.map(key => [key, fullRecipe(recipe)[key]]));
 
 // White balance relative to as shot: warmer adds red and removes blue, positive tint removes green (magenta).
@@ -82,11 +92,45 @@ function whiteBalance(temp, tint) {
   return gains.map(v => v / luma);
 }
 
+// The crop as an affine map from output uv (0–1 across the cropped picture, top row 0) to source uv
+// (0–1 across the upright photo), [a, b, e, c, d, f] for x' = a x + b y + e, y' = c x + d y + f.
+// The turn is done in pixels, so a non-square photo isn't sheared.
+function cropMap(crop, W, H) {
+  const t = -crop.angle * Math.PI / 180, cos = Math.cos(t), sin = Math.sin(t);
+  const px = [W * crop.w, W * (crop.x - 0.5)], py = [H * crop.h, H * (crop.y - 0.5)]; // straightened pixels from the centre
+  return [cos * px[0] / W, -sin * py[0] / W, (cos * px[1] - sin * py[1]) / W + 0.5,
+    sin * px[0] / H, cos * py[0] / H, (sin * px[1] + cos * py[1]) / H + 0.5];
+}
+const mapPoint = ([a, b, e, c, d, f], [x, y]) => [a * x + b * y + e, c * x + d * y + f];
+const unmapPoint = ([a, b, e, c, d, f], [x, y]) => { const det = a * d - b * c, u = x - e, v = y - f; return [(d * u - b * v) / det, (a * v - c * u) / det]; };
+// For the shader: column-major mat3.
+const cropMatrix = (crop, W, H) => { const [a, b, e, c, d, f] = cropMap(crop, W, H); return new Float32Array([a, c, 0, b, d, 0, e, f, 1]); };
+
+// Whether every corner of the crop lands on the photo (and inside the straightened frame).
+const cropFits = (crop, W, H) => crop.x >= -1e-9 && crop.y >= -1e-9 && crop.x + crop.w <= 1 + 1e-9 && crop.y + crop.h <= 1 + 1e-9
+  && [[0, 0], [1, 0], [0, 1], [1, 1]].every(p => mapPoint(cropMap(crop, W, H), p).every(v => v >= -1e-6 && v <= 1 + 1e-6));
+// Shrink the crop about its centre, keeping its shape, until it fits (first moving the centre toward the
+// photo's if the centre itself is off the photo).
+function fitCrop(crop, W, H) {
+  if (cropFits(crop, W, H)) return crop;
+  const at = (c, k) => ({ ...c, x: c.x + c.w * (1 - k) / 2, y: c.y + c.h * (1 - k) / 2, w: c.w * k, h: c.h * k });
+  // The boundary between fits(lo) true and fits(hi) false.
+  const search = (fits, lo, hi) => { for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; } return lo; };
+  let c = crop;
+  if (!cropFits(at(c, 1e-6), W, H)) {
+    const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+    const moved = t => ({ ...c, x: cx + (0.5 - cx) * t - c.w / 2, y: cy + (0.5 - cy) * t - c.h / 2 });
+    c = moved(search(t => cropFits(at(moved(t), 1e-6), W, H), 1, 0));
+  }
+  return at(c, search(k => cropFits(at(c, k), W, H), 0, 1));
+}
+
 // Texture row 0 is the photo's top. On screen that's the top of the viewport; read back with
 // readPixels (bottom row first) it must be at the bottom, hence u_flip.
+// v_uv is across the cropped picture (for the vignette and grain), v_src where that is on the photo.
 const VERTEX = `#version 300 es
-in vec2 a_pos; out vec2 v_uv; uniform bool u_flip;
-void main() { v_uv = vec2(a_pos.x, u_flip ? a_pos.y : -a_pos.y) * 0.5 + 0.5; gl_Position = vec4(a_pos, 0, 1); }`;
+in vec2 a_pos; out vec2 v_uv, v_src; uniform bool u_flip; uniform mat3 u_crop;
+void main() { v_uv = vec2(a_pos.x, u_flip ? a_pos.y : -a_pos.y) * 0.5 + 0.5; v_src = (u_crop * vec3(v_uv, 1)).xy; gl_Position = vec4(a_pos, 0, 1); }`;
 
 const FRAGMENT = `#version 300 es
 precision highp float;
@@ -97,8 +141,8 @@ uniform float u_exposure, u_contrast, u_highlights, u_shadows, u_whites, u_black
 // The look, and the finishing that goes on any photo.
 uniform float u_look, u_mono, u_lookContrast, u_lookSat, u_fade, u_grain, u_vignette;
 uniform vec3 u_filter, u_lift, u_gamma, u_gain;
-uniform vec2 u_toneLo, u_toneHi, u_splitLo, u_splitHi;
-in vec2 v_uv; out vec4 color;
+uniform vec2 u_toneLo, u_toneHi, u_splitLo, u_splitHi, u_grainScale;
+in vec2 v_uv, v_src; out vec4 color;
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
 vec3 toSrgb(vec3 x) { x = max(x, 0.0); return mix(12.92 * x, 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, x)); }
@@ -144,7 +188,7 @@ vec3 grade(vec3 d, float sat, vec2 lo, vec2 hi) {
   return toSrgb(clamp(fromOklab(lab), 0.0, 1.0));
 }
 
-// Film grain: smooth noise about 1.5 photo pixels across, the same wherever the photo is drawn.
+// Film grain: smooth noise about 1.5 pixels across at 3000 px on the long edge, the same at any size.
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -152,7 +196,10 @@ float noise(vec2 p) {
 }
 
 void main() {
-  vec3 c = texture(u_src, v_uv).rgb * u_wb * u_exposure;
+  // Off the photo (the corners of a turned photo while cropping): the editor's background.
+  vec2 margin = 0.5 / vec2(textureSize(u_src, 0));
+  if (any(lessThan(v_src, -margin)) || any(greaterThan(v_src, 1.0 + margin))) { color = vec4(0.043, 0.047, 0.063, 1); return; }
+  vec3 c = texture(u_src, v_src).rgb * u_wb * u_exposure;
   vec3 d = clamp(u_raw ? baseLook(c) : toSrgb(c), 0.0, 1.0);
   // Tone, on display values. Each term is zero at 0 and keeps the curve rising.
   if (u_contrast != 0.0) d = contrast(d, u_contrast);
@@ -185,7 +232,7 @@ void main() {
     d = u_vignette < 0.0 ? d * (1.0 + 0.8 * u_vignette * edge) : mix(d, vec3(1), 0.8 * u_vignette * edge);
   }
   if (u_grain > 0.0) {
-    float n = noise(v_uv * vec2(textureSize(u_src, 0)) / 1.5) + noise(v_uv * vec2(textureSize(u_src, 0)) / 0.8 + 17.0) - 1.0;
+    float n = noise(v_uv * u_grainScale / 1.5) + noise(v_uv * u_grainScale / 0.8 + 17.0) - 1.0;
     d += n * u_grain * 0.12 * (0.3 + 2.8 * d * (1.0 - d));
   }
   color = vec4(clamp(d, 0.0, 1.0), 1.0);
@@ -216,6 +263,7 @@ class Developer {
     this.uniform = name => gl.getUniformLocation(program, name);
     this.texture = gl.createTexture();
     this.width = this.height = 0;
+    this.crop = NO_CROP; // what the screen shows; saved looks use their recipe's own
     this.clear();
   }
 
@@ -251,10 +299,15 @@ class Developer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGB, gl.HALF_FLOAT, new Uint16Array(bytes, 16, w * h * 3));
   }
 
-  #draw(recipe, flip) {
-    const gl = this.gl, r = fullRecipe(recipe), u = this.uniform;
+  // The cropped picture's size in photo pixels.
+  size(crop = this.crop) { return [crop.w * this.width, crop.h * this.height]; }
+
+  #draw(recipe, flip, crop) {
+    const gl = this.gl, r = fullRecipe(recipe), u = this.uniform, [fw, fh] = this.size(crop);
     gl.uniform1i(u('u_raw'), this.raw ? 1 : 0);
     gl.uniform1i(u('u_flip'), flip ? 1 : 0);
+    gl.uniformMatrix3fv(u('u_crop'), false, cropMatrix(crop, this.width, this.height));
+    gl.uniform2f(u('u_grainScale'), 3000 * fw / Math.max(fw, fh), 3000 * fh / Math.max(fw, fh));
     gl.uniform3fv(u('u_wb'), whiteBalance(r.temp, r.tint));
     gl.uniform1f(u('u_exposure'), 2 ** r.exposure);
     for (const key of ['contrast', 'highlights', 'shadows', 'whites', 'blacks', 'vibrance', 'saturation', 'vignette']) gl.uniform1f(u('u_' + key), r[key] / 100);
@@ -277,33 +330,37 @@ class Developer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  // Where the photo sits on the canvas in CSS pixels ({ x, y, w, h }), fitted or zoomed and panned.
+  // Where the cropped picture sits on the canvas in CSS pixels ({ x, y, w, h }, and `scale` in CSS pixels
+  // per photo pixel), fitted or zoomed and panned.
   placement() {
     const box = this.canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, v = this.view;
     if (!this.width || this.blank) return null;
-    const fit = Math.min(box.width / this.width, box.height / this.height);
-    const scale = v.zoom ? Math.max(fit, v.zoom / dpr) : fit, w = this.width * scale, h = this.height * scale;
+    const [fw, fh] = this.size(), fit = Math.min(box.width / fw, box.height / fh);
+    const scale = v.zoom ? Math.max(fit, v.zoom / dpr) : fit, w = fw * scale, h = fh * scale;
     // Zoomed in, keep the photo covering the view where it can.
     const centre = (c0, size, box) => size <= box ? 0.5 : Math.min(1 - box / 2 / size, Math.max(box / 2 / size, c0));
     if (v.zoom) { v.cx = centre(v.cx, w, box.width); v.cy = centre(v.cy, h, box.height); }
-    return { x: box.width / 2 - v.cx * w, y: box.height / 2 - v.cy * h, w, h };
+    return { x: box.width / 2 - v.cx * w, y: box.height / 2 - v.cy * h, w, h, scale };
   }
 
-  // A point on screen as photo coordinates, 0–1 across and down the upright photo (outside it is <0 or >1).
-  toImage(clientX, clientY) {
+  // A point on screen as 0–1 across and down the cropped picture shown.
+  toView(clientX, clientY) {
     const p = this.placement(), box = this.canvas.getBoundingClientRect();
     return p ? [(clientX - box.left - p.x) / p.w, (clientY - box.top - p.y) / p.h] : null;
   }
-
   // And back, relative to the canvas's top left in CSS pixels.
-  fromImage([x, y]) { const p = this.placement(); return p && [p.x + x * p.w, p.y + y * p.h]; }
+  fromView([x, y]) { const p = this.placement(); return p && [p.x + x * p.w, p.y + y * p.h]; }
+
+  // A point on screen as photo coordinates, 0–1 across and down the upright photo (outside it is <0 or >1).
+  toImage(clientX, clientY) { const v = this.toView(clientX, clientY); return v && mapPoint(cropMap(this.crop, this.width, this.height), v); }
+  fromImage(at) { return this.fromView(unmapPoint(cropMap(this.crop, this.width, this.height), at)); }
 
   // Z: between fitting the photo and 100% (one photo pixel per screen pixel), keeping the point under the pointer still.
   toggleZoom(clientX, clientY) {
-    const at = this.toImage(clientX, clientY), box = this.canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    const at = this.toView(clientX, clientY), box = this.canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     if (!at) return;
     if (this.view.zoom) return this.fit();
-    const scale = 1 / dpr, w = this.width * scale, h = this.height * scale;
+    const [fw, fh] = this.size(), w = fw / dpr, h = fh / dpr;
     this.view = { zoom: 1, cx: at[0] + (box.width / 2 - (clientX - box.left)) / w, cy: at[1] + (box.height / 2 - (clientY - box.top)) / h };
   }
 
@@ -324,13 +381,16 @@ class Developer {
     if (!p) return;
     const w = Math.round(p.w * dpr), h = Math.round(p.h * dpr), x = Math.round(p.x * dpr);
     gl.viewport(x, bh - Math.round(p.y * dpr) - h, w, h);
-    this.#draw(recipe, false);
+    this.#draw(recipe, false, this.crop);
   }
 
-  // Render off screen with the long edge at most `maxEdge`: RGBA bytes, top row first.
+  // The largest picture this GPU can render, in pixels on each side.
+  maxEdge() { const gl = this.gl; return Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS)); }
+
+  // Render the recipe, cropped, off screen with the long edge at most `maxEdge`: RGBA bytes, top row first.
   pixels(recipe, maxEdge) {
-    const gl = this.gl, scale = Math.min(1, maxEdge / Math.max(this.width, this.height));
-    const w = Math.max(1, Math.round(this.width * scale)), h = Math.max(1, Math.round(this.height * scale));
+    const gl = this.gl, crop = fullRecipe(recipe).crop, [fw, fh] = this.size(crop), scale = Math.min(1, maxEdge / Math.max(fw, fh));
+    const w = Math.max(1, Math.round(fw * scale)), h = Math.max(1, Math.round(fh * scale));
     const target = gl.createTexture(), fb = gl.createFramebuffer();
     gl.bindTexture(gl.TEXTURE_2D, target);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
@@ -338,7 +398,7 @@ class Developer {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target, 0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.viewport(0, 0, w, h);
-    this.#draw(recipe, true);
+    this.#draw(recipe, true, crop);
     const data = new Uint8ClampedArray(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

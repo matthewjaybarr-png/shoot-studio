@@ -243,10 +243,10 @@ fn thumb_path(dir: &str, name: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-async fn pick_shoot(app: tauri::AppHandle) -> Option<String> {
+async fn pick_shoot(app: tauri::AppHandle, title: Option<String>) -> Option<String> {
     app.dialog()
         .file()
-        .set_title("Open shoot folder")
+        .set_title(title.as_deref().unwrap_or("Open shoot folder"))
         .blocking_pick_folder()?
         .into_path()
         .ok()
@@ -356,6 +356,19 @@ fn jpeg_linear(path: &Path, max_edge: usize) -> Result<(usize, usize, Vec<f32>),
     Ok((w, h, small.into_iter().flatten().collect()))
 }
 
+/// A CR2 or JPEG from the shoot as upright linear RGB, at most `max_edge` on the long side.
+fn photo_linear(dir: &str, name: &str, max_edge: usize) -> Result<(usize, usize, Vec<f32>), String> {
+    let path = shoot_file(dir, name)?;
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".cr2") {
+        raw_linear(&path, max_edge)
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        jpeg_linear(&path, max_edge)
+    } else {
+        Err(format!("{name} is not a photo Shoot Studio can develop"))
+    }
+}
+
 /// Decode a photo for Develop, replay its retouch strokes and keep it as the open session.
 fn open_develop(
     state: &Retouching,
@@ -363,18 +376,10 @@ fn open_develop(
     name: String,
     strokes: Vec<Stroke>,
 ) -> Result<Vec<u8>, String> {
-    let path = shoot_file(&dir, &name)?;
     retouch::validate(&strokes)?;
     let ticket = state.opened.fetch_add(1, Ordering::SeqCst) + 1;
     *state.session.lock().map_err(|e| e.to_string())? = None; // free the last photo first
-    let lower = name.to_ascii_lowercase();
-    let (w, h, rgb) = if lower.ends_with(".cr2") {
-        raw_linear(&path, DEVELOP_EDGE)?
-    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-        jpeg_linear(&path, DEVELOP_EDGE)?
-    } else {
-        return Err(format!("{name} is not a photo Shoot Studio can develop"));
-    };
+    let (w, h, rgb) = photo_linear(&dir, &name, DEVELOP_EDGE)?;
     let session = Session::new(dir, name, w, h, rgb, strokes);
     let bytes = half_float_image(w, h, &session.current);
     let mut open = state.session.lock().map_err(|e| e.to_string())?;
@@ -459,11 +464,95 @@ async fn spot_source(app: AppHandle, dir: String, name: String, stroke: Stroke) 
     .map_err(|e| e.to_string())?
 }
 
+/// A photo for delivery: full size (or Develop's size), strokes replayed on a throwaway copy
+/// so the photo open in Develop is left alone. Same layout as `develop_source`.
+fn export_pixels(dir: &str, name: &str, strokes: &[Stroke], full: bool) -> Result<Vec<u8>, String> {
+    retouch::validate(strokes)?;
+    let (w, h, mut rgb) = photo_linear(dir, name, if full { usize::MAX } else { DEVELOP_EDGE })?;
+    for stroke in strokes {
+        retouch::apply(&mut rgb, w, h, stroke);
+    }
+    Ok(half_float_image(w, h, &rgb))
+}
+
+#[tauri::command]
+async fn export_source(dir: String, name: String, strokes: Vec<Stroke>, full: bool) -> Result<Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || export_pixels(&dir, &name, &strokes, full))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(Response::new(bytes))
+}
+
+/// The ending of the error a delivery gives when the file is already there and `replace` is off.
+const ALREADY_EXISTS: &str = "already exists";
+
+/// Write one delivered JPEG to `folder` (absolute, created if missing) as `name`. Never into the
+/// shoot folder itself or our state, so originals and edits can't be overwritten.
+// ponytail: no copyright EXIF; add if asked
+fn write_export(dir: &str, folder: &str, name: &str, replace: bool, jpeg: &[u8]) -> Result<(), String> {
+    let lower = name.to_ascii_lowercase();
+    if name.starts_with('.') || Path::new(name).file_name() != Some(name.as_ref()) || !lower.ends_with(".jpg") || lower.len() <= 4 {
+        return Err(format!("not a delivery file name: {name}"));
+    }
+    let in_state = |p: &Path| p.components().any(|c| c.as_os_str() == STATE_DIR);
+    let wanted = Path::new(folder);
+    if !wanted.is_absolute() || in_state(wanted) {
+        return Err(format!("can't deliver into {folder}"));
+    }
+    fs::create_dir_all(wanted).map_err(|e| format!("could not create {folder}: {e}"))?;
+    let real = fs::canonicalize(wanted).map_err(|e| format!("could not open {folder}: {e}"))?;
+    let shoot = fs::canonicalize(dir).map_err(|e| format!("could not open {dir}: {e}"))?;
+    if real == shoot || in_state(&real) {
+        return Err(format!("can't deliver into {folder}: choose a folder other than the shoot's own"));
+    }
+    let path = real.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_dir() => return Err(format!("{name} is a folder")),
+        Ok(_) if !replace => return Err(format!("{name} {ALREADY_EXISTS}")),
+        _ => {}
+    }
+    write_atomic(&path, jpeg)
+}
+
+/// A delivered JPEG as the raw request body, with the other arguments as percent-encoded
+/// headers (so a large file isn't sent as a JSON array).
+#[tauri::command]
+async fn save_export(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(jpeg) = request.body() else {
+        return Err("save_export needs the JPEG as its body".into());
+    };
+    let arg = |key: &str| -> Result<String, String> {
+        let value = request.headers().get(key).and_then(|v| v.to_str().ok()).ok_or(format!("save_export needs {key}"))?;
+        percent_decode(value).ok_or(format!("save_export: bad {key}"))
+    };
+    let (dir, folder, name, replace) = (arg("dir")?, arg("folder")?, arg("name")?, arg("replace")? == "true");
+    let jpeg = jpeg.clone();
+    tauri::async_runtime::spawn_blocking(move || write_export(&dir, &folder, &name, replace, &jpeg))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Undo JavaScript's encodeURIComponent.
+fn percent_decode(s: &str) -> Option<String> {
+    let (bytes, mut out, mut i) = (s.as_bytes(), Vec::with_capacity(s.len()), 0);
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            out.push(u8::from_str_radix(s.get(i + 1..i + 3)?, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 /// <shoot>/.shootstudio/recipes/<photo id>.json holds one photo's edit. Bump RECIPE_VERSION
 /// only with a migration in `upgrade`. Version 2 added `retouch` (absent means none); version 3
 /// added looks, split toning, finishing and red-eye strokes (absent means none), so an older
-/// app refuses a recipe it would show without its look.
-const RECIPE_VERSION: u64 = 3;
+/// app refuses a recipe it would show without its look. Version 4 added `crop` (absent means
+/// the whole photo, unrotated).
+const RECIPE_VERSION: u64 = 4;
 
 fn recipe_path(dir: &str, id: &str) -> Result<PathBuf, String> {
     shoot_file(dir, id)?;
@@ -669,6 +758,8 @@ fn main() {
             develop_source,
             retouch,
             spot_source,
+            export_source,
+            save_export,
             load_recipes,
             save_recipe,
             edited,
@@ -935,7 +1026,7 @@ mod tests {
         let loaded = load_recipes(d.clone()).unwrap();
         assert_eq!(
             loaded["IMG_1"],
-            serde_json::json!({"version": 3, "exposure": 0.5, "temp": 12})
+            serde_json::json!({"version": 4, "exposure": 0.5, "temp": 12})
         );
         assert_eq!(
             fs::read(edited_path(&d, "IMG_1", true).unwrap()).unwrap(),
@@ -992,7 +1083,7 @@ mod tests {
     }
 
     #[test]
-    fn older_recipes_load_and_save_as_version_3_and_4_is_refused() {
+    fn older_recipes_load_and_save_as_version_4_and_5_is_refused() {
         let dir = temp_dir("recipe-versions");
         let d = dir.display().to_string();
         fs::write(dir.join("IMG_1.JPG"), b"jpeg").unwrap();
@@ -1000,13 +1091,19 @@ mod tests {
         fs::write(&file, r#"{"version": 1, "exposure": 1}"#).unwrap();
         assert_eq!(
             load_recipes(d.clone()).unwrap()["IMG_1"],
-            serde_json::json!({"version": 3, "exposure": 1})
+            serde_json::json!({"version": 4, "exposure": 1})
+        );
+        fs::write(&file, r#"{"version": 3, "look": "sepia"}"#).unwrap();
+        assert_eq!(
+            load_recipes(d.clone()).unwrap()["IMG_1"],
+            serde_json::json!({"version": 4, "look": "sepia"}),
+            "a version 3 recipe loads uncropped"
         );
         let old = serde_json::json!({"version": 1, "exposure": 1});
         save_recipe(d.clone(), "IMG_1".into(), Some(old)).unwrap();
         let saved: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-        assert_eq!(saved["version"], 3);
-        fs::write(&file, r#"{"version": 4, "retouch": []}"#).unwrap();
+        assert_eq!(saved["version"], 4);
+        fs::write(&file, r#"{"version": 5, "retouch": []}"#).unwrap();
         assert!(load_recipes(d.clone()).unwrap_err().contains("newer Shoot Studio"));
         fs::remove_dir_all(dir).unwrap();
     }
@@ -1057,6 +1154,69 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, f32::max);
         assert!(err <= 1.0 / 255.0, "round trip error {err}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn export_decodes_full_size_and_replays_strokes_without_a_session() {
+        let (w, h) = (3200usize, 16usize); // wider than Develop's 3072
+        let rgb: Vec<u8> = (0..w * h).flat_map(|i| [(i % w / 13) as u8, (i / w * 9) as u8, 60]).collect();
+        let dir = temp_dir("export-source");
+        let d = dir.display().to_string();
+        fs::write(dir.join("IMG_1.JPG"), jpeg_with_orientation(w as u32, h as u32, &rgb, 1)).unwrap();
+        let spot: Stroke = serde_json::from_value(serde_json::json!(
+            {"tool": "clone", "size": 0.003, "points": [[0.5, 0.5]], "offset": [0.1, 0]}
+        ))
+        .unwrap();
+        let size = |b: &[u8]| (u32::from_le_bytes(b[..4].try_into().unwrap()), u32::from_le_bytes(b[4..8].try_into().unwrap()));
+        let full = export_pixels(&d, "IMG_1.JPG", &[], true).unwrap();
+        assert_eq!(size(&full), (3200, 16));
+        let healed = export_pixels(&d, "IMG_1.JPG", std::slice::from_ref(&spot), true).unwrap();
+        assert_eq!(healed.len(), full.len());
+        assert_ne!(healed, full, "the stroke is replayed at full size");
+        // At Develop's size it matches what Develop shows, and Develop's session is untouched.
+        let state = Retouching::default();
+        let shown = open_develop(&state, d.clone(), "IMG_1.JPG".into(), vec![spot.clone()]).unwrap();
+        let small = export_pixels(&d, "IMG_1.JPG", std::slice::from_ref(&spot), false).unwrap();
+        assert_eq!(size(&small), (1600, 8));
+        assert_eq!(small, shown);
+        assert_eq!(with_session(&state, &d, "IMG_1.JPG", |s| s.applied.len()).unwrap(), 1);
+        assert!(export_pixels(&d, "../IMG_1.JPG", &[], true).is_err());
+        let mut bad = spot;
+        bad.size = f64::NAN;
+        assert!(export_pixels(&d, "IMG_1.JPG", &[bad], true).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn delivery_writes_outside_the_shoot_and_asks_before_replacing() {
+        let dir = temp_dir("deliver");
+        let shoot = dir.join("shoot");
+        fs::create_dir_all(shoot.join(STATE_DIR)).unwrap();
+        let d = shoot.display().to_string();
+        let out = shoot.join("Delivered").join("Smith Wedding");
+        let o = out.display().to_string();
+        write_export(&d, &o, "Smith-Wedding-0001.jpg", false, b"one").unwrap();
+        assert_eq!(fs::read(out.join("Smith-Wedding-0001.jpg")).unwrap(), b"one", "folder created, file written");
+        let err = write_export(&d, &o, "Smith-Wedding-0001.jpg", false, b"two").unwrap_err();
+        assert!(err.ends_with(ALREADY_EXISTS), "{err}");
+        assert_eq!(fs::read(out.join("Smith-Wedding-0001.jpg")).unwrap(), b"one", "not replaced unasked");
+        write_export(&d, &o, "Smith-Wedding-0001.jpg", true, b"two").unwrap();
+        assert_eq!(fs::read(out.join("Smith-Wedding-0001.jpg")).unwrap(), b"two");
+        // Never the shoot itself (however it's spelt), our state, a relative folder or a bad name.
+        for folder in [d.clone(), format!("{d}/Delivered/.."), format!("{d}/{STATE_DIR}"), format!("{d}/{STATE_DIR}/out"), "Delivered".into()] {
+            assert!(write_export(&d, &folder, "a.jpg", true, b"x").is_err(), "{folder}");
+        }
+        assert!(!shoot.join(STATE_DIR).join("out").exists());
+        std::os::unix::fs::symlink(shoot.join(STATE_DIR), dir.join("sneaky")).unwrap();
+        assert!(write_export(&d, &dir.join("sneaky").display().to_string(), "a.jpg", true, b"x").is_err(), "a link into our state");
+        for name in ["", ".jpg", ".hidden.jpg", "a/b.jpg", "../a.jpg", "a.png", "a.jpg.exe"] {
+            assert!(write_export(&d, &o, name, true, b"x").is_err(), "{name}");
+        }
+        fs::create_dir(out.join("folder.jpg")).unwrap();
+        assert!(write_export(&d, &o, "folder.jpg", true, b"x").is_err());
+        assert_eq!(percent_decode("Smith%20Wedding%2F%C3%A9").as_deref(), Some("Smith Wedding/é"));
+        assert_eq!(percent_decode("bad%2"), None);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1305,6 +1465,25 @@ mod tests {
             open_develop(&state2, dir.clone(), name.clone(), fifty).unwrap();
             println!("  develop_source with 49 strokes: {:?}", t.elapsed());
             assert!(replay < std::time::Duration::from_secs(2), "replay too slow");
+        }
+    }
+    #[test]
+    #[ignore]
+    fn export_timing() {
+        let dir = std::env::var("SHOOT_DIR").expect("set SHOOT_DIR");
+        let photos = open_shoot(dir.clone()).unwrap();
+        let raw = photos.iter().find_map(|p| p.raw.clone()).expect("a CR2");
+        let jpg = photos.iter().find_map(|p| p.jpg.clone()).expect("a JPEG");
+        let heal = serde_json::from_value::<Stroke>(serde_json::json!({"tool":"heal","size":0.01,"points":[[0.4,0.4],[0.42,0.41]],"offset":[0.03,0.0]})).unwrap();
+        for name in [raw, jpg] {
+            for full in [true, false] {
+                let t = std::time::Instant::now();
+                let bytes = export_pixels(&dir, &name, std::slice::from_ref(&heal), full).unwrap();
+                let (w, h) = (u32::from_le_bytes(bytes[0..4].try_into().unwrap()), u32::from_le_bytes(bytes[4..8].try_into().unwrap()));
+                println!("{name} {}: {w}×{h} in {:?}", if full { "full" } else { "web" }, t.elapsed());
+                assert_eq!(bytes.len(), 8 + w as usize * h as usize * 6);
+                assert!(full || w.max(h) as usize <= DEVELOP_EDGE);
+            }
         }
     }
 }

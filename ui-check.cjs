@@ -7,16 +7,16 @@ const cp = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-studio-check-'));
 const ui = name => fs.readFileSync(path.join(__dirname, 'ui', name), 'utf8');
 const mock = `<script>
-window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.offer = null; window.sourceSize = [4, 2]; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
+window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
 // Half floats for develop_source's layout: width and height as u32s, then RGB.
 const half = v => { const i = new Uint32Array(new Float32Array([v]).buffer)[0], e = ((i >>> 23) & 255) - 112; return ((i >>> 16) & 0x8000) | (e <= 0 ? 0 : e >= 31 ? 0x7c00 : (e << 10) | ((i & 0x7fffff) >>> 13)); };
 // rgb: every value in order, or one value for them all.
 const rawImage = (w, h, rgb) => { const b = new ArrayBuffer(8 + w * h * 6), px = new Uint16Array(b, 8); new Uint32Array(b, 0, 2).set([w, h]); if (Array.isArray(rgb)) px.set(rgb.map(half)); else px.fill(half(rgb)); return b; };
 const jpeg = () => new Promise(done => { const c = document.createElement('canvas'); c.width = 60; c.height = 40; c.getContext('2d').fillRect(0, 0, 60, 40); c.toBlob(b => b.arrayBuffer().then(done), 'image/jpeg'); });
-window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (command, args) => {
-  calls.push({ command, args });
+window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (command, args, options) => {
+  calls.push({ command, args, options });
   if (gates[command]) await gates[command].promise; // a test holds this command until it calls release()
-  if (command === 'pick_shoot') return '/shoots/Smith Wedding';
+  if (command === 'pick_shoot') return args?.title ? '/elsewhere/Out' : '/shoots/Smith Wedding';
   if (command === 'startup_shoot') return null;
   if (command === 'app_version') return '0.1.0';
   if (command === 'check_update') { if (offer instanceof Error) throw offer.message; return offer; }
@@ -39,6 +39,12 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   // A 1×1 patch at the top left: x, y, width, height, then one pixel.
   if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
   if (command === 'spot_source') return [0.05, 0];
+  if (command === 'export_source') return rawImage(...exportSize, 0.18);
+  if (command === 'save_export') {
+    const h = Object.fromEntries(Object.entries(options.headers).map(([k, v]) => [k, decodeURIComponent(v)])), file = h.folder + '/' + h.name;
+    if (delivered[file] && h.replace !== 'true') throw h.name + ' already exists';
+    delivered[file] = new Uint8Array(args); return null;
+  }
   const key = args.dir + '/' + args.name;
   if (command === 'thumb') { if (disk[key]) return disk[key].buffer; throw 'no thumbnail yet'; }
   if (command === 'save_thumb') { disk[key] = new Uint8Array(args.data); return null; }
@@ -48,7 +54,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
 </script>`;
 const test = `<script>
 (async () => {
-  const step = (ok, message) => { document.body.dataset.testStep = message; if (!ok) throw Error(message); };
+  const step = (ok, message) => { if (typeof message === 'function') message = message(); document.body.dataset.testStep = message; if (!ok) throw Error(message); };
   const until = async (ok, message) => { for (let i = 0; i < 4000 && !ok(); i++) await new Promise(r => setTimeout(r, 25)); step(ok(), typeof message === 'function' ? message() : message); };
   const press = key => grid.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
   const count = command => calls.filter(c => c.command === command).length;
@@ -228,6 +234,20 @@ const test = `<script>
     step(split[0][2] > split[0][0] && split[1][0] > split[1][2], 'split toning: blue shadows, warm highlights by default (' + split + ')');
     step(luma(pixel({ vignette: -100 }, 0, 0)) < luma(pixel({}, 0, 0)) && worst(out({ vignette: -100 }).slice((7 * 16 + 7) * 4, (7 * 16 + 8) * 4), want.slice((7 * 16 + 7) * 4, (7 * 16 + 8) * 4)) <= 1, 'vignette darkens the corners, not the centre');
     step(luma(pixel({ fade: 100 }, 0, 15)) > luma(pixel({}, 0, 15)) + 10, 'fade lifts black');
+    // Crop: a map from the cropped picture (0–1) to the photo, and the picture it renders.
+    const close = (a, b, e = 1e-6) => a.every((v, i) => Math.abs(v - b[i]) < e);
+    const quarter = dev.pixels({ crop: { x: 0.5, y: 0, w: 0.5, h: 0.5, angle: 0 } }, 16), corner = [];
+    for (let y = 0; y < 8; y++) corner.push(...want.slice((y * 16 + 8) * 4, (y * 16 + 16) * 4));
+    step(quarter.width === 8 && quarter.height === 8 && worst(quarter.data, corner) <= 1, 'a crop renders just that part of the photo, at its size (off by ' + worst(quarter.data, corner) + ')');
+    const tilted = fitCrop({ ...NO_CROP, angle: 10 }, 3000, 2000), grow = (c, k) => ({ ...c, x: c.x + c.w * (1 - k) / 2, y: c.y + c.h * (1 - k) / 2, w: c.w * k, h: c.h * k });
+    step(cropFits(tilted, 3000, 2000) && !cropFits(grow(tilted, 1.001), 3000, 2000) && Math.abs(tilted.w - tilted.h) < 1e-9 && close([tilted.x + tilted.w / 2, tilted.y + tilted.h / 2], [0.5, 0.5]),
+      'straightening shrinks the crop about its centre to just fit the turned photo (' + JSON.stringify(tilted) + ')');
+    const map = cropMap({ x: 0.1, y: 0.2, w: 0.5, h: 0.6, angle: 7 }, 3000, 2000), px = p => [p[0] * 3000, p[1] * 2000];
+    const [o, right, down] = [[0, 0], [1, 0], [0, 1]].map(p => px(mapPoint(map, p))), along = [right[0] - o[0], right[1] - o[1]], across = [down[0] - o[0], down[1] - o[1]];
+    step(close(unmapPoint(map, mapPoint(map, [0.3, 0.7])), [0.3, 0.7]) && Math.abs(Math.hypot(...along) - 1500) < 1e-6 && Math.abs(Math.hypot(...across) - 1200) < 1e-6 && Math.abs(along[0] * across[0] + along[1] * across[1]) < 1e-6 && along[1] < 0,
+      'the crop map turns without shearing (positive turns the picture clockwise) and inverts');
+    step(close(mapPoint(cropMap(NO_CROP, 3000, 2000), [0.25, 0.75]), [0.25, 0.75]) && fullRecipe({ crop: { x: 0.8, y: 0, w: 0.5, h: 1, angle: 0 } }).crop === NO_CROP && fullRecipe({ crop: { ...NO_CROP, angle: 50 } }).crop === NO_CROP
+      && !isDefault(fullRecipe({ crop: tilted })) && settingsOf({ crop: tilted }).crop === undefined, 'no crop is the identity; a bad crop is dropped; a crop is an edit that copy leaves out');
     step(fullRecipe({ look: 'not-a-look' }).look === '' && settingsOf({ exposure: 1, retouch: [{}] }).retouch === undefined, 'an unknown look is dropped; settings leave out strokes');
 
     // Develop: the view.
@@ -238,7 +258,7 @@ const test = `<script>
     await until(() => editing?.ready && !sliders.disabled, 'D develops the photo');
     step(!develop.classList.contains('hidden') && grid.classList.contains('hidden') && calls.at(-1).command === 'develop_source' && calls.at(-1).args.name === 'IMG_0001.CR2', 'a RAW+JPEG pair develops from its RAW');
     slide('exposure', 1);
-    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 3, 'a slider change saves the recipe');
+    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 4, 'a slider change saves the recipe');
     step($('#develop-caption').textContent.includes('Edited') && sliders.querySelector('[data-key="exposure"]').previousElementSibling.textContent === '+1.00', 'caption says Edited; the slider shows its value');
     ctrl('z');
     await until(() => !savedRecipe('IMG_0001') && sliders.querySelector('[data-key="exposure"]').value === '0', 'Ctrl+Z undoes back to the camera file');
@@ -280,7 +300,7 @@ const test = `<script>
     const strength = sliders.querySelector('[data-key="lookAmount"]');
     step(strength.disabled && $('#look').querySelectorAll('optgroup').length === 3 && $('#look').options.length === LOOKS.length + 1, 'every look is in the list; strength is off without one');
     choose('#look', 'sepia');
-    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 3, 'choosing a look saves it');
+    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 4, 'choosing a look saves it');
     step(!strength.disabled && strength.previousElementSibling.textContent === '100%', 'its strength slider turns on at 100%');
     slide('lookAmount', 40); slide('grain', 20);
     await until(() => savedRecipe('IMG_0001')?.lookAmount === 40 && savedRecipe('IMG_0001').grain === 20, 'strength and grain save on top of the look');
@@ -339,7 +359,7 @@ const test = `<script>
     step(saved.tool === 'spot' && nearAll(saved.points, spotPath.map(p => fitted(...p))) && saved.size === 0.01 && near(saved.offset, [0.05, 0]) && saved.strength === undefined, 'at fit, the stroke is saved at the photo points it covered, with the source Rust picked (' + JSON.stringify(saved) + ')');
     step(calls.some(c => c.command === 'spot_source' && c.args.name === 'IMG_0013.CR2' && near(c.args.stroke.points[0], saved.points[0])), 'spot heal asks Rust for its source');
     await until(() => calls.some(c => c.command === 'retouch' && c.args.strokes.length === 1 && c.args.name === 'IMG_0013.CR2'), 'and Rust applies the stroke');
-    step(savedRecipe('IMG_0013').version === 3 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
+    step(savedRecipe('IMG_0013').version === 4 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
 
     press(']');
     step(Math.abs(brush.size - 0.0125) < 1e-9 && sliders.querySelector('[data-brush="size"]').previousElementSibling.textContent === '20 px', '] makes the brush bigger');
@@ -370,7 +390,8 @@ const test = `<script>
     step(saved.tool === 'heal' && saved.size === 0.008 && nearAll(saved.points, healPath.map(p => zoomed(...p))) && near(saved.offset, [from[0] - first[0], from[1] - first[1]]), 'at 100% after a pan, the heal points and source offset are right (' + JSON.stringify(saved) + ')');
     drag([[cx + 50, cy], [cx + 60, cy]]);
     await until(() => strokes().length === 3, 'a second heal stroke');
-    step(near(strokes()[2].offset, saved.offset), 'the source stays aligned: the same offset for the next stroke');
+    const second = zoomed(cx + 50, cy);
+    step(near(strokes()[2].offset, [from[0] - second[0], from[1] - second[1]]), 'the next stroke copies from the Ctrl+clicked spot again (' + JSON.stringify(strokes()[2].offset) + ')');
     await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.length === 3, 'Rust gets all three strokes');
 
     ctrl('z');
@@ -385,10 +406,127 @@ const test = `<script>
     await until(() => strokes().length === 2, 'and it undoes');
     press('Escape');
     step(tool === null && !develop.classList.contains('hidden') && !$('.stage').classList.contains('brush'), 'Esc drops the tool and stays in Develop');
+
+    // Crop: R shows the whole photo with the crop over it; Enter applies it as one undo step, Esc cancels.
+    const crop = () => savedRecipe('IMG_0013')?.crop || NO_CROP;
+    const screen = view => { const [x, y] = developer.fromView(view); return [box.left + x, box.top + y]; };
+    press('r');
+    step(cropping && developer.view.zoom === null && $('.stage').classList.contains('cropping') && sliders.querySelector('[data-tool="heal"]').disabled && $('#crop').textContent.includes('Apply'), 'R starts cropping at fit, with the brushes off');
+    press('j');
+    step(tool === null, 'brush keys do nothing while cropping');
+    step(sameCrop(cropping.crop, NO_CROP), 'the crop starts as the whole photo');
+    drag([screen([1, 1]), [screen([1, 1])[0] - 100, screen([1, 1])[1] - 10]]);
+    const shrunk = 1 - 100 / (1600 * fit);
+    step(close([cropping.crop.x, cropping.crop.y, cropping.crop.w, cropping.crop.h], [0, 0, shrunk, shrunk], 1e-4), 'dragging a corner resizes from the opposite corner at the photo shape (' + JSON.stringify(cropping.crop) + ')');
+    press('Escape');
+    step(!cropping && sameCrop(editing.recipe.crop, NO_CROP) && sameCrop(crop(), NO_CROP) && !develop.classList.contains('hidden'), 'Esc cancels the crop and stays in Develop');
+
+    press('r');
+    $('#aspect').value = '1:1'; $('#aspect').dispatchEvent(new Event('change'));
+    let c = cropping.crop;
+    step(Math.abs(c.w * 1600 - c.h * 1200) < 1e-6 && c.h === 1 && Math.abs(c.x - 0.125) < 1e-9, '1:1 makes the largest square in the middle (' + JSON.stringify(c) + ')');
+    drag([screen([0.5, 0.5]), [screen([0.5, 0.5])[0] + 1000, screen([0.5, 0.5])[1] + 1000]]);
+    c = cropping.crop;
+    step(Math.abs(c.x + c.w - 1) < 1e-6 && c.y === 0 && Math.abs(c.w * 1600 - c.h * 1200) < 1e-6, 'moving it stops at the edge of the photo (' + JSON.stringify(c) + ')');
+    drag([screen([c.x + c.w, 1]), screen([c.x + c.w / 2, 1])]);
+    c = cropping.crop;
+    step(Math.abs(c.w * 1600 - c.h * 1200) < 1e-6 && c.h < 0.6 && c.h > 0.4, 'a locked corner keeps the square (' + JSON.stringify(c) + ')');
+    const angle = sliders.querySelector('[data-crop="angle"]');
+    angle.value = 5; angle.dispatchEvent(new Event('input', { bubbles: true }));
+    step(cropping.crop.angle === 5 && cropFits(cropping.crop, 1600, 1200) && developer.crop.angle === 5 && sameCrop({ ...developer.crop, angle: 0 }, NO_CROP) && angle.previousElementSibling.textContent === '+5.0°', 'Straighten turns the photo and keeps the crop on it');
+    angle.dispatchEvent(new Event('change', { bubbles: true }));
+    const applied = cropping.crop;
+    press('Enter');
+    await until(() => sameCrop(crop(), applied), 'Enter applies the crop and saves it');
+    step(!cropping && developer.view.zoom === null && sameCrop(developer.crop, applied) && savedRecipe('IMG_0013').version === 4 && strokes().length === 2, 'the view shows the cropped picture; the strokes are kept');
+    const [px0, py0] = developer.fromImage([0.6, 0.4]);
+    step(close(developer.toImage(box.left + px0, box.top + py0), [0.6, 0.4], 1e-6), 'screen and photo points still match through the crop');
+    ctrl('z');
+    await until(() => sameCrop(editing.recipe.crop, NO_CROP) && sameCrop(crop(), NO_CROP), 'one Ctrl+Z takes the whole crop back');
+    ctrl('z', true);
+    await until(() => sameCrop(crop(), applied), 'and redo puts it back');
+    $('#crop-reset').click();
+    await until(() => sameCrop(crop(), NO_CROP), 'Reset crop clears it');
     press('Escape');
     step(develop.classList.contains('hidden') && !grid.classList.contains('hidden'), 'a second Esc goes to the grid');
     await until(() => disk[dir + '/edited/IMG_0013.thumb'], 'leaving saves the retouched look');
     sourceSize = [4, 2];
+
+    { // Deliver.
+    const box = $('#deliver'), which = v => box.querySelector('[value=' + v + ']');
+    const set = (el, value) => { if (el.type === 'checkbox' || el.type === 'radio') el.checked = value; else el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    const picks = () => photos.filter(p => ratings[p.id]?.flag === 'pick');
+    if (picks().length < 2) { move(20); press('p'); move(21); press('p'); }
+    while (selected.size) { press('Escape'); if (selected.size) selected.clear(); }
+    step(!$('#deliver-open').disabled, 'Deliver is ready once a shoot is open');
+    ctrl('e');
+    await until(() => box.open, 'Ctrl+E opens Deliver');
+    step(which('picks').checked && which('selected').disabled, 'Picks is the default when there are picks');
+    const want = picks().length;
+    step($('#deliver-count').textContent === want + ' photos', () => 'count shows the picks: ' + $('#deliver-count').textContent);
+    const savesBefore = count('save_shoot'); press('x');
+    step(count('save_shoot') === savesBefore, 'keys do not rate behind the dialog');
+    set($('#deliver-client'), '');
+    step($('#deliver-go').disabled, 'no delivering without a client name');
+    set($('#deliver-client'), ' Smith & Wedding! ');
+    step($('#deliver-preview').textContent.startsWith('Smith-Wedding-0001.jpg, Smith-Wedding-0002.jpg'), () => 'names are filename safe: ' + $('#deliver-preview').textContent);
+    step($('#deliver-folder').textContent.replaceAll('\u200e', '') === dir + '/Delivered/Smith-Wedding', () => 'default folder: ' + $('#deliver-folder').textContent);
+    set($('#deliver-size'), 'web'); set($('#deliver-quality'), '80'); set($('#deliver-watermark'), true); set($('#deliver-mark'), 'PROOF');
+    step($('#deliver-quality-value').textContent === '80', 'quality shows its value');
+    delivered[dir + '/Delivered/Smith-Wedding/Smith-Wedding-0002.jpg'] = new Uint8Array(1);
+    $('#deliver-go').click();
+    await until(() => !$('#deliver-ask').hidden, 'a file already there asks once');
+    step($('#deliver-form').disabled && $('#deliver-cancel').textContent === 'Stop', 'the form is locked while delivering');
+    $('#deliver-skip').click();
+    await until(() => $('#deliver-progress').textContent.startsWith((want - 1) + ' photo'), () => 'finishes: ' + $('#deliver-progress').textContent);
+    step($('#deliver-progress').textContent.includes('1 already there, skipped'), 'and says what it skipped');
+    const exports = calls.filter(c => c.command === 'save_export');
+    step(exports.length === want && exports.every(c => decodeURIComponent(c.options.headers.folder) === dir + '/Delivered/Smith-Wedding'), 'one save per photo, into the client folder');
+    step(calls.filter(c => c.command === 'export_source').every(c => c.args.full === false), 'web size asks for a smaller source');
+    const first = delivered[dir + '/Delivered/Smith-Wedding/Smith-Wedding-0001.jpg'];
+    step(first && first[0] === 0xff && first[1] === 0xd8, 'the files are JPEGs');
+    step(delivered[dir + '/Delivered/Smith-Wedding/Smith-Wedding-0002.jpg'].length === 1, 'skipped files are left alone');
+    const saved = JSON.parse(disk[dir]).deliver;
+    step(saved && saved.client === 'Smith & Wedding!' && saved.size === 'web' && saved.quality === 80 && saved.watermark && saved.folder === null, () => 'choices saved in the shoot: ' + JSON.stringify(saved));
+    step(JSON.parse(disk[dir]).ratings && localStorage.getItem('deliver-mark') === 'PROOF', 'ratings and the mark are kept too');
+    // The proof mark lands at the bottom right and nowhere else.
+    exporter.setRaw(new Uint8Array(rawImage(200, 100, 0)).buffer, false);
+    const plain = exporter.pixels(fullRecipe(), 2048);
+    const marked = await createImageBitmap(await deliverJpeg(plain, { watermark: true, mark: 'PROOF', quality: 100 }));
+    const look = Object.assign(document.createElement('canvas'), { width: 200, height: 100 }).getContext('2d');
+    look.drawImage(marked, 0, 0);
+    const bright = (x, y, w, h) => Math.max(...look.getImageData(x, y, w, h).data.filter((_, i) => i % 4 === 0));
+    step(bright(120, 80, 74, 14) > 40 && bright(0, 0, 100, 50) < 20, 'the proof mark is at the bottom right');
+    // Change the folder; Esc closes; it opens with the saved choices.
+    $('#deliver-change').click();
+    await until(() => $('#deliver-folder').textContent.replaceAll('\u200e', '') === '/elsewhere/Out', 'Change picks another folder');
+    step(calls.filter(c => c.command === 'pick_shoot').at(-1).args.title, 'the folder picker has a title');
+    box.dispatchEvent(new Event('cancel')); box.close();
+    ctrl('e');
+    await until(() => box.open, 'opens again');
+    step($('#deliver-client').value === 'Smith & Wedding!' && $('#deliver-size').value === 'web' && $('#deliver-watermark').checked && $('#deliver-folder').textContent.replaceAll('\u200e', '') === dir + '/Delivered/Smith-Wedding', 'it remembers the last delivery, not an unused folder');
+    // Stop stops after the current photo.
+    set($('#deliver-names'), 'original'); set($('#deliver-client'), '');
+    step($('#deliver-preview').textContent.startsWith(picks()[0].id + '.jpg') && !$('#deliver-go').disabled, 'original names need no client');
+    release = hold('export_source');
+    const before = count('export_source');
+    $('#deliver-go').click();
+    await until(() => count('export_source') === before + 1, 'delivering again');
+    step($('#deliver-progress').textContent === 'Delivering 1 of ' + want + '…', () => 'progress: ' + $('#deliver-progress').textContent);
+    box.dispatchEvent(new Event('cancel', { cancelable: true }));
+    step(box.open, 'Esc does not close while delivering');
+    release();
+    await until(() => $('#deliver-progress').textContent.endsWith('stopped'), () => 'Stop finishes the current photo: ' + $('#deliver-progress').textContent);
+    step(count('export_source') === before + 1 && $('#deliver-cancel').textContent === 'Close', 'and no more');
+    // A photo too big for the graphics card stops with advice.
+    set($('#deliver-size'), 'full'); exportSize = [exporter.maxEdge() + 1, 1];
+    $('#deliver-go').click();
+    await until(() => $('#deliver-progress').classList.contains('error'), 'a photo too big stops');
+    step($('#deliver-progress').textContent.includes('Choose Web size'), () => 'with advice: ' + $('#deliver-progress').textContent);
+    exportSize = [8, 6];
+    $('#deliver-cancel').click();
+    step(!box.open, 'Close closes');
+    }
 
     // Updates.
     step($('#update').hidden && $('#version').textContent === 'Shoot Studio 0.1.0', 'no banner without an update; version shown');

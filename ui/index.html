@@ -8,6 +8,7 @@
     <label>Show <select id="filter"><option value="all">All</option><option value="picks">Picks</option><option value="unrated">Unrated</option></select></label>
     <span id="counts"></span>
     <span id="status" role="status"></span>
+    <button id="deliver-open" type="button" title="Ctrl+E" disabled>Deliver…</button>
   </header>
   <main id="grid" class="grid" tabindex="-1"></main>
   <section id="loupe" class="viewer hidden" aria-label="Photo viewer"><figure><img alt=""><figcaption></figcaption></figure><figure><img alt=""><figcaption></figcaption></figure></section>
@@ -15,6 +16,26 @@
     <div class="stage"><canvas id="canvas"></canvas><canvas id="overlay"></canvas><p id="develop-note" hidden></p><span id="develop-caption"></span></div>
     <fieldset id="sliders" disabled></fieldset>
   </section>
+  <dialog id="deliver" aria-labelledby="deliver-title">
+    <h2 id="deliver-title">Deliver</h2>
+    <fieldset id="deliver-form">
+      <div class="row"><span>Photos</span><div class="choices">
+        <label><input type="radio" name="deliver-which" value="picks"> Picks</label>
+        <label><input type="radio" name="deliver-which" value="selected"> Selected</label>
+        <label><input type="radio" name="deliver-which" value="all"> All except rejects</label>
+      </div><output id="deliver-count"></output></div>
+      <label class="row"><span>Size</span><select id="deliver-size"><option value="full">Full size</option><option value="web">Web (2048 px)</option></select></label>
+      <label class="row"><span>Quality</span><input id="deliver-quality" type="range" min="60" max="100" value="90"><output id="deliver-quality-value"></output></label>
+      <label class="row"><span>Names</span><select id="deliver-names"><option value="client">Client name + number</option><option value="original">Original name</option></select></label>
+      <label class="row" id="deliver-client-row"><span>Client</span><input id="deliver-client" type="text" placeholder="Smith Wedding" spellcheck="false"></label>
+      <p class="hint" id="deliver-preview"></p>
+      <div class="row"><span>Folder</span><code id="deliver-folder"></code><button id="deliver-change" type="button">Change…</button></div>
+      <div class="row mark"><label><input id="deliver-watermark" type="checkbox"> Proof watermark</label><input id="deliver-mark" type="text" aria-label="Watermark text" spellcheck="false"></div>
+    </fieldset>
+    <p id="deliver-progress" role="status"></p>
+    <div id="deliver-ask" hidden><span></span> <button id="deliver-replace" type="button">Replace</button> <button id="deliver-skip" type="button">Skip those</button></div>
+    <div class="actions"><button id="deliver-cancel" type="button">Cancel</button><button id="deliver-go" type="button">Deliver</button></div>
+  </dialog>
   <footer><span id="keys"></span><span id="version"></span></footer>
   <script src="develop.js"></script>
   <script src="app.js"></script>

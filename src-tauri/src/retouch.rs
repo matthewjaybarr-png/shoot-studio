@@ -430,9 +430,9 @@ mod tests {
     #[test]
     fn validate_rejects_bad_strokes() {
         let ok = stroke(Tool::Spot, 0.01, &[[0.5, 0.5]]);
-        assert!(validate(&[ok.clone()]).is_ok());
+        assert!(validate(std::slice::from_ref(&ok)).is_ok());
         let soften = stroke(Tool::Soften, 0.01, &[[0.5, 0.5]]);
-        assert!(validate(&[soften.clone()]).is_ok());
+        assert!(validate(std::slice::from_ref(&soften)).is_ok());
         let bad = |f: &dyn Fn(&mut Stroke)| {
             let mut s = ok.clone();
             f(&mut s);
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn soften_smooths_blotches_but_keeps_fine_texture() {
         let (w, h) = (2000, 200); // long edge 2000: sigmas 2 px and 20 px
-        let fine = |x: usize, y: usize| if (x + y) % 2 == 0 { 0.01 } else { -0.01 };
+        let fine = |x: usize, y: usize| if (x + y).is_multiple_of(2) { 0.01 } else { -0.01 };
         let mid = |x: usize, y: usize| 0.05 * ((x as f32 * 0.2).sin() * (y as f32 * 0.2).sin());
         let img: Vec<f32> = (0..w * h)
             .flat_map(|i| {

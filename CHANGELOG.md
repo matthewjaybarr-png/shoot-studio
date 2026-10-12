@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Crop in Develop (R): drag the frame or its handles, choose an aspect (Original, Free, 1:1, 4:5, 5:7, 2:3, 16:9, or swap it to portrait), and straighten up to 45° either way; the frame keeps to the photo. Enter applies it as one undo step, Esc cancels.
+- Deliver (Ctrl+E): finished JPEGs of the picks, the selection or everything except rejects, at full size or 2048 pixels for the web, with a quality setting. Files are named after the client and numbered in shoot order (Smith-Wedding-0001.jpg), or keep their own names. They go to `<shoot>/Delivered/<client>` or a folder you choose, with an optional PROOF watermark. The app asks once before replacing files already there, and the shoot remembers your choices.
+- Clone and heal start each stroke from the spot you Ctrl+clicked, and show a line to the source while you paint.
+- Recipes are now version 4; older ones still open.
+
 ## 0.4.0
 
 - Looks in Develop: 18 of them in black & white, toned (sepia, warm brown, cool selenium) and colour (warm & soft, bright & airy, moody, golden hour, teal & orange, vintage and more), each with a 0–100% strength and every slider still working on top.
