@@ -1,4 +1,4 @@
-# Shoot Studio
+# KB Studio
 
 A small desktop app for culling and editing a photo shoot on Linux. Open a folder of Canon CR2 and JPEG files, flip through them, mark picks, rejects and stars from the keyboard, adjust, retouch and crop the ones you keep, and deliver them as JPEGs.
 
@@ -27,11 +27,11 @@ Crop, in Develop: R shows the crop frame. Drag inside it to move it, drag a corn
 Deliver: Ctrl+E, or the Deliver… button, saves finished JPEGs for the client: the picks, the selected photos, or everything except rejects. Choose full size or 2048 pixels on the long edge for the web, a JPEG quality, and whether files are named after the client and numbered in shoot order (Smith-Wedding-0001.jpg) or keep their own names. They go to `<shoot>/Delivered/<client>` unless you choose another folder, and a PROOF watermark can be added at the bottom right. Stop finishes the current photo and stops there. Delivering never writes inside `.shootstudio` and never touches the originals.
 
 Copy and paste: Ctrl+C copies a photo's settings and Ctrl+V pastes them, onto the open photo in Develop or onto the selected photos in the grid. Ctrl+click adds a photo to the selection, Shift+click adds a run of photos, Ctrl+A selects them all and Esc clears it.
-- Z zooms between the whole photo and 100% (one photo pixel per screen pixel) at the pointer; hold Space and drag, or drag with the middle button, to move around. Esc puts the brush down; a second Esc goes back to the grid.
+- The wheel zooms at the pointer up to 1600%; + and − step, 0 fits the photo and 1 shows 100% (in Develop these two zoom instead of rating), Z toggles between the two; a navigator in the corner shows where you are. Hold Space and drag, or drag with the middle button, to move around. Esc puts the brush down; a second Esc goes back to the grid.
 
 ## Install (Zorin OS, Ubuntu and similar)
 
-1. Download `Shoot.Studio_<version>_amd64.AppImage` from the [latest release](https://github.com/matthewjaybarr-png/shoot-studio/releases/latest).
+1. Download `KB.Studio_<version>_amd64.AppImage` from the [latest release](https://github.com/matthewjaybarr-png/shoot-studio/releases/latest).
 2. Move it to `~/Applications/ShootStudio.AppImage` and make it executable: right-click → Properties → Permissions → "Allow executing file as program", or `chmod +x ~/Applications/ShootStudio.AppImage`.
 3. AppImages need FUSE 2. If the app doesn't start, install it: `sudo apt install libfuse2` on Zorin 17 / Ubuntu 22.04, or `sudo apt install libfuse2t64` on Ubuntu 24.04 and later.
 4. To add it to the app menu, save this as `~/.local/share/applications/shoot-studio.desktop`, replacing `USER` with your user name:
@@ -39,7 +39,7 @@ Copy and paste: Ctrl+C copies a photo's settings and Ctrl+V pastes them, onto th
    ```ini
    [Desktop Entry]
    Type=Application
-   Name=Shoot Studio
+   Name=KB Studio
    Exec=/home/USER/Applications/ShootStudio.AppImage
    Terminal=false
    Categories=Graphics;Photography;
@@ -72,6 +72,15 @@ Release builds come only from CI (`.github/workflows/release.yml`, on Ubuntu 22.
 3. Commit, then tag and push: `git tag v0.1.1 && git push origin main v0.1.1`.
 
 CI builds the AppImage, signs it, and publishes a release with `latest.json`, which installed apps check. The workflow needs two repository secrets: `TAURI_SIGNING_PRIVATE_KEY` (the private key file's contents) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The matching public key is in `tauri.conf.json`. If the private key is lost, installed copies can no longer update and must be reinstalled by hand.
+
+## Create
+
+The start screen offers Create next to Photos: a small Canva-style maker for posters, labels, charts and cards. It is offline too; everything it uses is bundled.
+
+- Pick a page (Letter, landscape Letter, half sheet, quarter sheet), then add text, pictures, shapes, arrows and clip art from the left. Click a thing to change its font, size, colour or outline on the right; the Layers list reorders, hides and locks. Delete removes, Ctrl+Z / Ctrl+Y undo and redo, arrow keys nudge.
+- Designs save themselves as one `.json` file each (pictures included) in `~/Documents/KB Studio/`, and your own templates in its `Templates` folder. Saved fonts and colours live in the app's settings.
+- PDF, PNG and JPEG export are at 300 dpi and go to the `Exports` folder there. Print makes the PDF and opens it in your PDF viewer, which prints it. Tile mode puts two half sheets or four quarter sheets on one Letter page with cut marks. "Preview in B&W" shows a greyscale preview only; the file is still in colour.
+- In Photos, **Use in a design** sends the developed photo, at 2048 pixels, to a new page.
 
 ## Licence notices
 

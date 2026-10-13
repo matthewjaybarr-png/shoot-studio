@@ -16,6 +16,13 @@ const jpeg = () => new Promise(done => { const c = document.createElement('canva
 window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (command, args, options) => {
   calls.push({ command, args, options });
   if (gates[command]) await gates[command].promise; // a test holds this command until it calls release()
+  if (command === 'list_creations') return Object.keys(disk).filter(k => k.startsWith('c:' + args.kind + ':')).map(k => ({ name: k.split(':').slice(2).join(':'), modified: 1760000000 }));
+  if (command === 'load_creation') { const v = disk['c:' + args.kind + ':' + args.name]; if (v === undefined) throw 'not found'; return v; }
+  if (command === 'save_creation') { disk['c:' + options.headers.kind + ':' + decodeURIComponent(options.headers.name)] = new TextDecoder().decode(args); return null; }
+  if (command === 'delete_creation') { delete disk['c:' + args.kind + ':' + args.name]; return null; }
+  if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; (window.outputs ??= {})[name] = { bytes: args, open: h.open }; return '/out/' + name; }
+  if (command === 'load_create_settings') return JSON.parse(disk.createSettings || 'null');
+  if (command === 'save_create_settings') { disk.createSettings = JSON.stringify(args.settings); return null; }
   if (command === 'pick_shoot') return args?.title ? '/elsewhere/Out' : '/shoots/Smith Wedding';
   if (command === 'startup_shoot') return null;
   if (command === 'app_version') return '0.1.0';
@@ -62,6 +69,9 @@ const test = `<script>
   const tick = () => new Promise(r => setTimeout(r, 50));
   const lastSave = () => calls.filter(c => c.command === 'save_shoot').at(-1)?.args.data.ratings;
   try {
+    step(!$('#home').hidden && mode === 'home', 'the app starts on the home screen');
+    $('#home-photos').click();
+    step($('#home').hidden && mode === 'photos', 'Photos leaves the home screen');
     $('#open').click();
     await until(() => grid.querySelectorAll('.cell').length === 500, 'shoot opens with 500 photos');
     step($('#shoot-name').textContent === 'Smith Wedding', 'shoot name shown');
@@ -378,10 +388,50 @@ const test = `<script>
     const zoomed = (x, y) => [centre[0] + (x - cx + 100) / 1600, centre[1] + (y - cy + 50) / 1200];
     step(near(developer.toImage(cx, cy), zoomed(cx, cy)), 'the pan moved the photo by the drag (' + developer.toImage(cx, cy) + ' vs ' + zoomed(cx, cy) + ')');
 
+    // Deep zoom: the wheel zooms at the pointer up to 1600%, a stroke at 800% lands on the pixel under it, the navigator and readout follow.
+    const keep = { ...developer.view }, stage = $('.stage'), nav = $('#navigator');
+    const wheel = (x, y, deltaY) => stage.dispatchEvent(new WheelEvent('wheel', { clientX: x, clientY: y, deltaY, bubbles: true, cancelable: true }));
+    developer.fit(); draw();
+    const under = developer.toImage(cx + 30, cy);
+    wheel(cx + 30, cy, -1300);
+    step(developer.percent() > 500 && developer.percent() < 1600 && near([developer.toImage(cx + 30, cy)[0]], [under[0]]) && Math.abs(developer.toImage(cx + 30, cy)[1] - under[1]) < 2e-3, 'the wheel zooms in keeping the point under the pointer (' + developer.percent() + '% ' + developer.toImage(cx + 30, cy) + ' vs ' + under + ' ' + JSON.stringify(developer.view) + ')');
+    wheel(cx, cy, -9000);
+    await until(() => $('#zoom-readout').textContent === '1600%' && !nav.hidden, 'zoom stops at 1600%, the readout says so and the navigator shows');
+    wheel(cx, cy, 9000);
+    await until(() => $('#zoom-readout').textContent !== '1600%' && developer.view.zoom === null && nav.hidden, 'wheeling out fits the photo and hides the navigator');
+    developer.zoomTo(8, cx, cy); draw();
+    await until(() => $('#zoom-readout').textContent === '800%', 'the readout follows to 800%');
+    const hit = developer.toImage(cx + 13, cy - 7);
+    press('e');
+    mouse('pointerdown', cx + 13, cy - 7); mouse('pointerup', cx + 13, cy - 7);
+    await until(() => strokes().length === 2, 'a click at 800% saves a red-eye stroke');
+    step(near(strokes()[1].points[0], hit) && developer.percent() === 800, 'it hit the photo pixel under the pointer at 800% (' + strokes()[1].points[0] + ' vs ' + hit + ')');
+    ctrl('z');
+    await until(() => strokes().length === 1, 'and it undoes');
+    press('+');
+    step(developer.percent() === 1000, '+ zooms in by a quarter step (800 → 1000)');
+    press('0');
+    step(developer.view.zoom === null, '0 fits');
+    press('1');
+    step(developer.percent() === 100, '1 shows 100%');
+    developer.zoomTo(4, cx, cy); draw();
+    const r = nav.querySelector('canvas').getBoundingClientRect();
+    nav.dispatchEvent(new PointerEvent('pointerdown', { clientX: r.left + 1, clientY: r.top + 1, button: 0, buttons: 1, pointerId: 7, bubbles: true }));
+    const edge = developer.placement();
+    step(Math.abs(edge.x) < 1e-6 && Math.abs(edge.y) < 1e-6, 'the navigator moves the view, and panning stops at the photo edge (' + edge.x + ',' + edge.y + ')');
+    developer.view = keep; draw();
+    await until(() => nav.hidden === (developer.view.zoom === null) && $('#zoom-readout').textContent === '100%', 'back to 100%');
+
     press('h');
     drag([[cx, cy], [cx + 20, cy]]);
-    step(strokes().length === 1 && $('#status').textContent.includes('Ctrl+click'), 'heal waits for a source');
-    mouse('pointerdown', cx - 80, cy - 40, { ctrlKey: true }); mouse('pointerup', cx - 80, cy - 40, { ctrlKey: true });
+    step(strokes().length === 1 && $('#status').textContent.includes('Alt+click'), 'heal waits for a source');
+    mouse('pointermove', cx, cy, { buttons: 0 });
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const overlayAlpha = () => $('#overlay').getContext('2d').getImageData(Math.round(cx - box.left), Math.round(cy - box.top), 1, 1).data[3];
+    step(overlayAlpha() === 0, 'with no source there is no preview inside the brush');
+    mouse('pointerdown', cx - 80, cy - 40, { altKey: true }); mouse('pointerup', cx - 80, cy - 40, { altKey: true });
+    mouse('pointermove', cx, cy, { buttons: 0 });
+    await until(() => overlayAlpha() === 255, 'Alt+click sets the source and the brush shows what it would copy');
     const healPath = [[cx, cy], [cx + 10, cy], [cx + 20, cy + 10]];
     drag(healPath);
     await until(() => strokes().length === 2, 'Ctrl+click then a drag saves a heal stroke');
@@ -391,8 +441,30 @@ const test = `<script>
     drag([[cx + 50, cy], [cx + 60, cy]]);
     await until(() => strokes().length === 3, 'a second heal stroke');
     const second = zoomed(cx + 50, cy);
-    step(near(strokes()[2].offset, [from[0] - second[0], from[1] - second[1]]), 'the next stroke copies from the Ctrl+clicked spot again (' + JSON.stringify(strokes()[2].offset) + ')');
+    step(near(strokes()[2].offset, saved.offset) && !('strength' in saved), 'Aligned is on: the next stroke keeps the same distance to the source (' + JSON.stringify(strokes()[2].offset) + ')');
     await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.length === 3, 'Rust gets all three strokes');
+    $('#aligned input').click();
+    drag([[cx + 50, cy + 20], [cx + 60, cy + 20]]);
+    await until(() => strokes().length === 4, 'a stroke with Aligned off');
+    const third = zoomed(cx + 50, cy + 20);
+    step(near(strokes()[3].offset, [from[0] - third[0], from[1] - third[1]]), 'with Aligned off it restarts from the clicked source (' + JSON.stringify(strokes()[3].offset) + ')');
+    $('#aligned input').click();
+    ctrl('z');
+    await until(() => strokes().length === 3, 'it undoes');
+    // Strength is on every brush: heal at 50% saves it, soften always does and marks its bands as scaled.
+    sliders.querySelector('[data-brush="strength"]').value = 50;
+    sliders.querySelector('[data-brush="strength"]').dispatchEvent(new Event('input', { bubbles: true }));
+    drag([[cx + 70, cy], [cx + 80, cy]]);
+    await until(() => strokes().length === 4, 'a heal at 50%');
+    step(strokes()[3].strength === 0.5 && strengthOf('spot') === 1, 'strength is saved when under 100% and is kept per tool (' + JSON.stringify(strokes()[3]) + ')');
+    press('b');
+    step(sliders.querySelector('[data-brush="strength"]').value === '50' && !$('#strength').hidden, 'soften has its own strength slider, at 50% to start');
+    drag([[cx + 90, cy], [cx + 100, cy]]);
+    await until(() => strokes().length === 5, 'a soften stroke');
+    step(strokes()[4].tool === 'soften' && strokes()[4].strength === 0.5 && strokes()[4].scaled === true, 'soften saves its strength and scaled bands (' + JSON.stringify(strokes()[4]) + ')');
+    ctrl('z'); ctrl('z');
+    await until(() => strokes().length === 3, 'both undo');
+    press('h');
 
     ctrl('z');
     await until(() => strokes().length === 2 && calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.length === 2, 'Ctrl+Z removes the last stroke and Rust replays the rest');
@@ -529,7 +601,7 @@ const test = `<script>
     }
 
     // Updates.
-    step($('#update').hidden && $('#version').textContent === 'Shoot Studio 0.1.0', 'no banner without an update; version shown');
+    step($('#update').hidden && $('#version').textContent === 'KB Studio 0.1.0', 'no banner without an update; version shown');
     offer = '0.1.1'; await checkForUpdate();
     step(!$('#update').hidden && $('#update-text').textContent.includes('0.1.1'), 'banner offers the newer version');
     move(7); release = hold('save_shoot');
@@ -547,6 +619,146 @@ const test = `<script>
     await until(() => !lastSave()?.IMG_0007, 'keys work again after a failed install');
     offer = new Error('offline'); await checkForUpdate();
     step($('#update').hidden, 'offline shows nothing');
+    // Create.
+    const settle = async (promise, what = 'something finishes') => { let done = false, value, error; promise.then(v => { value = v; done = true; }, e => { error = e; done = true; }); await until(() => done, what); if (error) throw error; return value; };
+    const put = (el, value, type) => { el.value = value; el.dispatchEvent(new Event(type, { bubbles: true })); };
+    $('#photos-home').click();
+    step(mode === 'home' && !$('#home').hidden, 'Start returns to the home screen');
+    $('#home-create').click();
+    await until(() => mode === 'create' && board && design && $('#create-title').value === 'Untitled', 'Create opens a new design');
+    step(design.page === 'letter' && pagePx().join() === '816,1056' && board.getObjects().length === 0 && board.backgroundColor === '#ffffff', 'it is a blank Letter page');
+    step(board.getWidth() <= 816 && board.getWidth() / board.getHeight() > 0.76 && board.getWidth() / board.getHeight() < 0.78, 'the page fits the window in the right shape');
+    const types = () => board.getObjects().map(o => o.kbName).join();
+    $('#add-text').click(); board.getActiveObject().exitEditing?.();
+    $('#add-rect').click(); $('#add-circle').click(); $('#add-line').click(); $('#add-arrow').click();
+    const png = await new Promise(r => { const c = document.createElement('canvas'); c.width = 4000; c.height = 1000; c.getContext('2d').fillRect(0, 0, 4000, 1000); c.toBlob(r, 'image/png'); });
+    await settle(addImageBlob(png, 'test'), 'a picture is added');
+    await settle(addEmoji('2b50'), 'clip art is added');
+    step(types() === 'Text,Rectangle,Circle,Line,Arrow,Photo test,star', () => 'every kind of item can be added: ' + types());
+    const pic = board.getObjects()[5];
+    step(pic.width === 3300 && pic.height === 825, () => 'a big picture is shrunk to 3300 px: ' + pic.width + 'x' + pic.height);
+    step($('#layers').children.length === 7 && $('#layers').firstChild.textContent.startsWith('star'), 'the layers list shows the top layer first');
+    // Layers: reorder, hide, lock.
+    const row = n => $('#layers').children[n];
+    const layerButton = (n, title) => [...row(n).querySelectorAll('button')].find(b => b.title.startsWith(title));
+    layerButton(0, 'Send backward').click();
+    step(types().endsWith('Photo test,star') === false && types().endsWith('star,Photo test'), 'Send backward moves a layer down');
+    layerButton(1, 'Bring forward').click();
+    step(types().endsWith('Photo test,star'), 'Bring forward moves it back');
+    layerButton(0, 'Show or hide').click();
+    step(board.getObjects()[6].visible === false && row(0).classList.contains('off'), 'Hide hides a layer');
+    layerButton(0, 'Lock').click();
+    step(board.getObjects()[6].kbLocked && board.getObjects()[6].lockMovementX, 'Lock stops it moving');
+    layerButton(0, 'Show or hide').click(); layerButton(0, 'Lock').click();
+    step(board.getObjects()[6].visible !== false && !board.getObjects()[6].lockMovementX, 'Show and Unlock undo those');
+    // Align.
+    const rect = board.getObjects()[1];
+    board.setActiveObject(rect);
+    document.querySelector('[data-align=left]').click();
+    step(Math.abs(rect.getBoundingRect().left) < 1, 'Align left puts the box at the page edge');
+    document.querySelector('[data-align=centre]').click();
+    step(Math.abs(rect.getBoundingRect().left + rect.getBoundingRect().width / 2 - 408) < 1, 'Align centre puts it in the middle');
+    document.querySelector('[data-align=bottom]').click();
+    step(Math.abs(rect.getBoundingRect().top + rect.getBoundingRect().height - 1056) < 1, 'Align bottom');
+    // Colour and the background.
+    put($('#prop-fill'), '#ff0000', 'input');
+    step(rect.fill === '#ff0000', 'the colour box recolours the selection');
+    // Undo and redo.
+    const base = history.length;
+    $('#create-undo').click();
+    await until(() => board.getObjects()[1].fill === '#ffd966' || board.getObjects()[1].fill !== '#ff0000', 'Undo goes back a step');
+    $('#create-redo').click();
+    await until(() => board.getObjects()[1].fill === '#ff0000', 'Redo goes forward again');
+    while (here > 0) await settle(stepHistory(-1), 'undo finishes');
+    step(board.getObjects().length === 0 && $('#create-undo').disabled && !$('#create-redo').disabled, () => 'undo walks back to the blank page: ' + board.getObjects().length + ' items, at ' + at + ', undo disabled ' + $('#create-undo').disabled);
+    while (here < history.length - 1) await settle(stepHistory(1), 'redo finishes');
+    step(board.getObjects().length === 7 && $('#create-redo').disabled, 'redo walks forward to the end');
+    for (let i = 0; i < 70; i++) { board.getObjects()[0].set({ left: i }); commitDesign(); }
+    step(history.length === 50 && here === 49, () => 'undo keeps at most 50 snapshots: ' + history.length);
+    // Saving.
+    await until(() => disk['c:designs:Untitled'] && JSON.parse(disk['c:designs:Untitled']).canvas.objects.length === 7, 'autosave writes the design');
+    step(JSON.parse(disk['c:designs:Untitled']).canvas.objects.length === 7 && JSON.parse(disk['c:designs:Untitled']).page === 'letter', 'the saved file holds the design');
+    put($('#create-title'), 'Poster', 'change');
+    await until(() => disk['c:designs:Poster'] && !disk['c:designs:Untitled'], 'renaming moves the file');
+    // Page sizes and tiling.
+    put($('#create-page'), 'quarter', 'change');
+    step(pagePx().join() === '408,528' && !$('#create-tile').disabled, 'quarter sheet is 4.25 x 5.5 in');
+    const q = pageLayout('quarter', 'sheet');
+    step(q.sheet.join() === '8.5,11' && q.tiles.map(t => t.x + ',' + t.y).join(' ') === '0,0 4.25,0 0,5.5 4.25,5.5' && q.marks.length === 4, 'four quarter cards tile onto a Letter with cut marks');
+    const h = pageLayout('half', 'sheet');
+    step(h.sheet.join() === '11,8.5' && h.tiles.map(t => t.x + ',' + t.y).join(' ') === '0,0 5.5,0', 'two half sheets sit side by side on landscape Letter');
+    step(pageLayout('letter', 'sheet').tiles.length === 1, 'a Letter page is never tiled');
+    put($('#create-tile'), 'sheet', 'change'); put($('#create-copies'), '2', 'change');
+    $('#create-pdf').click();
+    await until(() => window.outputs?.['Poster.pdf'], () => 'the PDF is made: ' + $('#create-saved').textContent);
+    const outputs = window.outputs, pdf = new TextDecoder('latin1').decode(outputs['Poster.pdf'].bytes);
+    step(pdf.startsWith('%PDF') && (pdf.match(/\\/Type\\s*\\/Page\\b/g) || []).length === 2, () => 'the PDF has one page per copy: ' + (pdf.match(/\\/Type\\s*\\/Page\\b/g) || []).length);
+    step(/MediaBox\\s*\\[\\s*0\\s+0\\s+612\\.?0*\\s+792\\.?0*\\s*\\]/.test(pdf) && outputs['Poster.pdf'].open === 'false', () => 'on Letter paper: ' + pdf.slice(pdf.indexOf('MediaBox') - 5, pdf.indexOf('MediaBox') + 40) + ' open=' + outputs['Poster.pdf'].open);
+    $('#create-print').click();
+    await until(() => window.outputs['Poster.pdf'].open === 'true', 'Print opens the PDF');
+    $('#create-png').click();
+    await until(() => window.outputs['Poster.png'], 'PNG export');
+    const img = await settle(createImageBitmap(new Blob([window.outputs['Poster.png'].bytes], { type: 'image/png' })), 'the PNG decodes');
+    step(img.width === 1275 && img.height === 1650, () => 'PNG is 300 dpi: ' + img.width + 'x' + img.height);
+    $('#create-jpeg').click();
+    await until(() => window.window.outputs['Poster.jpg'] && window.outputs['Poster.jpg'].bytes[0] === 255, 'JPEG export');
+    $('#create-bw').click();
+    step($('#create-stage').classList.contains('bw'), 'Preview in B&W greys the page');
+    $('#create-bw').click();
+    put($('#create-page'), 'letter', 'change');
+    // Home lists recent designs; opening one brings it back.
+    await settle($('#create-home').onclick(), 'Start saves and leaves');
+    await until(() => $('#home-recent').children.length === 1 && $('#home-recent').textContent.startsWith('Poster'), 'home lists the recent design');
+    $('#home-recent').firstChild.click();
+    await until(() => mode === 'create' && board.getObjects().length === 7 && design.title === 'Poster', 'a recent design reopens');
+    // Starter templates, saved templates, fonts, colours and clip art.
+    await settle($('#create-home').onclick(), 'Start saves and leaves');
+    const names = [...$('#home-templates').children].map(b => b.textContent);
+    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter', () => 'four starter templates: ' + names);
+    for (const name of names) {
+      await settle(Promise.resolve($('#home-templates').children[names.indexOf(name)].click()));
+      await until(() => mode === 'create' && design.title === 'My ' + name && board.getObjects().length > 5, 'the ' + name + ' template opens');
+      step(board.getObjects().some(o => o.type === 'textbox' && o.text) && board.getObjects().every(o => !o.text || o.text.length < 120), 'the ' + name + ' has placeholder text');
+      await settle($('#create-home').onclick(), 'Start saves and leaves');
+      await until(() => $('#home-templates').children.length >= 4, 'home again');
+    }
+    await settle(Promise.resolve($('#home-templates').children[0].click()));
+    await until(() => mode === 'create' && design.title === 'My Behaviour chart 2', 'a template opens');
+    $('#create-save-template').click();
+    await until(() => disk['c:templates:My Behaviour chart 2'], 'Save as template stores it');
+    await settle($('#create-home').onclick(), 'Start saves and leaves');
+    await until(() => [...$('#home-templates').children].some(b => b.textContent === 'My Behaviour chart 2'), 'a saved template is offered on the home screen');
+    [...$('#home-templates').children].find(b => b.textContent === 'My Behaviour chart 2').click();
+    await until(() => mode === 'create' && design.title === 'My My Behaviour chart 2' && board.getObjects().length > 5, 'a saved template makes a new design');
+    // Fonts.
+    step([...$('#prop-font').options].map(o => o.value).join() === 'Lexend,Andika,Atkinson Hyperlegible,Comic Neue,Fredoka', 'five fonts are offered');
+    step(FONTS.every(f => document.fonts.check('16px "' + f + '"')), 'all five fonts are loaded');
+    $('#add-text').click(); board.getActiveObject().exitEditing?.();
+    const words = board.getActiveObject();
+    put($('#prop-font'), 'Fredoka', 'change');
+    step(words.fontFamily === 'Fredoka', 'the font menu changes the text');
+    $('#prop-fav').click();
+    step(settings.fonts.join() === 'Fredoka' && JSON.parse(disk.createSettings).fonts.join() === 'Fredoka' && $('#prop-font').options[0].value === 'Fredoka', 'a favourite font is saved and listed first');
+    // Saved colours.
+    put($('#prop-fill'), '#12ab34', 'input');
+    $('#colour-save').click();
+    step(JSON.parse(disk.createSettings).colours.join() === '#12ab34' && $('#colours').children.length === 1, 'a colour is saved');
+    board.discardActiveObject(); board.requestRenderAll();
+    $('#colours').firstChild.click();
+    step(board.backgroundColor === '#12ab34', 'a saved colour fills the page when nothing is selected');
+    // Clip art.
+    const countBefore = board.getObjects().length;
+    $('#emoji-list').querySelector('[data-code="2764"]').click();
+    await until(() => board.getObjects().length === countBefore + 1 && board.getObjects().at(-1).kbName === 'heart', 'a clip-art button adds it');
+    step($('#emoji-list').children.length === 40 && document.body.textContent.includes('CC-BY 4.0'), 'clip art is credited in the app');
+    // Photos sends a developed photo to Create.
+    await settle($('#create-home').onclick(), 'Start saves and leaves');
+    $('#home-photos').click();
+    move(2);
+    const sends = count('export_source');
+    $('#use-in-design').click();
+    await until(() => mode === 'create' && board.getObjects().length === 1 && board.getObjects()[0].kbName === 'Photo IMG_0002', () => 'Use in a design opens it in Create: ' + mode + ' ' + types());
+    step(count('export_source') === sends + 1 && calls.filter(c => c.command === 'export_source').at(-1).args.full === false && Math.max(board.getObjects()[0].width, board.getObjects()[0].height) <= 2048, 'it was rendered at web size');
     document.body.dataset.testResult = 'PASS';
   } catch (e) { document.body.dataset.testResult = 'FAIL: ' + e.message; }
 })();
@@ -554,10 +766,14 @@ const test = `<script>
 const html = ui('index.html')
   .replace('<link rel="stylesheet" href="style.css">', '<style>' + ui('style.css') + '</style>')
   .replace('<script src="develop.js"></script>', mock + '<script>' + ui('develop.js') + '</script>')
-  .replace('<script src="app.js"></script>', '<script>' + ui('app.js') + '</script>' + test);
+  .replace('<head>', '<head><base href="file://' + path.join(__dirname, 'ui') + '/">')
+  .replace('<script src="app.js"></script>', '<script>' + ui('app.js') + '</script>')
+  .replace('<script src="vendor/fabric.min.js"></script>', () => '<script>' + ui('vendor/fabric.min.js') + '</script>')
+  .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
-const result = cp.spawnSync(process.env.CHROMIUM || '/usr/bin/chromium', ['--headless', '--disable-gpu', '--enable-unsafe-swiftshader', '--no-first-run', '--no-sandbox', '--window-size=1300,850', '--user-data-dir=' + path.join(temp, 'profile'), '--virtual-time-budget=600000', '--dump-dom', 'file://' + file], { encoding: 'utf8', timeout: 60000, maxBuffer: 2e7 });
+const result = cp.spawnSync(process.env.CHROMIUM || '/usr/bin/chromium', ['--headless', '--disable-gpu', '--enable-unsafe-swiftshader', '--no-first-run', '--no-sandbox', '--allow-file-access-from-files', '--window-size=1300,850', '--user-data-dir=' + path.join(temp, 'profile'), '--virtual-time-budget=600000', '--dump-dom', 'file://' + file], { encoding: 'utf8', timeout: 180000, maxBuffer: 2e7 });
 const outcome = result.stdout?.match(/data-test-result="([^"]*)"/)?.[1];
 if (outcome === 'PASS') { fs.rmSync(temp, { recursive: true, force: true }); console.log('PASS: culling and develop UI'); process.exit(0); }
 console.error('UI check failed: ' + (outcome || 'no result after ' + (result.stdout?.match(/data-test-step="([^"]*)"/)?.[1] || result.stderr || result.error)) + '\nCheck file: ' + file);

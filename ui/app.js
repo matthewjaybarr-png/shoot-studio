@@ -1,6 +1,7 @@
-// Shoot Studio: open a shoot, cull it with the keyboard (ratings in <shoot>/.shootstudio/shoot.json),
+// KB Studio: open a shoot, cull it with the keyboard (ratings in <shoot>/.shootstudio/shoot.json),
 // develop photos (recipes in .shootstudio/recipes/, their rendered look in .shootstudio/edited/).
 const invoke = window.__TAURI__.core.invoke;
+let mode = 'home'; // 'home', 'photos' or 'create'
 const $ = selector => document.querySelector(selector);
 const grid = $('#grid'), loupe = $('#loupe'), develop = $('#develop'), canvas = $('#canvas'), sliders = $('#sliders');
 let dir = null, opening = false, updating = false, photos = [], ratings = {}, recipes = {}, visible = [], cursor = 0, view = 'grid', anchor = null, saving = Promise.resolve();
@@ -16,7 +17,7 @@ const KEYS = {
   grid: `←→↑↓ move · Enter loupe · D develop · C compare · ${CULL_KEYS} · Ctrl/Shift+click select · Ctrl+A select all · ${COPY_KEYS} (onto the selection)`,
   loupe: `←→ move · Enter or Esc grid · D develop · C compare · ${CULL_KEYS} · ${COPY_KEYS}`,
   compare: `←→ change the right photo · C one photo · Esc grid · ${CULL_KEYS}`,
-  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · [ ] brush size · Ctrl+click heal/clone source · R crop · Z zoom · Space+drag pan · Esc drop tool, then grid`
+  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · [ ] brush size · Ctrl+click heal/clone source · R crop · wheel or + - zoom · 0 fit · 1 100% · Z toggle zoom · Space+drag pan · Esc drop tool, then grid`
 };
 
 const fileOf = photo => photo.jpg || photo.raw;
@@ -183,8 +184,9 @@ let retouching = Promise.resolve();
 const queue = step => { const run = retouching.then(step); retouching = run.catch(() => {}); return run; };
 
 // Retouch brushes. Size is the brush radius over the photo's long edge, on a log slider.
-let tool = null, brush = { size: 0.01, strength: 0.5 }, stroke = null, panning = null, spaceHeld = false, pointer = null;
-const COPIES = { heal: true, clone: true }; // tools that copy from a source you Ctrl+click
+let tool = null, brush = { size: 0.01 }, strengths = { soften: 0.5 }, aligned = true, stroke = null, panning = null, spaceHeld = false, pointer = null;
+const COPIES = { heal: true, clone: true }; // tools that copy from a source you Alt+click or Ctrl+click
+const strengthOf = t => strengths[t] ?? 1; // soften starts at half; the rest at all of it
 const sizeToSlider = size => Math.round(100 * Math.log(size / STROKE_LIMITS.minSize) / Math.log(100));
 const sliderToSize = v => STROKE_LIMITS.minSize * 100 ** (v / 100);
 const round = v => Math.round(v * 1e5) / 1e5;
@@ -220,14 +222,15 @@ sliders.insertAdjacentHTML('beforeend', `<h3>Retouch</h3><div class="tools">${Ob
   `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E' }[key]}</kbd></button>`).join('')}</div>
   <label><span>Brush size</span><output></output><input type="range" min="0" max="100" step="1" data-brush="size"></label>
   <label id="strength"><span>Strength</span><output></output><input type="range" min="0" max="100" step="1" data-brush="strength"></label>
+  <label id="aligned"><span>Aligned (keep the source distance)</span><input type="checkbox" checked></label>
   <p id="tool-hint"></p>`);
 sliders.insertAdjacentHTML('beforeend', '<button id="reset" type="button">Reset all</button>');
 
 const HINTS = {
-  spot: 'Paint over a spot; Shoot Studio finds clean skin nearby to blend in.',
-  heal: 'Ctrl+click a clean area, then paint. Its texture is blended into the colour around the stroke.',
-  clone: 'Ctrl+click a source, then paint. Exact copy, no blending. For skin, use Heal.',
-  soften: 'Paint over skin to smooth blotches while keeping pores and fine detail.',
+  spot: 'Paint over a spot; KB Studio finds clean skin nearby to blend in. Wrinkles: spot heal at 100% removes, 40-60% softens.',
+  heal: 'Alt+click (or Ctrl+click) a clean area, then paint. The circle shows what is copied. Its texture is blended into the colour around the stroke.',
+  clone: 'Alt+click (or Ctrl+click) a source, then paint. Exact copy, no blending. For skin, use Heal.',
+  soften: 'Paint over skin to smooth blotches while keeping pores and fine detail. A small brush reaches wrinkles; 40-60% softens them.',
   redeye: 'Click a red pupil, or drag out a circle over the eye. Only strongly red pixels darken; the white catchlight stays.'
 };
 function paintTools() {
@@ -235,9 +238,10 @@ function paintTools() {
   const size = sliders.querySelector('[data-brush=size]'), strength = sliders.querySelector('[data-brush=strength]');
   size.value = sizeToSlider(brush.size);
   size.previousElementSibling.textContent = developer?.width ? Math.max(1, Math.round(brush.size * Math.max(developer.width, developer.height))) + ' px' : '';
-  strength.value = Math.round(brush.strength * 100);
+  strength.value = Math.round(strengthOf(tool) * 100);
   strength.previousElementSibling.textContent = strength.value + '%';
-  $('#strength').hidden = tool !== 'soften';
+  $('#strength').hidden = !tool;
+  $('#aligned').hidden = !COPIES[tool];
   $('#tool-hint').textContent = tool ? HINTS[tool] : 'Pick a tool to paint fixes onto the photo.';
   stage.classList.toggle('brush', !!tool);
 }
@@ -325,6 +329,7 @@ function paintOverlay() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   const e = editing, place = e?.ready && developer.placement();
+  paintZoom();
   if (cropping && place) return paintCrop(g);
   if (!tool || !place) return;
   const ring = (x, y, r) => {
@@ -346,6 +351,13 @@ function paintOverlay() {
     const from = e.offset && at ? [at[0] + e.offset[0], at[1] + e.offset[1]] : e.from;
     if (from) {
       const [x, y] = developer.fromImage(from);
+      // Inside the brush, show what it would copy (the canvas's own pixels at the source).
+      if (!stroke && at) {
+        const [bx, by] = developer.fromImage(at), k = dpr;
+        g.save(); g.beginPath(); g.arc(bx, by, radius, 0, 2 * Math.PI); g.clip();
+        try { g.drawImage(canvas, (x - radius) * k, (y - radius) * k, 2 * radius * k, 2 * radius * k, bx - radius, by - radius, 2 * radius, 2 * radius); } catch {}
+        g.restore();
+      }
       ring(x, y, radius);
       g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath();
       g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.moveTo(x, y - 6); g.lineTo(x, y + 6); g.stroke();
@@ -356,6 +368,40 @@ function paintOverlay() {
     }
   }
 }
+
+// The zoom readout and the navigator: a small picture with a box where the view is; drag it to move around.
+const nav = $('#navigator'), navCanvas = nav.firstElementChild, navBox = nav.lastElementChild;
+let navKey = null;
+function paintZoom() {
+  const box = editing?.ready && developer.viewBox();
+  $('#zoom-readout').hidden = !editing?.ready;
+  if (editing?.ready) $('#zoom-readout').textContent = developer.percent() + '%';
+  nav.hidden = !box;
+  if (!box) return;
+  // ponytail: the thumbnail is re-rendered only when the pixels or crop change; one 160 px GPU pass.
+  const key = [editing, editing.recipe, cropping, before, developer.revision].join();
+  if (key !== navKey) {
+    navKey = key;
+    const image = developer.pixels(before || cropping ? {} : editing.recipe, 160, developer.crop);
+    Object.assign(navCanvas, { width: image.width, height: image.height });
+    navCanvas.getContext('2d').putImageData(image, 0, 0);
+  }
+  Object.assign(navBox.style, { left: box.x * navCanvas.width + 'px', top: box.y * navCanvas.height + 'px', width: box.w * navCanvas.width + 'px', height: box.h * navCanvas.height + 'px' });
+}
+const navigate = event => {
+  const r = navCanvas.getBoundingClientRect();
+  developer.centreOn((event.clientX - r.left) / r.width, (event.clientY - r.top) / r.height);
+  draw();
+};
+nav.onpointerdown = event => { try { nav.setPointerCapture(event.pointerId); } catch {} navigate(event); };
+nav.onpointermove = event => { if (event.buttons & 1) navigate(event); };
+stage.addEventListener('wheel', event => {
+  if (!editing?.ready) return;
+  event.preventDefault();
+  const dy = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+  developer.zoomBy(event.clientX, event.clientY, Math.exp(-dy * 0.002));
+  draw();
+}, { passive: false });
 
 // Crop mode (R): the whole straightened photo, the crop over it. Nothing changes until Enter or R
 // applies it as one undo step; Esc puts it back. `ratio` is width over height in pixels, null when free.
@@ -643,9 +689,10 @@ sliders.addEventListener('click', event => {
 sliders.addEventListener('input', event => {
   const which = event.target.dataset.brush;
   if (which === 'size') brush.size = sliderToSize(+event.target.value);
-  if (which === 'strength') brush.strength = +event.target.value / 100;
+  if (which === 'strength' && tool) strengths[tool] = +event.target.value / 100;
   if (which) { paintTools(); draw(); }
 });
+$('#aligned input').onchange = event => { aligned = event.target.checked; if (!aligned && editing) editing.offset = null; draw(); };
 sliders.addEventListener('input', event => {
   const key = event.target.dataset.key;
   if (!editing || !key) return;
@@ -696,12 +743,12 @@ stage.addEventListener('pointerdown', event => {
   }
   const at = developer.toImage(event.clientX, event.clientY);
   if (event.button !== 0 || !tool || !inside(at) || !inside(developer.toView(event.clientX, event.clientY))) return;
-  if (tool === 'redeye') { stroke = { e, tool, size: brush.size, points: [at.map(round)] }; capture(event); return draw(); }
-  if (COPIES[tool] && (event.ctrlKey || event.metaKey)) { e.from = at; e.offset = null; return draw(); }
-  if (COPIES[tool] && !e.from) return status('Ctrl+click where to copy from first.');
-  // Each stroke starts copying from the Ctrl+clicked spot, then follows the brush at that distance.
+  if (tool === 'redeye') { stroke = { e, tool, size: brush.size, strength: strengthOf(tool), points: [at.map(round)] }; capture(event); return draw(); }
+  if (COPIES[tool] && (event.altKey || event.ctrlKey || event.metaKey)) { e.from = at; e.offset = null; return draw(); }
+  if (COPIES[tool] && !e.from) return status('Alt+click where to copy from first.');
+  // The stroke copies from the source at that distance from the brush; Aligned keeps the distance for the next stroke too.
   if (COPIES[tool] && !e.offset) e.offset = [round(e.from[0] - at[0]), round(e.from[1] - at[1])];
-  stroke = { e, tool, size: brush.size, strength: brush.strength, points: [at.map(round)] };
+  stroke = { e, tool, size: brush.size, strength: strengthOf(tool), points: [at.map(round)] };
   capture(event);
   draw();
 });
@@ -738,10 +785,12 @@ async function finishStroke() {
   draw();
   if (!s || editing !== s.e) return;
   const e = s.e, done = { tool: s.tool, size: round(s.size), points: s.points };
-  if (s.tool === 'soften') done.strength = round(s.strength);
-  else if (s.tool === 'redeye') { brush.size = s.size; paintTools(); }
-  else if (COPIES[s.tool]) { done.offset = e.offset; e.offset = null; } // the next stroke starts from the Ctrl+clicked spot again
-  else {
+  // Strength is left out at 100%, so such strokes save as they always did.
+  if (s.tool === 'soften') Object.assign(done, { strength: round(s.strength), scaled: true });
+  else if (s.strength < 1) done.strength = round(s.strength);
+  if (s.tool === 'redeye') { brush.size = s.size; paintTools(); }
+  else if (COPIES[s.tool]) { done.offset = e.offset; if (!aligned) e.offset = null; } // not aligned: the next stroke starts from the clicked source again
+  else if (s.tool !== 'soften') {
     // Spot heal: Rust picks the best nearby source before the stroke is saved, so it replays the same way.
     try {
       done.offset = await queue(() => developer.owner === e ? invoke('spot_source', { dir: e.shoot, name: e.source, stroke: { ...done, offset: [0, 0] } }) : null);
@@ -790,6 +839,7 @@ async function openShoot(path) {
     $('#shoot-name').textContent = path.split(/[\\/]/).filter(Boolean).pop();
     status('');
     $('#deliver-open').disabled = false;
+    $('#use-in-design').disabled = false;
     renderGrid();
     showViewer();
     grid.focus();
@@ -922,18 +972,39 @@ $('#deliver-go').onclick = async () => {
   }
 };
 
+// Send the current photo, developed, to Create at web size (2048 px).
+let sending = false;
+async function useInDesign() {
+  const photo = visible[cursor];
+  if (!photo || !dir || sending || delivering) return;
+  sending = true;
+  const shoot = dir;
+  status('Sending ' + photo.id + ' to Create…');
+  try {
+    try { exporter ||= new Developer(document.createElement('canvas')); } catch (error) { throw `this computer can't render photos (${error.message})`; }
+    const recipe = fullRecipe(recipes[photo.id]);
+    const bytes = await invoke('export_source', { dir: shoot, name: photo.raw || photo.jpg, strokes: recipe.retouch, full: false });
+    stale(shoot);
+    exporter.setRaw(bytes, !!photo.raw);
+    const jpeg = await deliverJpeg(exporter.pixels(recipe, WEB_EDGE), { quality: 92, watermark: false });
+    await createFromPhoto(jpeg, photo.id);
+    setMode('create');
+  } catch (error) { status('Could not send the photo: ' + error, true); } finally { sending = false; }
+}
+$('#use-in-design').onclick = () => { $('#use-in-design').blur(); useInDesign(); };
+
 // Updates: one check at launch; nothing shows offline. Installing waits for the last rating to save, then restarts.
 async function checkForUpdate() {
   const version = await invoke('check_update').catch(() => null);
   $('#update').hidden = !version;
-  if (version) { $('#update-text').textContent = `Shoot Studio ${version} is ready.`; $('#update-now').disabled = false; }
+  if (version) { $('#update-text').textContent = `KB Studio ${version} is ready.`; $('#update-now').disabled = false; }
 }
 $('#update-now').onclick = async () => {
   $('#update-now').disabled = true;
   updating = true; // no new ratings or edits once the restart is coming
   if (editing) saveLook(editing);
   paintSliders();
-  $('#update-text').textContent = 'Updating… Shoot Studio will restart by itself.';
+  $('#update-text').textContent = 'Updating… KB Studio will restart by itself.';
   const progress = new window.__TAURI__.core.Channel();
   progress.onmessage = percent => { $('#update-text').textContent = `Downloading update… ${percent}%`; };
   try {
@@ -947,11 +1018,11 @@ $('#update-now').onclick = async () => {
   }
 };
 $('#keys').textContent = KEYS.grid;
-invoke('app_version').then(version => { $('#version').textContent = 'Shoot Studio ' + version; }, () => {});
+invoke('app_version').then(version => { $('#version').textContent = 'KB Studio ' + version; }, () => {});
 checkForUpdate();
 
 $('#open').onclick = async () => { const path = await invoke('pick_shoot'); if (path) openShoot(path); };
-invoke('startup_shoot').then(path => { if (path) openShoot(path); });
+invoke('startup_shoot').then(path => { if (path) { setMode('photos'); openShoot(path); } });
 $('#filter').onchange = () => { renderGrid(); showViewer(); $('#filter').blur(); grid.focus(); };
 // Ctrl+click adds or removes a photo from the selection, Shift+click adds the run from the current photo.
 grid.onclick = event => {
@@ -973,6 +1044,7 @@ function paintSelection() {
 grid.ondblclick = event => { if (event.target.closest('.cell')) { view = 'loupe'; showViewer(); } };
 
 document.addEventListener('keydown', event => {
+  if (mode !== 'photos') return;
   const target = event.target;
   if ($('#deliver').open) return; // the dialog has its own keys
   if (target.matches('input[type=range]')) {
@@ -1009,12 +1081,21 @@ document.addEventListener('keydown', event => {
     },
     c: () => { if (view === 'compare') view = 'loupe'; else { view = 'compare'; anchor = visible[cursor]; move(cursor + 1); } showViewer(); },
     p: () => rate({ flag: 'pick' }), x: () => rate({ flag: 'reject' }), u: () => rate({ flag: null }),
-    0: () => rate({ stars: null }), 1: () => rate({ stars: 1 }), 2: () => rate({ stars: 2 }), 3: () => rate({ stars: 3 }), 4: () => rate({ stars: 4 }), 5: () => rate({ stars: 5 })
+    0: () => rate({ stars: null }), 1: () => rate({ stars: 1 }), 2: () => rate({ stars: 2 }), 3: () => rate({ stars: 3 }), 4: () => rate({ stars: 4 }), 5: () => rate({ stars: 5 }),
+    // In Develop, 0 fits and 1 shows 100% (the stars are for the grid and loupe).
+    ...view === 'develop' && { 0: () => zoomKey(null), 1: () => zoomKey(1), '+': () => zoomKey(1.25), '=': () => zoomKey(1.25), '-': () => zoomKey(1 / 1.25) }
   };
   if (!actions[key]) return;
   event.preventDefault();
   actions[key]();
 });
+// Zoom keys act on the pointer, or the middle of the stage when it isn't over it. null fits, 1 is 100%, others multiply.
+function zoomKey(by) {
+  if (!developer) return;
+  const box = canvas.getBoundingClientRect(), x = pointer?.clientX ?? box.left + box.width / 2, y = pointer?.clientY ?? box.top + box.height / 2;
+  if (by === null) developer.fit(); else if (by === 1) developer.zoomTo(1, x, y); else developer.zoomBy(x, y, by);
+  draw();
+}
 const resize = by => { brush.size = Math.min(STROKE_LIMITS.maxSize, Math.max(STROKE_LIMITS.minSize, brush.size * by)); paintTools(); draw(); };
 const endBefore = () => { if (before) { before = false; draw(); } };
 document.addEventListener('keyup', event => { if (event.key === '\\') endBefore(); if (event.key === ' ') spaceHeld = false; });

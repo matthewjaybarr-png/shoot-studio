@@ -1,19 +1,56 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shoot Studio</title><link rel="stylesheet" href="style.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KB Studio</title><link rel="stylesheet" href="style.css"></head>
 <body>
   <div id="update" role="status" hidden><span id="update-text"></span> <button id="update-now" type="button">Update now</button></div>
   <header>
+    <button id="photos-home" type="button" title="Back to the start screen">⌂ Start</button>
     <button id="open" type="button">Open shoot</button>
     <strong id="shoot-name">No shoot open</strong>
     <label>Show <select id="filter"><option value="all">All</option><option value="picks">Picks</option><option value="unrated">Unrated</option></select></label>
     <span id="counts"></span>
     <span id="status" role="status"></span>
+    <button id="use-in-design" type="button" title="Put this photo on a page in Create" disabled>Use in a design</button>
     <button id="deliver-open" type="button" title="Ctrl+E" disabled>Deliver…</button>
   </header>
+  <section id="home" aria-label="Start">
+    <h1>KB Studio</h1>
+    <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button></div>
+    <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
+    <h2 hidden>Recent designs</h2><div id="home-recent" class="home-list"></div>
+  </section>
+  <section id="create" aria-label="Create" hidden>
+    <div class="create-bar">
+      <button id="create-home" type="button">⌂ Start</button>
+      <input id="create-title" type="text" aria-label="Design name" spellcheck="false">
+      <button id="create-undo" type="button" title="Ctrl+Z">Undo</button><button id="create-redo" type="button" title="Ctrl+Y">Redo</button>
+      <label>Page <select id="create-page"></select></label>
+      <label>Print <select id="create-tile"><option value="single">One per sheet</option><option value="sheet">Tiled on Letter, with cut marks</option></select></label>
+      <label>Copies <input id="create-copies" type="number" min="1" max="20" value="1"></label>
+      <label>Background <input id="create-bg" type="color" value="#ffffff"></label>
+      <label><input id="create-bw" type="checkbox"> Preview in B&amp;W</label>
+      <span id="create-saved" role="status"></span>
+      <button id="create-save-template" type="button">Save as template</button>
+      <button id="create-png" type="button">PNG</button><button id="create-jpeg" type="button">JPEG</button><button id="create-pdf" type="button">PDF</button><button id="create-print" type="button">Print</button>
+    </div>
+    <div class="create-body">
+      <div class="create-side"><div id="create-tools"></div><input id="create-file" type="file" accept="image/*" multiple hidden><details><summary>Clip art</summary><div id="emoji-list"></div><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p></details></div>
+      <div id="create-stage"><canvas id="create-canvas"></canvas></div>
+      <div class="create-side">
+        <div id="props" class="none">
+          <div class="text-only"><select id="prop-font" aria-label="Font"></select> <button id="prop-fav" type="button" title="Favourite font">★</button> <input id="prop-size" type="number" min="6" max="400" aria-label="Size"> <button id="prop-bold" type="button"><b>B</b></button> <button type="button" data-text-align="left">⇤</button><button type="button" data-text-align="center">↔</button><button type="button" data-text-align="right">⇥</button></div>
+          <label>Colour <input id="prop-fill" type="color"></label> <label>Outline <input id="prop-stroke" type="color"></label>
+          <div id="align-tools"></div>
+          <button id="prop-copy" type="button">Duplicate</button> <button id="prop-delete" type="button">Delete</button>
+        </div>
+        <div><button id="colour-save" type="button">Save this colour</button><div id="colours"></div></div>
+        <h3>Layers</h3><ul id="layers"></ul>
+      </div>
+    </div>
+  </section>
   <main id="grid" class="grid" tabindex="-1"></main>
   <section id="loupe" class="viewer hidden" aria-label="Photo viewer"><figure><img alt=""><figcaption></figcaption></figure><figure><img alt=""><figcaption></figcaption></figure></section>
   <section id="develop" class="develop hidden" aria-label="Develop">
-    <div class="stage"><canvas id="canvas"></canvas><canvas id="overlay"></canvas><p id="develop-note" hidden></p><span id="develop-caption"></span></div>
+    <div class="stage"><canvas id="canvas"></canvas><canvas id="overlay"></canvas><p id="develop-note" hidden></p><span id="develop-caption"></span><span id="zoom-readout" hidden></span><div id="navigator" hidden><canvas></canvas><div></div></div></div>
     <fieldset id="sliders" disabled></fieldset>
   </section>
   <dialog id="deliver" aria-labelledby="deliver-title">
@@ -39,4 +76,7 @@
   <footer><span id="keys"></span><span id="version"></span></footer>
   <script src="develop.js"></script>
   <script src="app.js"></script>
+  <script src="vendor/fabric.min.js"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="create.js"></script>
 </body></html>

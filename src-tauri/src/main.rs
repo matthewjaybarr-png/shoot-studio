@@ -2,6 +2,7 @@
 // Originals are only ever opened for reading; all writes go to <shoot>/.shootstudio/.
 // The one network call is the update check, made here in Rust; the webview stays offline.
 #[allow(dead_code)] // copied whole; not every function is used yet
+mod creations;
 mod photocraft;
 mod retouch;
 
@@ -670,6 +671,87 @@ fn save_presets(app: AppHandle, presets: Vec<Value>) -> Result<(), String> {
     write_presets(&config_dir(&app)?, presets)
 }
 
+/// ~/Documents/KB Studio (or the home folder when there is no Documents).
+fn create_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let base = app.path().document_dir().or_else(|_| app.path().home_dir()).map_err(|e| format!("no Documents folder: {e}"))?;
+    Ok(base.join("KB Studio"))
+}
+
+#[tauri::command]
+fn list_creations(app: AppHandle, kind: String) -> Result<Vec<creations::Entry>, String> {
+    Ok(creations::list(&creations::folder(&create_root(&app)?, &kind)?))
+}
+
+#[tauri::command]
+fn load_creation(app: AppHandle, kind: String, name: String) -> Result<String, String> {
+    let bytes = creations::read(&creations::folder(&create_root(&app)?, &kind)?, &name)?;
+    String::from_utf8(bytes).map_err(|_| "that design is damaged".into())
+}
+
+/// The design's JSON is the raw body; `kind` and `name` travel as percent-encoded headers.
+#[tauri::command]
+async fn save_creation(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(json) = request.body() else {
+        return Err("save_creation needs the design as its body".into());
+    };
+    let (kind, name) = (header(&request, "kind")?, header(&request, "name")?);
+    let (dir, json) = (creations::folder(&create_root(&app)?, &kind)?, json.clone());
+    if kind == "exports" {
+        return Err("designs and templates only".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || creations::write(&dir, &name, "json", &json).map(|_| ()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn delete_creation(app: AppHandle, kind: String, name: String) -> Result<(), String> {
+    creations::delete(&creations::folder(&create_root(&app)?, &kind)?, &name)
+}
+
+/// Write a finished file (PDF, PNG or JPEG: the body) into Exports and return its path; `open` also shows it
+/// in the system viewer, which is how Print works.
+#[tauri::command]
+async fn save_output(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("save_output needs the file as its body".into());
+    };
+    let (name, ext, open) = (header(&request, "name")?, header(&request, "ext")?, header(&request, "open")? == "true");
+    if !["pdf", "png", "jpg"].contains(&ext.as_str()) {
+        return Err("PDF, PNG or JPEG only".into());
+    }
+    let (dir, bytes) = (creations::folder(&create_root(&app)?, "exports")?, bytes.clone());
+    let path = tauri::async_runtime::spawn_blocking(move || creations::write(&dir, &name, &ext, &bytes))
+        .await
+        .map_err(|e| e.to_string())??;
+    if open {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("saved {}, but could not open it: {e}", path.display()))?;
+    }
+    Ok(path.display().to_string())
+}
+
+fn header(request: &tauri::ipc::Request<'_>, key: &str) -> Result<String, String> {
+    let value = request.headers().get(key).and_then(|v| v.to_str().ok()).ok_or(format!("missing {key}"))?;
+    percent_decode(value).ok_or(format!("bad {key}"))
+}
+
+/// Saved colours and favourite fonts: one small file in the app's settings folder.
+#[tauri::command]
+fn load_create_settings(app: AppHandle) -> Result<Value, String> {
+    let path = config_dir(&app)?.join("create.json");
+    Ok(fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null))
+}
+
+#[tauri::command]
+fn save_create_settings(app: AppHandle, settings: Value) -> Result<(), String> {
+    let dir = config_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| format!("could not create the settings folder: {e}"))?;
+    write_atomic(&dir.join("create.json"), settings.to_string().as_bytes())
+}
+
 #[tauri::command]
 fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
@@ -765,7 +847,14 @@ fn main() {
             edited,
             save_edited,
             load_presets,
-            save_presets
+            save_presets,
+            list_creations,
+            load_creation,
+            save_creation,
+            delete_creation,
+            save_output,
+            load_create_settings,
+            save_create_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shoot Studio");

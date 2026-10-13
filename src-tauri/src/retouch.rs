@@ -35,7 +35,11 @@ pub struct Stroke {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<[f64; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How much of the effect to mix in, 0–1; none means all of it (Soften always has one).
     pub strength: Option<f64>,
+    /// Soften only: its bands follow the brush radius. Strokes saved before 0.6.0 lack it and keep the old fixed bands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaled: Option<bool>,
 }
 
 /// Pixel rectangle; `w == 0` means nothing changed.
@@ -77,12 +81,15 @@ pub fn validate(strokes: &[Stroke]) -> Result<(), String> {
         if !s.points.iter().flatten().all(|v| (0.0..=1.0).contains(v)) {
             return bad("a point outside the photo");
         }
-        match (s.tool, s.offset, s.strength) {
-            (Tool::Soften, None, Some(k)) if (0.0..=1.0).contains(&k) => {}
-            (Tool::Redeye, None, None) => {}
-            (Tool::Spot | Tool::Heal | Tool::Clone, Some(o), None)
-                if o.iter().all(|v| (-1.0..=1.0).contains(v)) => {}
+        let strength_ok = s.strength.is_none_or(|k| (0.0..=1.0).contains(&k));
+        match (s.tool, s.offset) {
+            (Tool::Soften, None) if s.strength.is_some() && strength_ok => {}
+            (Tool::Redeye, None) if strength_ok => {}
+            (Tool::Spot | Tool::Heal | Tool::Clone, Some(o)) if strength_ok && o.iter().all(|v| (-1.0..=1.0).contains(v)) => {}
             _ => return bad("a bad offset or strength"),
+        }
+        if s.scaled.is_some() && s.tool != Tool::Soften {
+            return bad("a soften-only field");
         }
     }
     Ok(())
@@ -196,12 +203,19 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
         }
         Tool::Soften => {
             // Frequency separation: keep the broad tone and the fine texture (pores),
-            // drop the blotchy middle band.
+            // drop the blotchy middle band. The bands follow the brush radius, so a small
+            // brush reaches down to wrinkles; strokes without `scaled` keep the 0.5.0 bands.
             // ponytail: Gaussian low band can halo at hairlines; guided filter if it shows
             let long = w.max(h) as f32;
             let win = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-            let low = local_blur(img, w, h, 3, None, win, (0.01 * long).max(1.0));
-            let fine = local_blur(img, w, h, 3, None, win, (0.001 * long).max(0.5));
+            let (low_sigma, fine_sigma) = if stroke.scaled == Some(true) {
+                let r = radius(stroke, w, h) as f32;
+                ((0.4 * r).max(1.0), (r / 20.0).max(0.5))
+            } else {
+                ((0.01 * long).max(1.0), (0.001 * long).max(0.5))
+            };
+            let low = local_blur(img, w, h, 3, None, win, low_sigma);
+            let fine = local_blur(img, w, h, 3, None, win, fine_sigma);
             let mut out = Vec::with_capacity(rect.w * rect.h * 3);
             for y in rect.y..rect.y + rect.h {
                 for x in rect.x..rect.x + rect.w {
@@ -365,7 +379,7 @@ mod tests {
             Tool::Redeye => (None, None),
             _ => (Some([0.0, 0.0]), None),
         };
-        Stroke { tool, size, points: points.to_vec(), offset, strength }
+        Stroke { tool, size, points: points.to_vec(), offset, strength, scaled: None }
     }
 
     #[test]
@@ -399,6 +413,55 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Even, noisy skin (mean 0.4) with a dark line across the middle (rows 58..62).
+    fn skin_with_line(w: usize, h: usize) -> Vec<f32> {
+        (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                let noise = 0.02 * (((x * 7 + y * 13) % 11) as f32 / 5.0 - 1.0);
+                let g = if (58..62).contains(&y) { 0.1 } else { 0.4 + noise };
+                [g; 3]
+            })
+            .collect()
+    }
+
+    fn mean_in(img: &[f32], w: usize, x0: usize, y0: usize, x1: usize, y1: usize) -> f32 {
+        let v: Vec<f32> = (y0..y1).flat_map(|y| (x0..x1).map(move |x| img[(y * w + x) * 3])).collect();
+        v.iter().sum::<f32>() / v.len() as f32
+    }
+
+    /// A0: Heal over a dark line from a clean source must match the surroundings (no darkening).
+    #[test]
+    fn heal_from_a_clean_source_matches_the_surroundings() {
+        let (w, h) = (200, 120);
+        let mut img = skin_with_line(w, h);
+        let mut s = stroke(Tool::Heal, 12.0 / 200.0, &[[70.0 / 200.0, 60.0 / 120.0], [130.0 / 200.0, 60.0 / 120.0]]);
+        s.offset = Some([0.0, 30.0 / 120.0]);
+        apply(&mut img, w, h, &s);
+        let healed = mean_in(&img, w, 85, 56, 115, 64);
+        assert!((healed / 0.4 - 1.0).abs() < 0.02, "healed mean {healed}, skin 0.4");
+    }
+
+    /// A0, case 2: a source that crosses a shadow edge. The solver is right to carry the edge in
+    /// (it is the source's texture), so the darkening is a source-choice problem: the source
+    /// preview (A3) is the fix. This pins that down.
+    #[test]
+    fn heal_from_a_source_with_a_shadow_edge_carries_the_shadow() {
+        let (w, h) = (200, 120);
+        let mut img = skin_with_line(w, h);
+        // Shadow: everything below row 85 is 40% as bright; the source patch straddles it.
+        for y in 85..h {
+            for x in 0..w * 3 {
+                img[y * w * 3 + x] *= 0.4;
+            }
+        }
+        let mut s = stroke(Tool::Heal, 12.0 / 200.0, &[[70.0 / 200.0, 60.0 / 120.0], [130.0 / 200.0, 60.0 / 120.0]]);
+        s.offset = Some([0.0, 30.0 / 120.0]);
+        apply(&mut img, w, h, &s);
+        let healed = mean_in(&img, w, 85, 56, 115, 64);
+        assert!(healed < 0.4 * 0.85, "shadow edge no longer carried over: {healed}");
     }
 
     #[test]
@@ -445,7 +508,10 @@ mod tests {
         assert!(bad(&|s| s.size = 0.0001));
         assert!(bad(&|s| s.offset = None));
         assert!(bad(&|s| s.offset = Some([f64::NAN, 0.0])));
-        assert!(bad(&|s| s.strength = Some(0.5)));
+        assert!(!bad(&|s| s.strength = Some(0.5)));
+        assert!(bad(&|s| s.strength = Some(1.5)));
+        assert!(bad(&|s| s.strength = Some(f64::NAN)));
+        assert!(bad(&|s| s.scaled = Some(true)));
         assert!(bad(&|s| s.points.clear()));
         assert!(bad(&|s| s.points = vec![[0.5, 0.5]; MAX_POINTS + 1]));
         let mut strong = soften.clone();
@@ -459,6 +525,11 @@ mod tests {
         assert!(validate(&vec![ok; MAX_STROKES + 1]).is_err());
         let json = r#"{"tool":"spot","size":0.01,"points":[[0.5,0.5]],"offset":[0.1,0]}"#;
         assert!(validate(&[serde_json::from_str(json).unwrap()]).is_ok());
+        // A pre-0.6.0 soften stroke has no `scaled`: it loads as the old bands and saves unchanged.
+        let old = r#"{"tool":"soften","size":0.02,"points":[[0.5,0.5]],"strength":0.5}"#;
+        let old: Stroke = serde_json::from_str(old).unwrap();
+        assert_eq!(old.scaled, None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("scaled"));
         assert!(serde_json::from_str::<Stroke>(r#"{"tool":"blur","size":0.01,"points":[]}"#).is_err());
     }
 
@@ -491,6 +562,41 @@ mod tests {
         assert!(mid_out < mid_in * 0.5, "mid band {mid_in} -> {mid_out}");
         let (hi_in, hi_out) = (var(&|x, y| high(&img, x, y)), var(&|x, y| high(&out, x, y)));
         assert!((hi_out / hi_in - 1.0).abs() < 0.1, "fine texture {hi_in} -> {hi_out}");
+    }
+
+    /// A wrinkle: a dark 5 px vertical line on even skin with fine noise, under a brush of radius 40 px.
+    fn wrinkle_image(w: usize, h: usize) -> Vec<f32> {
+        (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                let noise = if (x + y).is_multiple_of(2) { 0.01 } else { -0.01 };
+                [0.5 + noise - if (198..203).contains(&x) { 0.2 } else { 0.0 }; 3]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scaled_soften_removes_a_thin_line_in_proportion_to_strength_and_keeps_fine_noise() {
+        let (w, h) = (400, 100);
+        let img = wrinkle_image(w, h);
+        // The line's dip below the skin beside it, at the centre of the brush.
+        let dip = |p: &[f32]| (p[(50 * w + 190) * 3] + p[(50 * w + 191) * 3]) / 2.0 - (p[(50 * w + 200) * 3] + p[(51 * w + 200) * 3]) / 2.0;
+        let soften = |k: f64| {
+            let mut out = img.clone();
+            let mut s = stroke(Tool::Soften, 0.1, &[[0.5, 0.5]]);
+            s.strength = Some(k);
+            s.scaled = Some(true);
+            apply(&mut out, w, h, &s);
+            out
+        };
+        let (full, half) = (soften(1.0), soften(0.5));
+        let before = dip(&img);
+        let (d1, d5) = ((before - dip(&full)) / before, (before - dip(&half)) / before);
+        assert!(d1 >= 0.6, "full strength removed only {d1} of the line");
+        assert!((d5 / d1 - 0.5).abs() < 0.1, "half strength removed {d5} against {d1}");
+        // Fine noise (a 2 px checkerboard) away from the line keeps its spread.
+        let spread = |p: &[f32]| (p[(50 * w + 170) * 3] - p[(50 * w + 171) * 3]).abs();
+        assert!(spread(&full) >= 0.7 * spread(&img), "noise {} -> {}", spread(&img), spread(&full));
     }
 
     #[test]

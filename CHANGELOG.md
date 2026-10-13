@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0
+
+- A start screen: Photos (as before) or Create. The app opens on it, unless it was launched with a shoot.
+- Create: make posters, labels, charts and cards on a Letter, landscape Letter, half-sheet or quarter-sheet page. Add text, pictures, rectangles, circles, lines, arrows and clip art; set the background and colours; move, resize and rotate; reorder, hide and lock layers in the Layers list; align to the page; undo and redo (up to 50 steps). Pictures are shrunk to 3300 pixels on the long side.
+- Designs save themselves, one file each, in `~/Documents/KB Studio/`, and the start screen lists the recent ones.
+- Output: PDF at 300 dpi (one page per copy), PNG, JPEG, and Print, which makes the PDF and opens it in your PDF viewer. Half and quarter cards can be tiled two or four to a Letter sheet with cut marks. "Preview in B&W" shows how it prints on a black-and-white printer.
+- Starter templates (behaviour chart, labels, word wall, newsletter) with placeholder words, and Save as template for your own.
+- Five bundled fonts (Lexend, Andika, Atkinson Hyperlegible, Comic Neue, Fredoka) with favourites, saved colours, and 40 clip-art pictures (Twemoji, CC-BY 4.0).
+- Use in a design: in Photos, sends the developed photo to a new page in Create at 2048 pixels.
+
+## 0.6.0
+
+- Deep zoom in Develop: the wheel zooms at the pointer from fit up to 1600%, with + and - for steps, 0 to fit and 1 for 100%. A zoom readout and a navigator thumbnail with a draggable box show where you are. Above 200% pixels are drawn sharp, and the brush outline scales with the zoom. In Develop, 0 and 1 zoom instead of rating.
+- Every retouch brush has a Strength slider. Soften's blur now follows the brush size, so a big brush softens wrinkles properly: spot heal at 100% removes them, 40-60% softens them. Photos retouched before keep their old look.
+- Clone and heal: Alt+click sets the source (Ctrl+click still works), the brush shows a preview of what it will copy, and an Aligned option (on by default) keeps the same distance to the source between strokes.
+- Renamed to KB Studio. The release file is now `KB.Studio_<version>_amd64.AppImage`; the updater replaces an installed copy in place, and settings and presets carry over.
+- Recipes still open as before.
+
 ## 0.5.0
 
 - Crop in Develop (R): drag the frame or its handles, choose an aspect (Original, Free, 1:1, 4:5, 5:7, 2:3, 16:9, or swap it to portrait), and straighten up to 45° either way; the frame keeps to the photo. Enter applies it as one undo step, Esc cancels.
