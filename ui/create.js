@@ -28,7 +28,7 @@ function pageLayout(page, tile) {
 let board = null;                                      // the Fabric canvas
 let design = null;                                     // { title, page, tile, copies }
 let settings = { colours: [], fonts: [] };
-let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null;
+let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => sizeIn(design.page).map(v => Math.round(v * PX));
 const PAGE_LABEL = key => PAGE_NAMES[key] + ' (' + sizeIn(key).join(' × ') + ' in)';
@@ -58,7 +58,7 @@ function button(text, onclick, small) {
 }
 $('#home-photos').onclick = () => setMode('photos');
 $('#home-create').onclick = () => newDesign();
-$('#create-home').onclick = async () => { await flush(); setMode('home'); };
+$('#create-home').onclick = () => flush().then(() => setMode('home'), () => {});
 $('#photos-home').onclick = () => setMode('home');
 
 // ---- The page ----
@@ -92,7 +92,7 @@ async function open(doc, title, name) {
   await fonts();
   restoring = true;
   design = { title, page: PAGES[doc.page] ? doc.page : 'letter', tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)) };
-  diskName = name;
+  diskName = name; dirty = false;
   await board.loadFromJSON(doc.canvas || { objects: [] });
   if (!doc.canvas) board.backgroundColor = '#ffffff';
   for (const o of board.getObjects()) applyLock(o);
@@ -132,20 +132,24 @@ async function createFromPhoto(photoBlob, name) {
 }
 
 // ---- Saving ----
-function schedule() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; save(); }, 1200); $('#create-saved').textContent = 'Saving…'; }
-function flush() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; save(); } return saved; }
+function schedule() { dirty = true; edits++; clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; save().catch(() => {}); }, 1200); $('#create-saved').textContent = 'Saving…'; }
+// Resolves when everything is on disk; rejects if the last save failed, so callers don't throw the work away.
+function flush() { if (saveTimer || dirty) { clearTimeout(saveTimer); saveTimer = null; return save(); } return saved; }
 function save() {
   if (!design) return saved;
-  const doc = JSON.stringify(blob()), name = design.title, old = diskName;
-  saved = saved.then(async () => {
-    try {
-      await invoke('save_creation', new TextEncoder().encode(doc), { headers: { kind: 'designs', name: encodeURIComponent(name) } });
-      if (old && old !== name) await invoke('delete_creation', { kind: 'designs', name: old });
-      diskName = name;
-      $('#create-saved').textContent = 'Saved';
-    } catch (error) { $('#create-saved').textContent = 'Not saved: ' + error; }
+  const doc = JSON.stringify(blob()), name = design.title, rev = edits;
+  // The previous name is read when this save's turn comes, after earlier saves have updated it.
+  const run = saved.then(async () => {
+    const old = diskName;
+    if (name !== old && (await invoke('list_creations', { kind: 'designs' })).some(d => d.name === name)) throw `a design called “${name}” already exists`;
+    await invoke('save_creation', new TextEncoder().encode(doc), { headers: { kind: 'designs', name: encodeURIComponent(name) } });
+    diskName = name;
+    if (old && old !== name) await invoke('delete_creation', { kind: 'designs', name: old });
+    if (rev === edits) dirty = false; // a newer edit stays dirty until its own save lands
+    $('#create-saved').textContent = 'Saved';
   });
-  return saved;
+  saved = run.catch(error => { $('#create-saved').textContent = 'Not saved: ' + error; });
+  return run;
 }
 $('#create-title').onchange = event => {
   const title = event.target.value.trim().replace(/[\/\\:*?"<>|\x00-\x1f]/g, '').replace(/^\.+/, '').slice(0, 80);
@@ -221,18 +225,27 @@ async function shrink(file) {
   bitmap.close?.();
   return out.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.9);
 }
-async function addImageBlob(file, name) {
+// Imports still decoding are awaited on close, so their picture lands in the design before it quits.
+const adding = new Set();
+const track = work => { adding.add(work); work.then(() => adding.delete(work), () => adding.delete(work)); return work; };
+const addImageBlob = (file, name) => track(addingImage(file, name));
+async function addingImage(file, name) {
   const image = await fabric.FabricImage.fromURL(await shrink(file));
   const [w, h] = pagePx(), k = Math.min(1, (w * 0.8) / image.width, (h * 0.8) / image.height);
   image.set({ scaleX: k, scaleY: k, kbName: name ? 'Photo ' + name : 'Picture' });
   return place(image);
 }
+// The whole batch is one tracked job, so closing mid-import still waits for the files not started yet.
+const importFiles = files => track((async () => {
+  for (const file of files) await addImageBlob(file, file.name.replace(/\.[^.]*$/, '')).catch(e => { $('#create-saved').textContent = `Could not add ${file.name}: ${e}`; });
+})());
 $('#create-file').onchange = async event => {
-  for (const file of event.target.files) await addImageBlob(file, file.name.replace(/\.[^.]*$/, '')).catch(e => { $('#create-saved').textContent = `Could not add ${file.name}: ${e}`; });
+  await importFiles([...event.target.files]);
   event.target.value = '';
 };
 // Clip art is an SVG copied onto a canvas, so the design keeps its own picture.
-async function addEmoji(code) {
+const addEmoji = code => track(addingEmoji(code));
+async function addingEmoji(code) {
   const img = await new Promise((done, fail) => Object.assign(new Image(), { onload() { done(this); }, onerror: () => fail('clip art missing'), src: `emoji/${code}.svg` }));
   const out = Object.assign(document.createElement('canvas'), { width: 512, height: 512 });
   out.getContext('2d').drawImage(img, 0, 0, 512, 512);
@@ -492,3 +505,13 @@ const STARTERS = {
 };
 
 loadSettings();
+
+// The window is closing: save, then go. If saving fails, say so and let a second close go through anyway.
+let closeTried = false;
+window.kbClose = async () => {
+  $('#create').inert = true; // no edits slip in while the save runs
+  // Photos' saves land first; an import finishing meanwhile is still caught. Awaiting the imports is also what yields to the event loop so a decode in flight can finish.
+  try { do { await saving; await Promise.allSettled([...adding]); await flush(); } while (dirty || adding.size); }
+  catch { $('#create').inert = false; if (!closeTried) { closeTried = true; $('#create-saved').textContent += ' — close again to quit anyway'; return; } }
+  invoke('quit');
+};

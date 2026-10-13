@@ -351,12 +351,17 @@ function paintOverlay() {
     const from = e.offset && at ? [at[0] + e.offset[0], at[1] + e.offset[1]] : e.from;
     if (from) {
       const [x, y] = developer.fromImage(from);
-      // Inside the brush, show what it would copy (the canvas's own pixels at the source).
+      // Inside the brush, show what it would copy, rendered from the photo so a source off screen still shows.
       if (!stroke && at) {
-        const [bx, by] = developer.fromImage(at), k = dpr;
-        g.save(); g.beginPath(); g.arc(bx, by, radius, 0, 2 * Math.PI); g.clip();
-        try { g.drawImage(canvas, (x - radius) * k, (y - radius) * k, 2 * radius * k, 2 * radius * k, bx - radius, by - radius, 2 * radius, 2 * radius); } catch {}
-        g.restore();
+        const [bx, by] = developer.fromImage(at), patch = developer.around(editing.recipe, from, 2 * radius);
+        if (patch) {
+          const c = Object.assign(document.createElement('canvas'), { width: patch.width, height: patch.height });
+          c.getContext('2d').putImageData(patch, 0, 0);
+          g.save(); g.beginPath(); g.arc(bx, by, radius, 0, 2 * Math.PI); g.clip();
+          g.imageSmoothingEnabled = developer.placement().scale * dpr <= 2; // real pixels when zoomed in
+          g.drawImage(c, bx - radius, by - radius, 2 * radius, 2 * radius);
+          g.restore();
+        }
       }
       ring(x, y, radius);
       g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath();
@@ -379,7 +384,7 @@ function paintZoom() {
   nav.hidden = !box;
   if (!box) return;
   // ponytail: the thumbnail is re-rendered only when the pixels or crop change; one 160 px GPU pass.
-  const key = [editing, editing.recipe, cropping, before, developer.revision].join();
+  const key = [editing.source, ...SETTINGS.map(k => editing.recipe[k]), JSON.stringify(developer.crop), cropping && JSON.stringify(cropping.crop), before, developer.revision].join();
   if (key !== navKey) {
     navKey = key;
     const image = developer.pixels(before || cropping ? {} : editing.recipe, 160, developer.crop);
@@ -1002,6 +1007,7 @@ async function checkForUpdate() {
 $('#update-now').onclick = async () => {
   $('#update-now').disabled = true;
   updating = true; // no new ratings or edits once the restart is coming
+  $('#create').inert = true; // nor new Create edits
   if (editing) saveLook(editing);
   paintSliders();
   $('#update-text').textContent = 'Updating… KB Studio will restart by itself.';
@@ -1009,11 +1015,13 @@ $('#update-now').onclick = async () => {
   progress.onmessage = percent => { $('#update-text').textContent = `Downloading update… ${percent}%`; };
   try {
     await saving;
+    await flush(); // a design still waiting for its autosave
     await invoke('install_update', { progress });
   } catch (error) {
     $('#update-text').textContent = `The update didn't install (${error}). Your photos and ratings are fine; try again later.`;
     $('#update-now').disabled = false;
     updating = false;
+    $('#create').inert = false;
     paintSliders();
   }
 };
@@ -1022,7 +1030,8 @@ invoke('app_version').then(version => { $('#version').textContent = 'KB Studio '
 checkForUpdate();
 
 $('#open').onclick = async () => { const path = await invoke('pick_shoot'); if (path) openShoot(path); };
-invoke('startup_shoot').then(path => { if (path) { setMode('photos'); openShoot(path); } });
+// After every script has loaded: setMode is defined in create.js, which comes later.
+addEventListener('DOMContentLoaded', () => invoke('startup_shoot').then(path => { if (path) { setMode('photos'); openShoot(path); } else setMode('home'); }));
 $('#filter').onchange = () => { renderGrid(); showViewer(); $('#filter').blur(); grid.focus(); };
 // Ctrl+click adds or removes a photo from the selection, Shift+click adds the run from the current photo.
 grid.onclick = event => {

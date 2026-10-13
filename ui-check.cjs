@@ -7,7 +7,7 @@ const cp = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-studio-check-'));
 const ui = name => fs.readFileSync(path.join(__dirname, 'ui', name), 'utf8');
 const mock = `<script>
-window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
+window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
 // Half floats for develop_source's layout: width and height as u32s, then RGB.
 const half = v => { const i = new Uint32Array(new Float32Array([v]).buffer)[0], e = ((i >>> 23) & 255) - 112; return ((i >>> 16) & 0x8000) | (e <= 0 ? 0 : e >= 31 ? 0x7c00 : (e << 10) | ((i & 0x7fffff) >>> 13)); };
 // rgb: every value in order, or one value for them all.
@@ -15,9 +15,12 @@ const rawImage = (w, h, rgb) => { const b = new ArrayBuffer(8 + w * h * 6), px =
 const jpeg = () => new Promise(done => { const c = document.createElement('canvas'); c.width = 60; c.height = 40; c.getContext('2d').fillRect(0, 0, 60, 40); c.toBlob(b => b.arrayBuffer().then(done), 'image/jpeg'); });
 window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (command, args, options) => {
   calls.push({ command, args, options });
+  const failNow = window.failSave; // decided when the call starts, so a held save keeps the outcome it started with
   if (gates[command]) await gates[command].promise; // a test holds this command until it calls release()
   if (command === 'list_creations') return Object.keys(disk).filter(k => k.startsWith('c:' + args.kind + ':')).map(k => ({ name: k.split(':').slice(2).join(':'), modified: 1760000000 }));
   if (command === 'load_creation') { const v = disk['c:' + args.kind + ':' + args.name]; if (v === undefined) throw 'not found'; return v; }
+  if (command === 'save_creation' && failNow) throw 'disk full';
+  if (command === 'quit') return null;
   if (command === 'save_creation') { disk['c:' + options.headers.kind + ':' + decodeURIComponent(options.headers.name)] = new TextDecoder().decode(args); return null; }
   if (command === 'delete_creation') { delete disk['c:' + args.kind + ':' + args.name]; return null; }
   if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; (window.outputs ??= {})[name] = { bytes: args, open: h.open }; return '/out/' + name; }
@@ -70,6 +73,7 @@ const test = `<script>
   const lastSave = () => calls.filter(c => c.command === 'save_shoot').at(-1)?.args.data.ratings;
   try {
     step(!$('#home').hidden && mode === 'home', 'the app starts on the home screen');
+    await until(() => $('#home-templates').children.length === 4, 'the home screen is filled in at launch with no shoot');
     $('#home-photos').click();
     step($('#home').hidden && mode === 'photos', 'Photos leaves the home screen');
     $('#open').click();
@@ -419,6 +423,18 @@ const test = `<script>
     nav.dispatchEvent(new PointerEvent('pointerdown', { clientX: r.left + 1, clientY: r.top + 1, button: 0, buttons: 1, pointerId: 7, bubbles: true }));
     const edge = developer.placement();
     step(Math.abs(edge.x) < 1e-6 && Math.abs(edge.y) < 1e-6, 'the navigator moves the view, and panning stops at the photo edge (' + edge.x + ',' + edge.y + ')');
+    // The navigator redraws when the look or the crop changes, not only when the pixels do.
+    const keyWas = navKey, recipeWas = editing.recipe, cropWas = developer.crop;
+    editing.recipe = { ...recipeWas, exposure: 1 }; paintZoom();
+    step(navKey !== keyWas && !navKey.includes('[object Object]'), () => 'an exposure change refreshes the navigator: ' + navKey);
+    editing.recipe = recipeWas; paintZoom();
+    const keyFull = navKey;
+    developer.crop = { ...cropWas, w: cropWas.w * 0.9 }; paintZoom();
+    step(navKey !== keyFull, 'a crop change refreshes the navigator');
+    developer.crop = cropWas; paintZoom();
+    // The source preview comes from the photo, so a source far from the view still has pixels.
+    const far = developer.around(editing.recipe, [0.02, 0.98], 40);
+    step(far && far.width >= 1 && far.height >= 1 && far.data.some(v => v), 'a source off screen still renders its patch');
     developer.view = keep; draw();
     await until(() => nav.hidden === (developer.view.zoom === null) && $('#zoom-readout').textContent === '100%', 'back to 100%');
 
@@ -753,6 +769,98 @@ const test = `<script>
     step($('#emoji-list').children.length === 40 && document.body.textContent.includes('CC-BY 4.0'), 'clip art is credited in the app');
     // Photos sends a developed photo to Create.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
+
+    // Review fixes: a rename never overwrites another design, a failed save keeps the work, queued renames, closing.
+    setMode('create');
+    await flush();
+    disk['c:designs:Taken'] = '{"keep":"me"}';
+    const mine = design.title;
+    put($('#create-title'), 'Taken', 'change');
+    step(await flush().then(() => 'saved', e => String(e)).then(r => r.includes('already exists')), 'renaming onto another design is refused');
+    step(disk['c:designs:Taken'] === '{"keep":"me"}' && disk['c:designs:' + mine], 'both designs are still on disk');
+    put($('#create-title'), 'Renamed A', 'change');
+    await flush();
+    step(disk['c:designs:Renamed A'] && !disk['c:designs:' + mine] && disk['c:designs:Taken'] === '{"keep":"me"}', 'a free name renames the file');
+    window.failSave = true;
+    board.getObjects()[0].set({ left: 7 }); commitDesign();
+    step(await flush().then(() => 'saved', e => String(e)) === 'disk full', 'a failed save is reported to the caller');
+    await $('#create-home').onclick();
+    step(mode === 'create', () => 'Start stays put when the save failed: ' + mode + ' ' + dirty + ' ' + $('#create-saved').textContent);
+    step(await newDesign().then(() => 'opened', () => 'refused') === 'refused' && design.title === 'Renamed A', 'a new design is refused too, so the work stays on the page');
+    window.failSave = false;
+    await flush();
+    step(JSON.parse(disk['c:designs:Renamed A']).canvas.objects[0].left === 7, 'retrying saves it');
+    const release2 = hold('save_creation');
+    put($('#create-title'), 'Q1', 'change'); const firstSave = flush();
+    await tick();
+    put($('#create-title'), 'Q2', 'change'); const second2 = flush();
+    release2(); await Promise.all([firstSave, second2]);
+    step(disk['c:designs:Q2'] && !disk['c:designs:Q1'] && !disk['c:designs:Renamed A'], () => 'queued renames leave only the last name: ' + Object.keys(disk).filter(k => k.startsWith('c:designs')));
+    // An older save finishing must not mark a newer edit saved.
+    {
+      const rel = hold('save_creation');
+      board.getObjects()[0].set({ left: 11 }); commitDesign();
+      const a = flush().catch(() => {}); await tick();
+      window.failSave = true; board.getObjects()[0].set({ left: 12 }); commitDesign();
+      const b = flush().then(() => 'saved', e => String(e));
+      rel(); await a; // A started while saves worked, so it succeeds; only B fails
+      step(await b === 'disk full' && dirty && JSON.parse(disk['c:designs:' + design.title]).canvas.objects[0].left === 11, () => 'a newer failed save stays dirty after an older success: ' + dirty);
+      await $('#create-home').onclick();
+      step(mode === 'create', 'and navigation is blocked');
+      window.failSave = false; await flush();
+    }
+    // Edits during a delayed close are saved before quitting.
+    {
+      const rel = hold('save_creation'), q0 = count('quit');
+      board.getObjects()[0].set({ left: 21 }); commitDesign();
+      const closing = kbClose(); await tick();
+      step($('#create').inert, 'editing is frozen while closing');
+      board.getObjects()[0].set({ left: 22 }); commitDesign();
+      rel(); await closing;
+      step(count('quit') === q0 + 1 && !dirty && JSON.parse(disk['c:designs:' + design.title]).canvas.objects[0].left === 22, 'a late edit is saved before quitting');
+      $('#create').inert = false;
+    }
+    // An import still decoding when the window closes is waited for and saved.
+    {
+      let land; const q0 = count('quit');
+      track(new Promise(r => land = r).then(() => { board.getObjects()[0].set({ left: 41 }); commitDesign(); }));
+      const closing = kbClose(); await tick();
+      step(count('quit') === q0, 'close waits for an import in flight');
+      land(); await closing;
+      step(count('quit') === q0 + 1 && !dirty && JSON.parse(disk['c:designs:' + design.title]).canvas.objects[0].left === 41, 'the late import is saved before quitting');
+      $('#create').inert = false;
+    }
+    // A batch of pictures closing mid-way: the files not started yet are still added.
+    {
+      const q0 = count('quit'), n0 = board.getObjects().length, jpegBytes = await jpeg(), files = [0, 1, 2].map(i => new File([jpegBytes], 'batch' + i + '.jpg', { type: 'image/jpeg' }));
+      importFiles(files);
+      step(adding.size === 2, () => 'the batch is one job on top of the file decoding now: ' + adding.size); // decoding is too quick in the mock to catch the gap by timing
+      const closing = kbClose(); await closing;
+      step(count('quit') === q0 + 1 && board.getObjects().length === n0 + 3 && !dirty, () => 'a multi-file import completes before quitting: ' + (board.getObjects().length - n0) + ' added, dirty ' + dirty);
+      $('#create').inert = false;
+    }
+    // An import finishing while Photos' saves drain is still saved before quitting.
+    {
+      let open; saving = new Promise(r => open = r);
+      const q0 = count('quit'), closing = kbClose(); await tick();
+      board.getObjects()[0].set({ left: 31 }); commitDesign();
+      open(); await closing;
+      step(count('quit') === q0 + 1 && !dirty && JSON.parse(disk['c:designs:' + design.title]).canvas.objects[0].left === 31, 'a late import is saved before quitting');
+      $('#create').inert = false;
+    }
+    put($('#create-title'), 'Closing', 'change');
+    const quits = count('quit');
+    await kbClose();
+    step(disk['c:designs:Closing'] && count('quit') === quits + 1, 'closing saves first, then quits');
+    window.failSave = true;
+    put($('#create-title'), 'Closing 2', 'change');
+    await kbClose();
+    step(count('quit') === quits + 1 && $('#create-saved').textContent.includes('close again'), 'closing with a failed save waits and says so');
+    await kbClose();
+    step(count('quit') === quits + 2, 'a second close goes through');
+    window.failSave = false;
+    put($('#create-title'), 'Closing', 'change');
+    await flush();
     $('#home-photos').click();
     move(2);
     const sends = count('export_source');

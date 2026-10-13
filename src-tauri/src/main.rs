@@ -819,8 +819,44 @@ async fn install_update(
     app.restart()
 }
 
+/// When the first close request came in (seconds since the epoch; 0 = none yet).
+static FIRST_CLOSE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// True when an earlier close request is at least 10 s old, so the page has had its chance to save.
+fn close_again(first: &std::sync::atomic::AtomicU64) -> bool {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_secs().max(1));
+    close_again_at(first, now)
+}
+
+fn close_again_at(first: &std::sync::atomic::AtomicU64, now: u64) -> bool {
+    match first.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed) {
+        Ok(_) => false,
+        Err(then) => now.saturating_sub(then) >= 10,
+    }
+}
+
+/// Leave now, skipping the close request (the page asks for this once its work is saved).
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0)
+}
+
 fn main() {
     tauri::Builder::default()
+        // Closing the window first lets the page save what it holds (kbClose in create.js); no page, no wait.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                // A page that never answers (reloading, errored, hung save) must not make the window unclosable.
+                if close_again(&FIRST_CLOSE) {
+                    window.app_handle().exit(0);
+                    return;
+                }
+                if let Some(page) = window.app_handle().get_webview_window(window.label()) {
+                    let _ = page.eval("window.kbClose ? kbClose() : window.__TAURI__.core.invoke('quit')");
+                }
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate::default())
@@ -829,6 +865,7 @@ fn main() {
             app_version,
             check_update,
             install_update,
+            quit,
             pick_shoot,
             startup_shoot,
             open_shoot,
@@ -863,6 +900,14 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_close_goes_through_only_once_the_page_has_had_time() {
+        let first = std::sync::atomic::AtomicU64::new(0);
+        assert!(!close_again_at(&first, 1000), "the first request waits for the page");
+        assert!(!close_again_at(&first, 1005), "an impatient second click does not cut a save short");
+        assert!(close_again_at(&first, 1010), "a page that never answered can be closed");
+    }
 
     fn photo(id: &str, jpg: Option<&str>, raw: Option<&str>) -> Photo {
         Photo {

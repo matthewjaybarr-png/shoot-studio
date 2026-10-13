@@ -434,6 +434,19 @@ class Developer {
     return new ImageData(data, w, h);
   }
 
+  // The photo around `at` (a point as toImage gives it) as the view shows it, turned like the crop, a
+  // `size`-CSS-pixel square drawn off screen: ImageData. Null with no photo.
+  // ponytail: one small GPU pass and readback per call; cache by source and size if brush moves feel slow.
+  around(recipe, at, size) {
+    const p = this.placement(), { width: W, height: H } = this;
+    if (!p) return null;
+    const t = -this.crop.angle * Math.PI / 180, cos = Math.cos(t), sin = Math.sin(t);
+    const x = (at[0] - 0.5) * W, y = (at[1] - 0.5) * H; // from the centre, in photo pixels; turn back into the straightened frame
+    const w = size / p.scale / W, h = size / p.scale / H;
+    const crop = { angle: this.crop.angle, w, h, x: (cos * x + sin * y) / W + 0.5 - w / 2, y: (-sin * x + cos * y) / H + 0.5 - h / 2 };
+    return this.pixels(recipe, Math.max(1, Math.round(size * (window.devicePixelRatio || 1))), crop);
+  }
+
   async jpeg(recipe, maxEdge, quality = 0.9) {
     const image = this.pixels(recipe, maxEdge);
     const canvas = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height });

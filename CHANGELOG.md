@@ -9,6 +9,7 @@
 - Starter templates (behaviour chart, labels, word wall, newsletter) with placeholder words, and Save as template for your own.
 - Five bundled fonts (Lexend, Andika, Atkinson Hyperlegible, Comic Neue, Fredoka) with favourites, saved colours, and 40 clip-art pictures (Twemoji, CC-BY 4.0).
 - Use in a design: in Photos, sends the developed photo to a new page in Create at 2048 pixels.
+- Create never loses work: a rename can't overwrite another design, a failed save keeps you on the page and says so, and closing the window or updating saves first (close again to quit anyway if it can't). The heal and clone preview also shows a source that is off-screen.
 
 ## 0.6.0
 

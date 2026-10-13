@@ -49,17 +49,20 @@ pub fn write(dir: &Path, name: &str, ext: &str, bytes: &[u8]) -> Result<PathBuf,
 
 /// The write itself, with the filling of the temp file passed in so a test can fail it halfway.
 fn write_with(path: &Path, fill: impl FnOnce(&mut fs::File) -> std::io::Result<()>) -> Result<(), String> {
-    let temp = path.with_extension("part");
-    let _ = fs::remove_file(&temp); // left by a crash
-    let result = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp)
-        .and_then(|mut file| {
-            fill(&mut file)?;
-            file.sync_all()
-        })
-        .and_then(|_| fs::rename(&temp, path));
+    // One temp name per write, unique across processes too (pid) and across crashes (retry past leftovers),
+    // so two writes of one name, or two instances, never share a temp file. Only a file we created is removed.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let (temp, mut file) = loop {
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(".{}-{}.part", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        let temp = PathBuf::from(name);
+        match fs::OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => break (temp, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("could not save {}: {e}", path.display())),
+        }
+    };
+    let result = fill(&mut file).and_then(|_| file.sync_all()).and_then(|_| fs::rename(&temp, path));
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     }
@@ -133,13 +136,43 @@ mod tests {
         });
         assert!(failed.is_err());
         assert_eq!(fs::read(&path).unwrap(), b"old design");
-        assert!(!path.with_extension("part").exists(), "the half file is cleaned up");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1, "the half file is cleaned up");
         // A crash leaves its half file behind: the old design still opens, and the next save works.
-        fs::write(path.with_extension("part"), b"new des").unwrap();
+        fs::write(root.join("Chart.json.0.part"), b"new des").unwrap();
         assert_eq!(read(&root, "Chart").unwrap(), b"old design");
         write(&root, "Chart", "json", b"newer design").unwrap();
         assert_eq!(read(&root, "Chart").unwrap(), b"newer design");
         assert_eq!(list(&root).len(), 1, "the half file is never listed");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_leftover_temp_name_from_an_earlier_run_is_skipped_not_fatal() {
+        let root = scratch("create-restart");
+        fs::create_dir_all(&root).unwrap();
+        // A fresh process restarts its counter at zero, so the names it tries first may already be on disk.
+        for n in 0..300 {
+            fs::write(root.join(format!("Chart.json.{}-{n}.part", std::process::id())), b"stale").unwrap();
+        }
+        write(&root, "Chart", "json", b"fresh").unwrap();
+        assert_eq!(read(&root, "Chart").unwrap(), b"fresh");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 301, "their 300 files are untouched, plus the design");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn overlapping_writes_of_one_name_keep_their_own_bytes() {
+        let root = scratch("create-overlap");
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let (root, ext) = (root.clone(), if i % 2 == 0 { "pdf" } else { "png" });
+                std::thread::spawn(move || write(&root, "Chart", ext, format!("{ext}{i}").repeat(5000).as_bytes()).unwrap())
+            })
+            .collect();
+        handles.into_iter().for_each(|h| drop(h.join().unwrap()));
+        assert!(fs::read(root.join("Chart.pdf")).unwrap().starts_with(b"pdf"));
+        assert!(fs::read(root.join("Chart.png")).unwrap().starts_with(b"png"));
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2, "no temp files left");
         fs::remove_dir_all(&root).unwrap();
     }
 
