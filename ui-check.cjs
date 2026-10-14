@@ -966,8 +966,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }
     skipped = await read('document.body && document.body.dataset.skipped');
     socket.close();
-  } catch (e) { error = e; } finally { chromium.kill(); }
-  if (outcome === 'PASS') { fs.rmSync(temp, { recursive: true, force: true }); console.log('PASS: culling and develop UI' + (skipped ? '; skipped odd-scale sources:' + skipped : '')); process.exit(0); }
+  } catch (e) { error = e; } finally { const exited = new Promise(r => chromium.once('exit', r)); chromium.kill(); await exited; }
+  if (outcome === 'PASS') { fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5 }); console.log('PASS: culling and develop UI' + (skipped ? '; skipped odd-scale sources:' + skipped : '')); process.exit(0); }
   console.error('UI check failed: ' + (outcome || 'stuck after ' + (step || error)) + '\nCheck file: ' + file);
   process.exit(1);
 })();
