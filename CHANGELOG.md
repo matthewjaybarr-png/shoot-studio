@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0
+
+- Detail in Develop: Sharpen (with Masking, so flat areas and noise aren't sharpened), Colour noise and Luminance noise reduction. Photos without Detail render exactly as before. Recipes move to version 5; older KB Studio can't open them.
+
 ## 0.7.0
 
 - A start screen: Photos (as before) or Create. The app opens on it, unless it was launched with a shoot.

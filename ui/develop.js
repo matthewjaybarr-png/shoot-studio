@@ -18,12 +18,19 @@ const SLIDERS = [
   { key: 'split', label: 'Amount', group: 'Split toning', min: 0, max: 100, step: 1 },
   { key: 'splitShadow', label: 'Shadow colour', min: 0, max: 359, step: 1, default: 220, unit: '°', hue: true },
   { key: 'splitHighlight', label: 'Highlight colour', min: 0, max: 359, step: 1, default: 50, unit: '°', hue: true },
+  { key: 'sharpen', label: 'Sharpen', group: 'Detail', min: 0, max: 100, step: 1 },
+  { key: 'sharpenMask', label: 'Masking', min: 0, max: 100, step: 1, default: 25 },
+  { key: 'nrColour', label: 'Colour noise', min: 0, max: 100, step: 1 },
+  { key: 'nrLuma', label: 'Luminance noise', min: 0, max: 100, step: 1 },
   { key: 'vignette', label: 'Vignette', group: 'Finishing', min: -100, max: 100, step: 1 },
   { key: 'grain', label: 'Grain', min: 0, max: 100, step: 1 },
   { key: 'fade', label: 'Fade', min: 0, max: 100, step: 1 }
 ];
-const RECIPE_VERSION = 4;
+const RECIPE_VERSION = 5;
+const DETAIL_EDGE = 3072; // main.rs DEVELOP_EDGE: Develop's source is averaged down by the whole factor ceil(long side / this), which is also Detail's scale at full size
 const SETTINGS = [...SLIDERS.map(s => s.key), 'look']; // everything but retouch and crop: what copy, paste and presets carry
+
+const detailScale = (w, h) => Math.ceil(Math.max(w, h) / DETAIL_EDGE);
 
 // Looks: one grade each, faded in by the Strength slider. Every field is optional:
 // mono turns it black and white (filter: how much red, green and blue make the grey),
@@ -141,6 +148,7 @@ uniform float u_exposure, u_contrast, u_highlights, u_shadows, u_whites, u_black
 // The look, and the finishing that goes on any photo.
 uniform float u_look, u_mono, u_lookContrast, u_lookSat, u_fade, u_grain, u_vignette;
 uniform vec3 u_filter, u_lift, u_gamma, u_gain;
+uniform float u_detailScale, u_sharpen, u_sharpenMask, u_nrColour, u_nrLuma;
 uniform vec2 u_toneLo, u_toneHi, u_splitLo, u_splitHi, u_grainScale;
 in vec2 v_uv, v_src; out vec4 color;
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -195,11 +203,86 @@ float noise(vec2 p) {
   return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
 }
 
+// Detail, on source texels (linear light, before white balance and exposure). Kernels are sized for the
+// Develop proxy (DETAIL_EDGE on the long side); a bigger source (full-size Deliver) scales them up by the factor Rust's downscale used, so the
+// same recipe covers the same part of the photo on screen and in Deliver. Each stage is skipped at 0, so a photo without Detail renders as before.
+// ponytail: at fit zoom and web-size Deliver the downscale hides most sharpening; output sharpening is deferred.
+// A source texel's neighbourhood as Rust's proxy makes it: the average of the detailScale x detailScale block
+// about uv, as bilinear fetches (each averages a pair of texels, weighted by the texels it carries so the block is
+// exactly uniform). At most 3x3 fetches, so past scale 6 it thins out. Point taps spaced detailScale apart would
+// miss noise at the source's own pitch, e.g. every other column.
+// ponytail: an even scale puts the block half a texel off the pixel; not worth correcting.
+float tapAt(int i, float f) {
+  if (f > 6.0) return 1.0 - f * 0.5 + float(i) * (f - 2.0) * 0.5 + (mod(f, 2.0) == 0.0 ? 0.5 : 0.0);
+  return -floor((f - 1.0) * 0.5) + 2.0 * float(i) + (float(i) < floor(f * 0.5) ? 0.5 : 0.0); // a pair's corner, or the odd texel
+}
+float tapWeight(int i, float f) { return f > 6.0 ? 1.0 / 3.0 : (float(i) < floor(f * 0.5) ? 2.0 : 1.0) / f; }
+vec3 box(vec2 uv) {
+  float f = u_detailScale;
+  if (f < 1.5) return texture(u_src, uv).rgb;
+  int k = min(int(ceil(f * 0.5)), 3);
+  vec3 sum = vec3(0);
+  for (int j = 0; j < k; j++) for (int i = 0; i < k; i++)
+    sum += tapWeight(i, f) * tapWeight(j, f) * texture(u_src, uv + vec2(tapAt(i, f), tapAt(j, f)) / vec2(textureSize(u_src, 0))).rgb;
+  return sum;
+}
+float yp(vec3 c) { return sqrt(max(dot(c, LUMA), 0.0)); }
+vec3 detail(vec2 uv) {
+  vec2 px = u_detailScale / vec2(textureSize(u_src, 0));
+  vec3 c = texture(u_src, uv).rgb;
+  // Colour noise: average chroma (colour minus luma) over two rings of taps, each weighted down by its luma difference.
+  if (u_nrColour > 0.0) {
+    float y0 = dot(c, LUMA), p0 = yp(c), r = 1.0 + u_nrColour * 5.0;
+    vec3 sum = c - y0; float w = 1.0;
+    for (int i = 0; i < 16; i++) {
+      float a = float(i) * 0.7853982 + (i < 8 ? 0.0 : 0.3927), rr = i < 8 ? r : r * 0.5;
+      vec3 t = box(uv + vec2(cos(a), sin(a)) * rr * px);
+      float d = (yp(t) - p0) / 0.1, k = exp(-d * d);
+      sum += (t - dot(t, LUMA)) * k; w += k;
+    }
+    c = max(y0 + sum / w, 0.0);
+  }
+  // Luminance noise and sharpen share one window of perceptual luma (7x7, or 3x3 with sharpen alone), so sharpen
+  // works on the denoised neighbourhood instead of putting the noise back: each of the 3x3 values it needs is
+  // a 5x5 bilateral of that window (range sigma from the slider), and the result is one gain on c clamped to 0.5-2.
+  if (u_nrLuma > 0.0 || u_sharpen > 0.0) {
+    int n = u_nrLuma > 0.0 ? 3 : 1, m = u_sharpen > 0.0 ? 1 : 0;
+    float W[49], v[9];
+    for (int j = -n; j <= n; j++) for (int i = -n; i <= n; i++) W[(j + 3) * 7 + i + 3] = yp(box(uv + vec2(i, j) * px));
+    float s = 0.01 + u_nrLuma * 0.12;
+    for (int j = -m; j <= m; j++) for (int i = -m; i <= m; i++) {
+      float q0 = W[(j + 3) * 7 + i + 3];
+      if (u_nrLuma > 0.0) {
+        float sum = 0.0, w = 0.0;
+        for (int b = -2; b <= 2; b++) for (int a = -2; a <= 2; a++) {
+          float q = W[(j + b + 3) * 7 + i + a + 3], d = (q - q0) / s, k = exp(-d * d - 0.125 * float(a * a + b * b));
+          sum += q * k; w += k;
+        }
+        q0 = sum / w;
+      }
+      v[(j + 1) * 3 + i + 1] = q0;
+    }
+    float p0 = yp(c), base = u_nrLuma > 0.0 ? v[4] : p0; // without noise reduction keep the texel's own fine detail
+    float target = base;
+    // Sharpen: unsharp mask (3x3 Gaussian), only where the edge is strong enough for Masking.
+    if (u_sharpen > 0.0) {
+      float blur = 0.0;
+      for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) blur += v[j * 3 + i] * ((i == 1 ? 2.0 : 1.0) * (j == 1 ? 2.0 : 1.0) / 16.0);
+      float gx = (v[2] + 2.0 * v[5] + v[8]) - (v[0] + 2.0 * v[3] + v[6]), gy = (v[6] + 2.0 * v[7] + v[8]) - (v[0] + 2.0 * v[1] + v[2]);
+      float t = u_sharpenMask * 0.2, mask = u_sharpenMask > 0.0 ? smoothstep(t, t + 0.05, length(vec2(gx, gy)) / 4.0) : 1.0;
+      target = max(base + (v[4] - blur) * u_sharpen * 3.0 * mask, 0.0);
+    }
+    float g = (target + 0.01) / (p0 + 0.01);
+    c *= clamp(g * g, 0.5, 2.0);
+  }
+  return c;
+}
+
 void main() {
   // Off the photo (the corners of a turned photo while cropping): the editor's background.
   vec2 margin = 0.5 / vec2(textureSize(u_src, 0));
   if (any(lessThan(v_src, -margin)) || any(greaterThan(v_src, 1.0 + margin))) { color = vec4(0.043, 0.047, 0.063, 1); return; }
-  vec3 c = texture(u_src, v_src).rgb * u_wb * u_exposure;
+  vec3 c = detail(v_src) * u_wb * u_exposure;
   vec3 d = clamp(u_raw ? baseLook(c) : toSrgb(c), 0.0, 1.0);
   // Tone, on display values. Each term is zero at 0 and keeps the curve rising.
   if (u_contrast != 0.0) d = contrast(d, u_contrast);
@@ -327,6 +410,8 @@ class Developer {
     gl.uniform2fv(u('u_toneHi'), tint(look.highlights));
     gl.uniform2fv(u('u_splitLo'), tint([r.splitShadow, 0.08], r.split / 100));
     gl.uniform2fv(u('u_splitHi'), tint([r.splitHighlight, 0.08], r.split / 100));
+    gl.uniform1f(u('u_detailScale'), detailScale(this.width, this.height));
+    for (const key of ['sharpen', 'sharpenMask', 'nrColour', 'nrLuma']) gl.uniform1f(u('u_' + key), r[key] / 100);
     gl.uniform1f(u('u_fade'), Math.min(1, (look.fade || 0) * amount + r.fade / 100));
     gl.uniform1f(u('u_grain'), Math.min(1, (look.grain || 0) * amount + r.grain / 100));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

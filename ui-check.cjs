@@ -220,8 +220,8 @@ const test = `<script>
     let off = 0;
     for (let i = 0; i < want.length; i++) if (i % 4 !== 3 && lin(want[i]) <= 0.5) off = Math.max(off, Math.abs(bright[i] - enc(2 * lin(want[i]))));
     step(off <= 1.5, 'exposure +1 doubles linear light (off by ' + off.toFixed(2) + ')');
-    // Look strength and the split-toning hues only matter with a look or split toning on.
-    for (const s of SLIDERS) if (!['lookAmount', 'splitShadow', 'splitHighlight'].includes(s.key)) step(worst(out({ [s.key]: s.max / 2 }), want) > 2, s.label + ' changes the picture');
+    // Look strength, the split-toning hues and Masking only matter with a look or split toning on.
+    for (const s of SLIDERS) if (!['lookAmount', 'splitShadow', 'splitHighlight', 'sharpenMask'].includes(s.key)) step(worst(out({ [s.key]: s.max / 2 }), want) > 2, s.label + ' changes the picture');
     for (const l of LOOKS) step(worst(out({ look: l.id }), want) > 2, l.name + ' changes the picture');
     const at = (data, x, y) => Array.from(data.slice((y * 16 + x) * 4, (y * 16 + x) * 4 + 3));
     const grey = out({ saturation: -100 });
@@ -248,6 +248,62 @@ const test = `<script>
     step(split[0][2] > split[0][0] && split[1][0] > split[1][2], 'split toning: blue shadows, warm highlights by default (' + split + ')');
     step(luma(pixel({ vignette: -100 }, 0, 0)) < luma(pixel({}, 0, 0)) && worst(out({ vignette: -100 }).slice((7 * 16 + 7) * 4, (7 * 16 + 8) * 4), want.slice((7 * 16 + 7) * 4, (7 * 16 + 8) * 4)) <= 1, 'vignette darkens the corners, not the centre');
     step(luma(pixel({ fade: 100 }, 0, 15)) > luma(pixel({}, 0, 15)) + 10, 'fade lifts black');
+    // Detail: sharpen, masking and noise reduction on small made-up sources.
+    {
+      const lumaOf = (f, w = 16) => dev.setRaw(rawImage(w, 16, Array.from({ length: w * 16 }, (_, i) => f(i % w, i >> 4)).flat()), false);
+      const view = recipe => dev.pixels(recipe, 16).data, G = (data, x, y) => data[(y * 16 + x) * 4 + 1];
+      let seed = 7; const rand = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296 - 0.5;
+      const variance = a => { const m = a.reduce((x, y) => x + y) / a.length; return a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length; };
+      const inner = f => { const v = []; for (let y = 4; y < 12; y++) for (let x = 4; x < 12; x++) v.push(f(x, y)); return v; };
+      lumaOf(() => [0.2, 0.2, 0.2]);
+      step(worst(view({ sharpen: 100 }), view({})) === 0, 'sharpen leaves a flat photo alone');
+      const edge = (lo, hi) => lumaOf(x => { const v = x < 8 ? lo : hi; return [v, v, v]; });
+      edge(0.1, 0.4);
+      const base = view({}), sharp = view({ sharpen: 100, sharpenMask: 0 });
+      step(G(sharp, 7, 8) < G(base, 7, 8) - 3 && G(sharp, 8, 8) > G(base, 8, 8) + 3, 'sharpen overshoots on both sides of an edge (' + [G(base, 7, 8), G(sharp, 7, 8), G(base, 8, 8), G(sharp, 8, 8)] + ')');
+      edge(0.2, 0.23);
+      const lowBase = G(view({}), 8, 8), over = mask => G(view({ sharpen: 100, sharpenMask: mask }), 8, 8) - lowBase;
+      step(over(0) > 2 && over(100) < over(0) / 2, 'masking spares a low-contrast edge (overshoot ' + over(0) + ' at 0, ' + over(25) + ' at 25, ' + over(100) + ' at 100)');
+      // Colour noise: chroma jitter at constant luma (the offset (0.7152, -0.2126, 0) has none).
+      lumaOf(() => { const n = rand() * 0.2; return [0.3 + 0.7152 * n, 0.3 - 0.2126 * n, 0.3]; });
+      const chroma = d => variance(inner((x, y) => d[(y * 16 + x) * 4] - d[(y * 16 + x) * 4 + 1])), mean = d => inner((x, y) => luma(at(d, x, y))).reduce((a, b) => a + b) / 64;
+      const noisy = view({}), clean = view({ nrColour: 100 });
+      step(chroma(clean) < chroma(noisy) / 4 && Math.abs(mean(clean) - mean(noisy)) <= 1, 'colour noise reduction flattens chroma and keeps luma (variance ' + chroma(noisy).toFixed(1) + ' to ' + chroma(clean).toFixed(1) + ', mean luma ' + mean(noisy).toFixed(2) + ' to ' + mean(clean).toFixed(2) + ')');
+      // Luminance noise.
+      lumaOf(() => { const v = 0.3 + rand() * 0.06; return [v, v, v]; });
+      const grainy = view({}), smooth = view({ nrLuma: 100 }), spreadG = d => variance(inner((x, y) => G(d, x, y)));
+      step(spreadG(smooth) < spreadG(grainy) / 2, 'luminance noise reduction smooths a noisy patch (variance ' + spreadG(grainy).toFixed(1) + ' to ' + spreadG(smooth).toFixed(1) + ')');
+      edge(0.1, 0.5);
+      step([6, 7, 8, 9].every(x => Math.abs(G(view({ nrLuma: 100 }), x, 8) - G(view({}), x, 8)) <= 2), 'luminance noise reduction keeps a hard edge a step');
+      // Noise reduction first, then sharpen: alternating columns must not come out noisier than they went in.
+      lumaOf(x => { const v = x % 2 ? 0.33 : 0.27; return [v, v, v]; });
+      const swing = d => Math.abs(G(d, 8, 8) - G(d, 9, 8));
+      step(swing(view({ nrLuma: 100, sharpen: 100, sharpenMask: 0 })) <= swing(view({})), 'sharpen after luminance noise reduction does not bring the noise back (swing ' + swing(view({})) + ' to ' + swing(view({ nrLuma: 100 })) + ' to ' + swing(view({ nrLuma: 100, sharpen: 100, sharpenMask: 0 })) + ')');
+      // The same photo at Develop's size and at twice that (full-size Deliver) gets the same Detail.
+      const wide = (w, x0) => dev.setRaw(rawImage(w, 16, Array.from({ length: w * 16 }, (_, i) => { const v = i % w < x0 ? 0.1 : 0.4; return [v, v, v]; }).flat()), false);
+      const rowAt = (recipe, x) => { const img = dev.pixels(recipe, 3072); return [x - 1, x, x + 1].map(i => img.data[((img.height >> 1) * 3072 + i) * 4 + 1]); };
+      // Rust shrinks by a whole factor, ceil(long side / 3072): 6144 by 2, and 3200 by 2 too (to 1600).
+      const edgeRow = (w, x0, out) => { wide(w, x0); const img = dev.pixels({ sharpen: 100, sharpenMask: 0, nrLuma: 50 }, out); return [x0 * out / w - 1, x0 * out / w, x0 * out / w + 1].map(i => img.data[((img.height >> 1) * img.width + i) * 4 + 1]); };
+      const proxy = edgeRow(3072, 1536, 3072), full = edgeRow(6144, 3072, 3072);
+      const proxy2 = edgeRow(1600, 800, 1600), full2 = edgeRow(3200, 1600, 1600);
+      step([[3072, 1], [3073, 2], [3200, 2], [6144, 2], [6145, 3], [12288, 4], [12289, 5], [12800, 5]].every(([long, factor]) => detailScale(long, 100) === factor && detailScale(100, long) === factor), 'Detail scale is the whole shrink factor Rust uses, with no cap past 12288 px');
+      step(proxy2.every((v, i) => Math.abs(v - full2[i]) <= 4), 'Detail looks the same at 3200 px and its 1600 px proxy (' + proxy2 + ' against ' + full2 + ')');
+      step(proxy.every((v, i) => Math.abs(v - full[i]) <= 4), 'Detail looks the same on the proxy and the full-size source (' + proxy + ' against ' + full + ')');
+      // Noise at the source's own pitch, in a full-size (scale 2) source: the taps must average, not skip, columns.
+      dev.setRaw(rawImage(6144, 16, Array.from({ length: 6144 * 16 }, (_, i) => { const v = i % 2 ? 0.33 : 0.27; return [v, v, v]; }).flat()), false);
+      const wideSwing = recipe => { const img = dev.pixels(recipe, 6144); return Math.abs(img.data[(8 * 6144 + 3000) * 4 + 1] - img.data[(8 * 6144 + 3001) * 4 + 1]); };
+      step(wideSwing({ nrLuma: 100 }) <= wideSwing({}) / 4 && wideSwing({ nrLuma: 100, sharpen: 100, sharpenMask: 0 }) <= wideSwing({}) / 4, 'luminance noise reduction clears alternating columns in a full-size source (swing ' + wideSwing({}) + ' to ' + wideSwing({ nrLuma: 100 }) + ', with sharpen ' + wideSwing({ nrLuma: 100, sharpen: 100, sharpenMask: 0 }) + ')');
+      // Odd scales too: a periodic pattern that averages to a flat proxy must come out flat at scale 3 and 5.
+      for (const [w, period] of [[7200, [0.1, 0.4, 0.1]], [15360, [0.1, 0.4, 0.1, 0.25, 0.1]]]) {
+        if (w > dev.maxEdge()) { document.body.dataset.skipped = (document.body.dataset.skipped || '') + ' ' + w + 'px(maxEdge ' + dev.maxEdge() + ')'; continue; }
+        dev.setRaw(rawImage(w, 16, Array.from({ length: w * 16 }, (_, i) => { const v = period[i % period.length]; return [v, v, v]; }).flat()), false);
+        const range = recipe => { const img = dev.pixels(recipe, w), at = x => img.data[(8 * w + x) * 4 + 1], xs = period.map((_, i) => at(w / 2 + i)); return Math.max(...xs) - Math.min(...xs); };
+        step(range({ nrLuma: 100 }) <= range({}) / 8 && range({ nrLuma: 100, sharpen: 100, sharpenMask: 0 }) <= range({}) / 8, 'luminance noise reduction flattens a period-' + period.length + ' pattern at scale ' + detailScale(w, 16) + ' (range ' + range({}) + ' to ' + range({ nrLuma: 100 }) + ')');
+      }
+      lumaOf(x => [x / 16, 0.3, 0.6]);
+      step(worst(view({ sharpenMask: 100, sharpen: 0 }), view({})) === 0 && worst(view({ sharpen: 0, nrColour: 0, nrLuma: 0 }), view({})) === 0, 'with every Detail slider at 0 the picture is unchanged');
+      dev.setRaw(rawImage(16, 16, Array.from(want).filter((_, i) => i % 4 !== 3).map(lin)), false);
+    }
     // Crop: a map from the cropped picture (0–1) to the photo, and the picture it renders.
     const close = (a, b, e = 1e-6) => a.every((v, i) => Math.abs(v - b[i]) < e);
     const quarter = dev.pixels({ crop: { x: 0.5, y: 0, w: 0.5, h: 0.5, angle: 0 } }, 16), corner = [];
@@ -272,7 +328,7 @@ const test = `<script>
     await until(() => editing?.ready && !sliders.disabled, 'D develops the photo');
     step(!develop.classList.contains('hidden') && grid.classList.contains('hidden') && calls.at(-1).command === 'develop_source' && calls.at(-1).args.name === 'IMG_0001.CR2', 'a RAW+JPEG pair develops from its RAW');
     slide('exposure', 1);
-    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 4, 'a slider change saves the recipe');
+    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 5, 'a slider change saves the recipe');
     step($('#develop-caption').textContent.includes('Edited') && sliders.querySelector('[data-key="exposure"]').previousElementSibling.textContent === '+1.00', 'caption says Edited; the slider shows its value');
     ctrl('z');
     await until(() => !savedRecipe('IMG_0001') && sliders.querySelector('[data-key="exposure"]').value === '0', 'Ctrl+Z undoes back to the camera file');
@@ -314,7 +370,7 @@ const test = `<script>
     const strength = sliders.querySelector('[data-key="lookAmount"]');
     step(strength.disabled && $('#look').querySelectorAll('optgroup').length === 3 && $('#look').options.length === LOOKS.length + 1, 'every look is in the list; strength is off without one');
     choose('#look', 'sepia');
-    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 4, 'choosing a look saves it');
+    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 5, 'choosing a look saves it');
     step(!strength.disabled && strength.previousElementSibling.textContent === '100%', 'its strength slider turns on at 100%');
     slide('lookAmount', 40); slide('grain', 20);
     await until(() => savedRecipe('IMG_0001')?.lookAmount === 40 && savedRecipe('IMG_0001').grain === 20, 'strength and grain save on top of the look');
@@ -373,7 +429,7 @@ const test = `<script>
     step(saved.tool === 'spot' && nearAll(saved.points, spotPath.map(p => fitted(...p))) && saved.size === 0.01 && near(saved.offset, [0.05, 0]) && saved.strength === undefined, 'at fit, the stroke is saved at the photo points it covered, with the source Rust picked (' + JSON.stringify(saved) + ')');
     step(calls.some(c => c.command === 'spot_source' && c.args.name === 'IMG_0013.CR2' && near(c.args.stroke.points[0], saved.points[0])), 'spot heal asks Rust for its source');
     await until(() => calls.some(c => c.command === 'retouch' && c.args.strokes.length === 1 && c.args.name === 'IMG_0013.CR2'), 'and Rust applies the stroke');
-    step(savedRecipe('IMG_0013').version === 4 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
+    step(savedRecipe('IMG_0013').version === 5 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
 
     press(']');
     step(Math.abs(brush.size - 0.0125) < 1e-9 && sliders.querySelector('[data-brush="size"]').previousElementSibling.textContent === '20 px', '] makes the brush bigger');
@@ -526,7 +582,7 @@ const test = `<script>
     const applied = cropping.crop;
     press('Enter');
     await until(() => sameCrop(crop(), applied), 'Enter applies the crop and saves it');
-    step(!cropping && developer.view.zoom === null && sameCrop(developer.crop, applied) && savedRecipe('IMG_0013').version === 4 && strokes().length === 2, 'the view shows the cropped picture; the strokes are kept');
+    step(!cropping && developer.view.zoom === null && sameCrop(developer.crop, applied) && savedRecipe('IMG_0013').version === 5 && strokes().length === 2, 'the view shows the cropped picture; the strokes are kept');
     const [px0, py0] = developer.fromImage([0.6, 0.4]);
     step(close(developer.toImage(box.left + px0, box.top + py0), [0.6, 0.4], 1e-6), 'screen and photo points still match through the crop');
     ctrl('z');
@@ -881,8 +937,37 @@ const html = ui('index.html')
   .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
-const result = cp.spawnSync(process.env.CHROMIUM || '/usr/bin/chromium', ['--headless', '--disable-gpu', '--enable-unsafe-swiftshader', '--no-first-run', '--no-sandbox', '--allow-file-access-from-files', '--window-size=1300,850', '--user-data-dir=' + path.join(temp, 'profile'), '--virtual-time-budget=600000', '--dump-dom', 'file://' + file], { encoding: 'utf8', timeout: 180000, maxBuffer: 2e7 });
-const outcome = result.stdout?.match(/data-test-result="([^"]*)"/)?.[1];
-if (outcome === 'PASS') { fs.rmSync(temp, { recursive: true, force: true }); console.log('PASS: culling and develop UI'); process.exit(0); }
-console.error('UI check failed: ' + (outcome || 'no result after ' + (result.stdout?.match(/data-test-step="([^"]*)"/)?.[1] || result.stderr || result.error)) + '\nCheck file: ' + file);
-process.exit(1);
+// Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
+// Chromium runs with a DevTools port; we poll the page's result until it reports or stays silent too long.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  const chromium = cp.spawn(process.env.CHROMIUM || '/usr/bin/chromium', ['--headless', '--disable-gpu', '--enable-unsafe-swiftshader', '--no-first-run', '--no-sandbox', '--allow-file-access-from-files', '--window-size=1300,850', '--user-data-dir=' + path.join(temp, 'profile'), '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
+  let outcome, step, skipped, error;
+  try {
+    const portFile = path.join(temp, 'profile', 'DevToolsActivePort');
+    for (let i = 0; i < 200 && !fs.existsSync(portFile); i++) await sleep(100);
+    const [port] = fs.readFileSync(portFile, 'utf8').split('\n');
+    const target = await (await fetch('http://127.0.0.1:' + port + '/json/new?file://' + file, { method: 'PUT' })).json();
+    const socket = new WebSocket(target.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+    let id = 0;
+    const waiting = new Map();
+    socket.onmessage = e => { const m = JSON.parse(e.data); waiting.get(m.id)?.(m); };
+    const send = (method, params = {}) => new Promise(resolve => { waiting.set(++id, resolve); socket.send(JSON.stringify({ id, method, params })); });
+    // A tab opened over DevTools starts hidden, and a hidden page gets no frames or IntersectionObserver callbacks.
+    await send('Page.bringToFront'); await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    const read = expression => new Promise(resolve => { waiting.set(++id, resolve); socket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } })); }).then(m => m.result?.result?.value);
+    let lastStep, lastChange = Date.now();
+    while (!outcome && Date.now() - lastChange < 120000) {
+      await sleep(250);
+      outcome = await read('document.body && document.body.dataset.testResult');
+      step = await read('document.body && document.body.dataset.testStep');
+      if (step !== lastStep) { lastStep = step; lastChange = Date.now(); }
+    }
+    skipped = await read('document.body && document.body.dataset.skipped');
+    socket.close();
+  } catch (e) { error = e; } finally { chromium.kill(); }
+  if (outcome === 'PASS') { fs.rmSync(temp, { recursive: true, force: true }); console.log('PASS: culling and develop UI' + (skipped ? '; skipped odd-scale sources:' + skipped : '')); process.exit(0); }
+  console.error('UI check failed: ' + (outcome || 'stuck after ' + (step || error)) + '\nCheck file: ' + file);
+  process.exit(1);
+})();
