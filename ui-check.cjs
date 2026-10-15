@@ -16,6 +16,8 @@ for (const file of fs.readdirSync(path.join(__dirname, 'ui')).filter(f => f.ends
   }
 }
 const emojiIndex = JSON.parse(ui('emoji-index.json'));
+// Saved and rendered by Fabric 6.9.1: images, text, transformed group and clipPath frame.
+const fabric6Fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'test-data/create-fabric6.json'), 'utf8'));
 if (new Set(emojiIndex.map(e => e.code)).size !== emojiIndex.length || emojiIndex.some(e => !fs.existsSync(path.join(__dirname, 'ui/emoji', e.code + '.svg')))) throw Error('Clip art index must reference unique existing SVGs');
 const mock = `<script>
 window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
@@ -910,6 +912,106 @@ const test = `<script>
       document.fonts.load = loadFont;
       // Restore the injected loader and warning for later tests; this is not browser font recovery.
       $('#create-font-warning').hidden = true;
+    }
+
+    { // B3: compatibility with a real Fabric 6.9.1 save, including rendered pixels.
+      const fixture = ${JSON.stringify(fabric6Fixture)};
+      await open(fixture.doc, 'Fabric 6 compatibility', null);
+      const coords = o => ({ type: o.type, corners: o.getCoords().map(p => [p.x, p.y]), width: o.width, height: o.height, children: o.getObjects?.().map(coords) });
+      const rounded = v => JSON.stringify(v, (k, x) => typeof x === 'number' ? Math.round(x * 10000) / 10000 : x);
+      step(rounded(board.getObjects().map(coords)) === rounded(fixture.geometry), 'Fabric 6 images, text, transformed group and frame retain geometry and stacking');
+      const decoded = async url => {
+        const image = new Image(); image.src = url; await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+        const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+        return { width: canvas.width, height: canvas.height, data: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
+      };
+      const before = await decoded(fixture.png), after = await decoded(await render(0.4, 'png'));
+      let difference = 0, changed = 0;
+      for (let i = 0; i < before.data.length; i++) {
+        const delta = Math.abs(before.data[i] - after.data[i]); difference += delta; if (delta > 32) changed++;
+      }
+      // Allow small rasterizer/antialiasing differences; geometry above is checked independently.
+      step(before.width === after.width && before.height === after.height && difference / before.data.length < 1 && changed / before.data.length < 0.005, 'Fabric 6 rendered pixels stay within rasterizer tolerance');
+      step(blob().format === 1 && new fabric.Rect().originX === 'left' && new fabric.Rect().originY === 'top', 'New objects keep left/top origins and designs keep format 1');
+    }
+
+    {
+      await newDesign();
+      const source = document.createElement('canvas'); source.width = 160; source.height = 120;
+      const ctx = source.getContext('2d'); ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, 80, 120); ctx.fillStyle = '#0000ff'; ctx.fillRect(80, 0, 80, 120);
+      const image = await fabric.FabricImage.fromURL(source.toDataURL()); image.set({ left: 120, top: 100, scaleX: 2, scaleY: 2 }); place(image);
+      const original = JSON.stringify(image.toObject(KEEP)), initialHistory = here;
+      zoomBoard(2); const stage = $('#create-stage'); stage.scrollLeft = 70; stage.scrollTop = 90;
+      const view = [board.getZoom(), stage.scrollLeft, stage.scrollTop];
+      const sameView = () => JSON.stringify([board.getZoom(), stage.scrollLeft, stage.scrollTop]) === JSON.stringify(view);
+      await startPictureCrop();
+      step($('#create-crop-dialog').open && image.controls.mlc && !dirty, 'Crop opens with Fabric crop controls and saves earlier edits');
+      const dragLeft = () => {
+        image.setCoords();
+        const p = image.oCoords.mlc, rect = board.upperCanvasEl.getBoundingClientRect();
+        const x = rect.left + p.x, y = rect.top + p.y, dx = 190 * board.getZoom();
+        board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { clientX: x, clientY: y, bubbles: true, button: 0, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: x + dx, clientY: y, bubbles: true, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { clientX: x + dx, clientY: y, bubbles: true, button: 0 }));
+      };
+      dragLeft();
+      step(image.cropX > 80 && image.width < 80 && !dirty && here === initialHistory, () => 'Native crop handles change pixels without saving a preview: ' + image.cropX + ' ' + image.width);
+      const cropBeforePan = image.cropX, leftBeforePan = image.left, topBeforePan = image.top;
+      const centre = image.getCenterPoint().transform(board.viewportTransform), canvasRect = board.upperCanvasEl.getBoundingClientRect();
+      const panX = canvasRect.left + centre.x, panY = canvasRect.top + centre.y;
+      board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { clientX: panX, clientY: panY, bubbles: true, button: 0, buttons: 1 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { clientX: panX + 8, clientY: panY, bubbles: true, buttons: 1 }));
+      document.dispatchEvent(new MouseEvent('mouseup', { clientX: panX + 8, clientY: panY, bubbles: true, button: 0 }));
+      step(image.cropX < cropBeforePan && image.left === leftBeforePan && image.top === topBeforePan, 'Dragging pans source pixels within a fixed crop');
+      $('#crop-cancel').click();
+      step(JSON.stringify(image.toObject(KEEP)) === original && here === initialHistory && !dirty, 'Cancel restores the complete image without an undo edit');
+      step(sameView(), 'Cancel restores zoom and stage scrolling');
+      await startPictureCrop(); dragLeft(); $('#crop-apply').click();
+      step(sameView(), 'Apply restores zoom and stage scrolling');
+      step(here === initialHistory + 1 && dirty && !cropSession && !$('#create-crop-dialog').open, 'Apply creates one undoable crop');
+      const cropped = JSON.stringify(image.toObject(KEEP));
+      await undoDesign(); step(JSON.stringify(board.getObjects()[0].toObject(KEEP)) === original, 'Undo restores the uncropped image');
+      await redoDesign(); step(JSON.stringify(board.getObjects()[0].toObject(KEEP)) === cropped, 'Redo restores the crop');
+      await flush(); await openDesign(design.title);
+      step(JSON.stringify(board.getObjects()[0].toObject(KEEP)) === cropped, 'Crop survives format-1 save and reopen');
+      selectObjects([board.getObjects()[0]]); await duplicateSelected();
+      step(board.getObjects()[1].cropX === image.cropX && historyImages.size === 1 && blob().canvas.objects.every(o => o.src.startsWith('data:')), 'Duplicate retains crop and shares history image data; disk sources remain embedded');
+      const outputsBefore = count('save_output'); await output('png'); await output('pdf');
+      step(count('save_output') === outputsBefore + 2, 'Cropped picture exports PNG and PDF');
+      const png = await createImageBitmap(new Blob([outputs[design.title + '.png'].bytes], { type: 'image/png' }));
+      const sample = document.createElement('canvas'); sample.width = png.width; sample.height = png.height; const pixels = sample.getContext('2d'); pixels.drawImage(png, 0, 0);
+      const o = board.getObjects()[0], pixel = pixels.getImageData(Math.round((o.left + 8) * DPI / PX), Math.round((o.top + 8) * DPI / PX), 1, 1).data;
+      step(pixel[2] > 240 && pixel[0] < 15, 'PNG contains the cropped blue region, excluding the red source'); png.close();
+      selectObjects([board.getObjects()[0]]); await startPictureCrop(); board.getActiveObject().set({ cropX: 0 }); await flush();
+      step(!cropSession && board.getObjects()[0].cropX > 80, 'A save/close/navigation flush cancels an unfinished crop');
+      await startPictureCrop(); $('#create-crop-dialog').dispatchEvent(new Event('cancel', { cancelable: true }));
+      step(!cropSession && !$('#create-crop-dialog').open, 'Escape cancellation closes the crop session');
+      const activeImage = board.getActiveObject(), normalControls = activeImage.controls, beforeDoubleClick = here;
+      await startPictureCrop(); activeImage.fire('mousedblclick', { target: activeImage });
+      step(!cropSession && here === beforeDoubleClick + 1 && activeImage.controls === normalControls, 'Double-click completes one crop and restores normal controls');
+      activeImage.fire('mousedblclick', { target: activeImage });
+      step(!cropSession && activeImage.controls === normalControls, 'Fabric cannot silently reenter crop mode outside a session');
+      for (const kind of ['circle', 'rounded', 'rect']) {
+        put($('#prop-frame'), kind, 'change');
+        const framedOriginal = JSON.stringify(activeImage.toObject(KEEP));
+        await startPictureCrop(); activeImage.set({ width: 50 }); finishCrop(false);
+        step(JSON.stringify(activeImage.toObject(KEEP)) === framedOriginal, kind + ' frame survives Cancel unchanged');
+        for (const width of [50, 140]) {
+          await startPictureCrop(); activeImage.set({ width, cropX: 0 }); finishCrop(true);
+          const frame = activeImage.clipPath;
+          step(kind === 'circle' ? frame.radius === Math.min(width, activeImage.height) / 2 : frame.width === width && frame.height === activeImage.height && frame.rx === (kind === 'rounded' ? width / 8 : 0), kind + ' frame fits a narrowed or widened crop');
+        }
+      }
+      const framedCrop = JSON.stringify(activeImage.toObject(KEEP));
+      await flush(); await openDesign(design.title);
+      step(JSON.stringify(board.getObjects()[0].toObject(KEEP)) === framedCrop, 'Resized frame and crop survive save/reopen');
+      selectObjects([board.getObjects()[0]]);
+      board.getObjects()[0].set({ left: 121 }); commitDesign();
+      const releaseCropSave = hold('save_creation'), waitingCrop = startPictureCrop();
+      await tick(); setMode('home'); releaseCropSave(); await waitingCrop;
+      step(!cropSession && !$('#create-crop-dialog').open && $('#create-stage').parentNode.id !== 'create-crop-dialog', 'A crop waiting for a save cannot open after leaving Create');
+      setMode('create');
     }
 
     { // B1: editing, using the real Fabric canvas and save format.

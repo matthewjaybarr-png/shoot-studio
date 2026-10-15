@@ -1,6 +1,7 @@
 // Create: a small Canva-style maker for posters, labels and cards. A design is a Fabric.js canvas in 96-dpi pixels,
 // saved as one JSON file (images embedded) in ~/Documents/KB Studio/ and printed through a 300-dpi PDF.
 // Needs `invoke`, `$` and `mode` from app.js.
+Object.assign(fabric.FabricObject.ownDefaults, { originX: 'left', originY: 'top' });
 
 const PX = 96;                                         // design pixels per inch
 const PAGES = { letter: [8.5, 11], 'letter-landscape': [11, 8.5], half: [5.5, 8.5], quarter: [4.25, 5.5] };
@@ -32,6 +33,7 @@ let designClipboard = null;
 const historyImages = new Map(), imageIds = new Map();
 let nextImageId = 0, pageGuides = [];
 let board = null;                                      // the Fabric canvas
+let cropSession = null, guidelines;
 let design = null;                                     // { title, page, tile, copies }
 let settings = { colours: [], fonts: [] };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
@@ -76,7 +78,7 @@ function startBoard() {
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
   addEventListener('resize', () => { if (mode === 'create') fitBoard(); });
-  fabricExtensions.initAligningGuidelines(board);
+  guidelines = new fabricExtensions.AligningGuidelines(board);
   board.on('object:moving', snapPage);
   board.on('after:render', drawPageOverlay);
   board.on('mouse:up', () => { pageGuides = []; board.requestRenderAll(); });
@@ -89,11 +91,11 @@ function startBoard() {
   });
   const stage = $('#create-stage');
   stage.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
-  stage.ondrop = e => { e.preventDefault(); if ($('#create').inert) return; importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))); };
+  stage.ondrop = e => { e.preventDefault(); if ($('#create').inert || cropSession) return; importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))); };
   paintCreateTools();
 }
 function snapPage({ target: o }) {
-  if (o.kbLocked) return;
+  if (o.kbLocked || cropSession) return;
   pageGuides = [];
   const [w, h] = pagePx(), r = o.getBoundingRect(), tolerance = 4 / board.getZoom();
   for (const [axis, start, span, size, prop] of [['x', r.left, r.width, w, 'left'], ['y', r.top, r.height, h, 'top']]) {
@@ -205,7 +207,7 @@ async function createFromPhoto(photoBlob, name) {
 // ---- Saving ----
 function schedule() { dirty = true; edits++; clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; save().catch(() => {}); }, 1200); $('#create-saved').textContent = 'Saving…'; }
 // Resolves when everything is on disk; rejects if the last save failed, so callers don't throw the work away.
-function flush() { if (saveTimer || dirty) { clearTimeout(saveTimer); saveTimer = null; return save(); } return saved; }
+function flush() { finishCrop(false); if (saveTimer || dirty) { clearTimeout(saveTimer); saveTimer = null; return save(); } return saved; }
 function save() {
   if (!design) return saved;
   const doc = JSON.stringify(blob()), name = design.title, rev = edits;
@@ -250,7 +252,7 @@ function remember() {
   while (history.length > 1 && (history.length > MAX_HISTORY || historyBytes > MAX_HISTORY_BYTES)) { history.shift(); recount(); }
   here = history.length - 1; paintHistory();
 }
-function commitDesign() { if (restoring) return; remember(); paintLayers(); paintPanel(); schedule(); }
+function commitDesign() { if (restoring || cropSession) return; remember(); paintLayers(); paintPanel(); schedule(); }
 async function stepHistory(by) {
   const to = here + by;
   if (to < 0 || to >= history.length || restoring) return;
@@ -502,6 +504,7 @@ function paintLayers() {
 }
 function paintPanel() {
   const o = board?.getActiveObject(), text = o?.type === 'textbox';
+  $('#prop-crop').disabled = o?.type !== 'image' || !!o.kbLocked;
   $('#props').classList.toggle('none', !o);
   for (const el of document.querySelectorAll('#props .text-only')) el.hidden = !text;
   if (o) {
@@ -556,11 +559,50 @@ $('#prop-spacing').onchange = e => change(o => o.type === 'textbox' ? { charSpac
 $('#prop-line-height').onchange = e => change(o => o.type === 'textbox' ? { lineHeight: bounded(e, 0.5, 5, 1.16) } : {});
 const highlight = () => change(o => o.type === 'textbox' ? { textBackgroundColor: $('#prop-highlight-on').checked ? $('#prop-highlight').value : '' } : {});
 $('#prop-highlight-on').onchange = $('#prop-highlight').oninput = highlight;
-$('#prop-frame').onchange = e => change(o => {
-  if (o.type !== 'image') return {};
-  const options = { width: o.width, height: o.height, originX: 'center', originY: 'center' };
-  return { clipPath: e.target.value === 'none' ? null : e.target.value === 'circle' ? new fabric.Circle({ originX: 'center', originY: 'center', radius: Math.min(o.width, o.height) / 2 }) : new fabric.Rect({ ...options, rx: e.target.value === 'rounded' ? o.width / 8 : 0, ry: e.target.value === 'rounded' ? o.height / 8 : 0 }) };
-});
+function pictureFrame(image, kind) {
+  const options = { width: image.width, height: image.height, originX: 'center', originY: 'center' };
+  return kind === 'none' ? null : kind === 'circle' ? new fabric.Circle({ originX: 'center', originY: 'center', radius: Math.min(image.width, image.height) / 2 }) : new fabric.Rect({ ...options, rx: kind === 'rounded' ? image.width / 8 : 0, ry: kind === 'rounded' ? image.height / 8 : 0 });
+}
+$('#prop-frame').onchange = e => change(o => o.type === 'image' ? { clipPath: pictureFrame(o, e.target.value) } : {});
+// Fabric owns the crop controls and panning; this session only handles Apply/Cancel.
+async function startPictureCrop() {
+  const image = board.getActiveObject();
+  if (cropSession || image?.type !== 'image' || image.kbLocked) return;
+  await Promise.allSettled([...adding]); await flush();
+  if (mode !== 'create' || cropSession || $('#create').inert || !board.getObjects().includes(image) || image.kbLocked) return;
+  const stage = $('#create-stage'), dialog = $('#create-crop-dialog');
+  const original = Object.fromEntries(['left', 'top', 'width', 'height', 'cropX', 'cropY', 'scaleX', 'scaleY', 'flipX', 'flipY', 'angle', 'skewX', 'skewY'].map(k => [k, image[k]]));
+  cropSession = { image, original, zoom: board.getZoom(), scrollLeft: stage.scrollLeft, scrollTop: stage.scrollTop, parent: stage.parentNode, next: stage.nextSibling, selection: board.selection, drawing: board.isDrawingMode,
+    targets: board.getObjects().filter(o => o !== image).map(o => [o, o.selectable, o.evented]) };
+  for (const [o] of cropSession.targets) o.set({ selectable: false, evented: false });
+  board.selection = board.isDrawingMode = false; board.setActiveObject(image);
+  guidelines.dispose(); pageGuides = [];
+  fabricExtensions.enterCropMode({ target: image });
+  image.on('mousedblclick', cropDoubleClick);
+  dialog.append(stage); dialog.showModal(); fitBoard(); board.calcOffset();
+}
+function cropDoubleClick() { finishCrop(true, true); }
+function finishCrop(apply, exited = false) {
+  if (!cropSession) return;
+  const { image, original, parent, next, selection, drawing, targets, zoom, scrollLeft, scrollTop } = cropSession;
+  image.off('mousedblclick', cropDoubleClick);
+  if (!exited) image.fire('mousedblclick'); // Fabric's exit restores its controls and removes ghost/pan handlers.
+  image.off('mousedblclick'); // The demo API rearms itself with once(); pictures have no other double-click handlers.
+  if (!apply) image.set(original);
+  else if (image.clipPath) image.set({ clipPath: pictureFrame(image, image.clipPath.type === 'circle' ? 'circle' : image.clipPath.rx ? 'rounded' : 'rect') });
+  for (const [o, selectable, evented] of targets) o.set({ selectable, evented });
+  board.selection = selection; board.isDrawingMode = drawing;
+  parent.insertBefore($('#create-stage'), next); $('#create-crop-dialog').close();
+  cropSession = null; guidelines = new fabricExtensions.AligningGuidelines(board);
+  board.off('object:moving', snapPage); board.on('object:moving', snapPage); // Page snapping still runs after object guides.
+  image.setCoords(); zoomBoard(zoom);
+  $('#create-stage').scrollLeft = scrollLeft; $('#create-stage').scrollTop = scrollTop; board.calcOffset();
+  if (apply) commitDesign();
+}
+$('#prop-crop').onclick = () => startPictureCrop().catch(error => { $('#create-saved').textContent = 'Could not crop: ' + error; });
+$('#crop-apply').onclick = () => finishCrop(true);
+$('#crop-cancel').onclick = () => finishCrop(false);
+$('#create-crop-dialog').oncancel = event => { event.preventDefault(); finishCrop(false); };
 $('#prop-cut').onclick = () => copySelected(true);
 $('#prop-clipboard-copy').onclick = () => copySelected();
 $('#prop-paste').onclick = () => pasteSelected();
@@ -578,7 +620,7 @@ function pasteSelected(source = designClipboard) {
   })().catch(e => { $('#create-saved').textContent = 'Could not paste: ' + e; }));
 }
 document.addEventListener('paste', e => {
-  if (mode !== 'create' || $('#create').inert || e.target.matches?.('input, textarea, select') || board?.getActiveObject()?.isEditing) return;
+  if (mode !== 'create' || cropSession || $('#create').inert || e.target.matches?.('input, textarea, select') || board?.getActiveObject()?.isEditing) return;
   const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
   if (files.length) { e.preventDefault(); importFiles(files); }
   else if (designClipboard) { e.preventDefault(); pasteSelected(); }
@@ -695,7 +737,7 @@ function reorderSelected(by) {
 
 // ---- Keys ----
 document.addEventListener('keydown', event => {
-  if (mode !== 'create' || !board || $('#create').inert || event.target.matches?.('input, select, textarea')) return;
+  if (mode !== 'create' || !board || cropSession || $('#create').inert || event.target.matches?.('input, select, textarea')) return;
   const active = board.getActiveObject();
   if (active?.isEditing) return;
   const key = event.key.toLowerCase();

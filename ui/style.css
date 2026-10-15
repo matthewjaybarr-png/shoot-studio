@@ -132,3 +132,5 @@ button.on{outline:2px solid #6aa8ff}
 #create-table input{width:60px}#create-table label{display:block;margin:6px 0}#qr-text,#emoji-search,#emoji-category{width:100%;margin:6px 0}#emoji-results{font-size:12px}
 
 #create-font-warning{margin:0;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--edge)}
+#create-crop-dialog[open]{display:flex;flex-direction:column;width:90vw;height:85vh;background:var(--panel);color:inherit;border:1px solid var(--edge)}
+#create-crop-dialog::backdrop{background:#0009}

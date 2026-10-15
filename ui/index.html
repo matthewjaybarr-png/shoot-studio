@@ -54,6 +54,7 @@
             <label>Line height <input id="prop-line-height" type="number" min="0.5" max="5" step="0.1" value="1.16"></label>
             <label><input id="prop-highlight-on" type="checkbox"> Highlight</label><input id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
           </div>
+          <button id="prop-crop" type="button">Crop picture</button>
           <label>Picture frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option></select></label>
           <div id="align-tools"></div>
           <button id="prop-distribute-x" type="button">Equal horizontal gaps</button><button id="prop-distribute-y" type="button">Equal vertical gaps</button>
@@ -92,6 +93,11 @@
     <div id="deliver-ask" hidden><span></span> <button id="deliver-replace" type="button">Replace</button> <button id="deliver-skip" type="button">Skip those</button></div>
     <div class="actions"><button id="deliver-cancel" type="button">Cancel</button><button id="deliver-go" type="button">Deliver</button></div>
   </dialog>
+<dialog id="create-crop-dialog" aria-labelledby="crop-title">
+  <h2 id="crop-title">Crop picture</h2>
+  <p>Drag the edge handles to crop, the corner handles to resize the picture, or the picture to reposition it.</p>
+  <div><button id="crop-apply" type="button">Apply crop</button> <button id="crop-cancel" type="button">Cancel</button></div>
+</dialog>
   <footer><span id="keys"></span><span id="version"></span></footer>
   <script src="develop.js"></script>
   <script src="app.js"></script>
@@ -101,4 +107,5 @@
   <script src="vendor/qrcode.js"></script>
   <script src="vendor/qrcode_UTF8.js"></script>
   <script src="create.js"></script>
+
 </body></html>
