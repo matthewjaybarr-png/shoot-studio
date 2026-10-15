@@ -106,7 +106,10 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 .create-body{display:flex;flex:1;min-height:0}
 .create-side{width:230px;padding:10px;overflow:auto;display:flex;flex-direction:column;gap:10px}
 #create-tools{display:flex;flex-wrap:wrap;gap:6px}
-#create-stage{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;background:#2a2a2a}
+#create-stage{flex:1;min-width:0;overflow:auto;background:#2a2a2a}
+#create-stage .canvas-container{margin:16px auto}
+#props input[type=number]{width:70px}
+#props label{display:inline-block;margin:3px 0}
 #create-stage.bw{filter:grayscale(1)}
 #emoji-list{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}#emoji-list button{padding:2px}#emoji-list img{width:28px;height:28px}
 #props.none>:not(:first-child){opacity:.4}#props.none .text-only{display:none}

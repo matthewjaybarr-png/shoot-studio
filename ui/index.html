@@ -27,6 +27,8 @@
       <label>Print <select id="create-tile"><option value="single">One per sheet</option><option value="sheet">Tiled on Letter, with cut marks</option></select></label>
       <label>Copies <input id="create-copies" type="number" min="1" max="20" value="1"></label>
       <label>Background <input id="create-bg" type="color" value="#ffffff"></label>
+      <button id="create-zoom-out" type="button" aria-label="Zoom out">−</button><output id="create-zoom">100%</output><button id="create-zoom-in" type="button" aria-label="Zoom in">+</button><button id="create-fit" type="button">Fit</button>
+      <label><input id="create-margin" type="checkbox" checked> Print-safe margin</label>
       <label><input id="create-bw" type="checkbox"> Preview in B&amp;W</label>
       <span id="create-saved" role="status"></span>
       <button id="create-save-template" type="button">Save as template</button>
@@ -39,7 +41,23 @@
         <div id="props" class="none">
           <div class="text-only"><select id="prop-font" aria-label="Font"></select> <button id="prop-fav" type="button" title="Favourite font">★</button> <input id="prop-size" type="number" min="6" max="400" aria-label="Size"> <button id="prop-bold" type="button"><b>B</b></button> <button type="button" data-text-align="left">⇤</button><button type="button" data-text-align="center">↔</button><button type="button" data-text-align="right">⇥</button></div>
           <label>Colour <input id="prop-fill" type="color"></label> <label>Outline <input id="prop-stroke" type="color"></label>
+          <label>Opacity <input id="prop-opacity" type="number" min="0" max="100" value="100"></label>
+          <label>Outline width <input id="prop-width" type="number" min="0" max="100" value="3"></label>
+          <label>Outline style <select id="prop-dash"><option value="solid">Solid</option><option value="dash">Dashed</option><option value="dot">Dotted</option></select></label>
+          <label>Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
+          <label><input id="prop-shadow" type="checkbox"> Shadow</label>
+          <button id="prop-flip-x" type="button">Flip horizontal</button><button id="prop-flip-y" type="button">Flip vertical</button>
+          <div class="text-only">
+            <button id="prop-italic" type="button"><i>Italic</i></button><button id="prop-underline" type="button"><u>Underline</u></button>
+            <label>Letter spacing <input id="prop-spacing" type="number" min="-100" max="1000" value="0"></label>
+            <label>Line height <input id="prop-line-height" type="number" min="0.5" max="5" step="0.1" value="1.16"></label>
+            <label><input id="prop-highlight-on" type="checkbox"> Highlight</label><input id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
+          </div>
+          <label>Picture frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option></select></label>
           <div id="align-tools"></div>
+          <button id="prop-distribute-x" type="button">Equal horizontal gaps</button><button id="prop-distribute-y" type="button">Equal vertical gaps</button>
+          <button id="prop-group" type="button">Group</button><button id="prop-ungroup" type="button">Ungroup</button>
+          <button id="prop-cut" type="button">Cut</button><button id="prop-clipboard-copy" type="button">Copy</button><button id="prop-paste" type="button">Paste</button>
           <button id="prop-copy" type="button">Duplicate</button> <button id="prop-delete" type="button">Delete</button>
         </div>
         <div><button id="colour-save" type="button">Save this colour</button><div id="colours"></div></div>
@@ -77,6 +95,7 @@
   <script src="develop.js"></script>
   <script src="app.js"></script>
   <script src="vendor/fabric.min.js"></script>
+  <script src="vendor/fabric-extensions.min.js"></script>
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="create.js"></script>
 </body></html>

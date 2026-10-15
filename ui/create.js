@@ -25,6 +25,9 @@ function pageLayout(page, tile) {
   return { sheet: [sw, sh], tiles, marks };
 }
 
+let designClipboard = null;
+const historyImages = new Map(), imageIds = new Map();
+let nextImageId = 0, pageGuides = [];
 let board = null;                                      // the Fabric canvas
 let design = null;                                     // { title, page, tile, copies }
 let settings = { colours: [], fonts: [] };
@@ -58,7 +61,7 @@ function button(text, onclick, small) {
 }
 $('#home-photos').onclick = () => setMode('photos');
 $('#home-create').onclick = () => newDesign();
-$('#create-home').onclick = () => flush().then(() => setMode('home'), () => {});
+$('#create-home').onclick = () => navigateDesign(() => setMode('home')).catch(() => {});
 $('#photos-home').onclick = () => setMode('home');
 
 // ---- The page ----
@@ -70,16 +73,64 @@ function startBoard() {
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
   addEventListener('resize', () => { if (mode === 'create') fitBoard(); });
+  fabricExtensions.initAligningGuidelines(board);
+  board.on('object:moving', snapPage);
+  board.on('after:render', drawPageOverlay);
+  board.on('mouse:up', () => { pageGuides = []; board.requestRenderAll(); });
+  board.on('path:created', e => { e.path.kbName = 'Drawing'; commitDesign(); });
+  board.freeDrawingBrush = new fabric.PencilBrush(board);
+  board.freeDrawingBrush.color = '#444444'; board.freeDrawingBrush.width = 3;
+  board.on('mouse:wheel', ({ e }) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault(); e.stopPropagation(); zoomBoard(board.getZoom() * Math.exp(-e.deltaY * 0.002));
+  });
+  const stage = $('#create-stage');
+  stage.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+  stage.ondrop = e => { e.preventDefault(); if ($('#create').inert) return; importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))); };
   paintCreateTools();
 }
+function snapPage({ target: o }) {
+  if (o.kbLocked) return;
+  pageGuides = [];
+  const [w, h] = pagePx(), r = o.getBoundingRect(), tolerance = 4 / board.getZoom();
+  for (const [axis, start, span, size, prop] of [['x', r.left, r.width, w, 'left'], ['y', r.top, r.height, h, 'top']]) {
+    let best = tolerance + 1, delta = 0, line;
+    for (const v of [0, size / 2, size]) for (const point of [start, start + span / 2, start + span]) {
+      if (Math.abs(v - point) < best) { best = Math.abs(v - point); delta = v - point; line = v; }
+    }
+    if (best <= tolerance) { o.set(prop, o[prop] + delta); pageGuides.push([axis, line]); }
+  }
+  o.setCoords();
+}
+function drawPageOverlay() {
+  if (!design) return;
+  const ctx = board.contextTop, [w, h] = pagePx();
+  ctx.save(); ctx.transform(...board.viewportTransform); ctx.lineWidth = 1 / board.getZoom();
+  if ($('#create-margin').checked) {
+    ctx.strokeStyle = '#777777'; ctx.setLineDash([4 / board.getZoom(), 4 / board.getZoom()]);
+    ctx.strokeRect(PX / 4, PX / 4, w - PX / 2, h - PX / 2);
+  }
+  ctx.setLineDash([]); ctx.strokeStyle = '#d22';
+  for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
+  ctx.restore();
+}
+function zoomBoard(zoom) {
+  if (!board || !design) return;
+  const [w, h] = pagePx(); zoom = Math.min(4, Math.max(0.1, zoom));
+  board.setZoom(zoom); board.setDimensions({ width: Math.round(w * zoom), height: Math.round(h * zoom) });
+  $('#create-zoom').textContent = Math.round(zoom * 100) + '%'; board.requestRenderAll();
+}
+$('#create-zoom-in').onclick = () => zoomBoard(board.getZoom() * 1.25);
+$('#create-zoom-out').onclick = () => zoomBoard(board.getZoom() / 1.25);
+$('#create-fit').onclick = fitBoard;
+$('#create-margin').onchange = () => board?.requestRenderAll();
+
 // Show the whole page, as large as fits.
 function fitBoard() {
   if (!board || !design) return;
   const stage = $('#create-stage'), [w, h] = pagePx(), room = stage.getBoundingClientRect();
   const zoom = Math.max(0.1, Math.min((room.width - 32) / w, (room.height - 32) / h, 1.5));
-  board.setZoom(zoom);
-  board.setDimensions({ width: Math.round(w * zoom), height: Math.round(h * zoom) });
-  board.requestRenderAll();
+  zoomBoard(zoom);
 }
 const blob = () => ({ format: 1, page: design.page, tile: design.tile, copies: design.copies, canvas: board.toObject(KEEP) });
 
@@ -98,15 +149,29 @@ async function open(doc, title, name) {
   for (const o of board.getObjects()) applyLock(o);
   board.discardActiveObject();
   restoring = false;
-  history = []; here = 0; historyBytes = 0;
+  history = []; here = 0; historyBytes = 0; historyImages.clear(); imageIds.clear(); pageGuides = [];
+  board.isDrawingMode = false; $('#create-draw').classList.remove('on');
   remember();
   setMode('create');
   paintAll();
 }
-async function openDesign(name) {
-  await flush();
-  const doc = JSON.parse(await invoke('load_creation', { kind: 'designs', name }));
-  await open(doc, name, name);
+// Freeze both screens until pending additions are saved and the destination has loaded.
+let navigating = null;
+async function navigateDesign(action) {
+  if (navigating || $('#create').inert) throw Error('A design transition is already in progress');
+  $('#create').inert = $('#home').inert = true;
+  navigating = (async () => {
+    do { await Promise.allSettled([...adding]); await flush(); } while (dirty || adding.size);
+    return action();
+  })();
+  try { return await navigating; }
+  finally { navigating = null; $('#create').inert = $('#home').inert = updating; }
+}
+function openDesign(name) {
+  return navigateDesign(async () => {
+    const doc = JSON.parse(await invoke('load_creation', { kind: 'designs', name }));
+    await open(doc, name, name);
+  });
 }
 async function uniqueTitle(base) {
   const taken = new Set((await invoke('list_creations', { kind: 'designs' }).catch(() => [])).map(d => d.name));
@@ -115,15 +180,16 @@ async function uniqueTitle(base) {
   return title;
 }
 // A new design: blank, or from a starter or saved template.
-async function newDesign(template, source) {
-  await flush();
-  startBoard();
-  let doc = { page: 'letter' };
-  if (template && source === 'mine') doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name: template }));
-  const title = await uniqueTitle(template ? `My ${template}` : 'Untitled');
-  await open(doc, title, null);
-  if (template && source === 'starter') { await STARTERS[template](); remember(); }
-  schedule();
+function newDesign(template, source) {
+  return navigateDesign(async () => {
+    startBoard();
+    let doc = { page: 'letter' };
+    if (template && source === 'mine') doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name: template }));
+    const title = await uniqueTitle(template ? `My ${template}` : 'Untitled');
+    await open(doc, title, null);
+    if (template && source === 'starter') { await STARTERS[template](); remember(); }
+    schedule();
+  });
 }
 // A developed photo from Photos becomes the first thing on a new Letter page.
 async function createFromPhoto(photoBlob, name) {
@@ -163,20 +229,28 @@ $('#create-save-template').onclick = async () => {
 
 // ---- Undo and redo: whole-design snapshots, at most 50 and about 250 MB ----
 function remember() {
-  const text = JSON.stringify(blob());
-  history = history.slice(0, here + 1);
-  history.push(text);
-  here = history.length - 1;
-  historyBytes = history.reduce((n, s) => n + s.length, 0);
-  while (history.length > 1 && (history.length > MAX_HISTORY || historyBytes > MAX_HISTORY_BYTES)) { historyBytes -= history.shift().length; here--; }
-  paintHistory();
+  const text = JSON.stringify(blob(), (key, value) => {
+    if (key !== 'src' || typeof value !== 'string') return value;
+    if (!imageIds.has(value)) { const id = ++nextImageId; imageIds.set(value, id); historyImages.set(id, value); }
+    return { kbImage: imageIds.get(value) };
+  });
+  history = history.slice(0, here + 1); history.push(text);
+  const recount = () => {
+    const used = new Set();
+    for (const snapshot of history) JSON.parse(snapshot, (k, v) => { if (k === 'src' && v?.kbImage) used.add(v.kbImage); return v; });
+    for (const [id, src] of historyImages) if (!used.has(id)) { historyImages.delete(id); imageIds.delete(src); }
+    historyBytes = 2 * (history.reduce((n, v) => n + v.length, 0) + [...historyImages.values()].reduce((n, v) => n + v.length, 0));
+  };
+  recount();
+  while (history.length > 1 && (history.length > MAX_HISTORY || historyBytes > MAX_HISTORY_BYTES)) { history.shift(); recount(); }
+  here = history.length - 1; paintHistory();
 }
 function commitDesign() { if (restoring) return; remember(); paintLayers(); paintPanel(); schedule(); }
 async function stepHistory(by) {
   const to = here + by;
   if (to < 0 || to >= history.length || restoring) return;
   restoring = true;
-  const doc = JSON.parse(history[to]);
+  const doc = JSON.parse(history[to], (k, v) => k === 'src' && v?.kbImage ? historyImages.get(v.kbImage) : v);
   design.page = doc.page; design.tile = doc.tile; design.copies = doc.copies;
   await board.loadFromJSON(doc.canvas);
   for (const o of board.getObjects()) applyLock(o);
@@ -208,6 +282,10 @@ const SHAPE = { fill: '#ffd966', stroke: '#444444', strokeWidth: 3 };
 function addShape(kind) {
   const shapes = {
     rect: () => new fabric.Rect({ width: 260, height: 160, ...SHAPE, kbName: 'Rectangle' }),
+    rounded: () => new fabric.Rect({ width: 260, height: 160, rx: 24, ry: 24, ...SHAPE, kbName: 'Rounded rectangle' }),
+    triangle: () => new fabric.Triangle({ width: 200, height: 180, ...SHAPE, kbName: 'Triangle' }),
+    star: () => new fabric.Polygon(Array.from({ length: 10 }, (_, i) => { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 45 : 100; return { x: Math.cos(a) * r, y: Math.sin(a) * r }; }), { ...SHAPE, kbName: 'Star' }),
+    bubble: () => new fabric.Path('M 20 0 L 240 0 Q 260 0 260 20 L 260 120 Q 260 140 240 140 L 90 140 L 40 180 L 50 140 L 20 140 Q 0 140 0 120 L 0 20 Q 0 0 20 0 Z', { ...SHAPE, kbName: 'Speech bubble' }),
     circle: () => new fabric.Circle({ radius: 90, ...SHAPE, kbName: 'Circle' }),
     line: () => new fabric.Line([0, 0, 300, 0], { stroke: '#444444', strokeWidth: 6, strokeLineCap: 'round', kbName: 'Line' }),
     arrow: () => new fabric.Group([
@@ -263,6 +341,8 @@ function paintCreateTools() {
   add('add-circle', 'Circle', () => addShape('circle'));
   add('add-line', 'Line', () => addShape('line'));
   add('add-arrow', 'Arrow', () => addShape('arrow'));
+  for (const [kind, label] of [['triangle', 'Triangle'], ['star', 'Star'], ['rounded', 'Rounded rectangle'], ['bubble', 'Speech bubble']]) add('add-' + kind, label, () => addShape(kind));
+  add('create-draw', 'Draw', () => { board.isDrawingMode = !board.isDrawingMode; $('#create-draw').classList.toggle('on', board.isDrawingMode); board.discardActiveObject(); board.requestRenderAll(); });
   const picker = $('#emoji-list');
   for (const [code, label] of Object.entries(EMOJI)) {
     const b = button('', () => addEmoji(code).catch(e => { $('#create-saved').textContent = String(e); }));
@@ -281,18 +361,64 @@ function paintCreateTools() {
     const b = button(label, () => alignTo(id, vertical, run)); b.dataset.align = id; align.append(b);
   }
 }
-// Move the selection (as one block) against the page edges or middle.
+// One object aligns to the page; a selection aligns its objects within their common bounds.
 function alignTo(id, vertical, shift) {
-  const o = board.getActiveObject();
-  if (!o) return;
-  const [w, h] = pagePx(), d = shift(o.getBoundingRect(), w, h);
-  o.set(vertical ? { top: o.top + d } : { left: o.left + d });
-  o.setCoords(); board.requestRenderAll(); commitDesign();
+  const active = board.getActiveObject(), targets = board.getActiveObjects();
+  if (!active || targets.some(o => o.kbLocked)) return;
+  const [w, h] = pagePx(), bounds = active.getBoundingRect();
+  board.discardActiveObject();
+  for (const o of targets) {
+    const r = o.getBoundingRect();
+    const local = targets.length > 1 ? { ...r, left: r.left - bounds.left, top: r.top - bounds.top } : r;
+    const d = shift(local, targets.length > 1 ? bounds.width : w, targets.length > 1 ? bounds.height : h);
+    o.set(vertical ? { top: o.top + d } : { left: o.left + d }); o.setCoords();
+  }
+  selectObjects(targets); commitDesign();
 }
+function selectObjects(objects) {
+  board.discardActiveObject();
+  if (objects.length) board.setActiveObject(objects.length === 1 ? objects[0] : new fabric.ActiveSelection(objects, { canvas: board }));
+  board.requestRenderAll(); paintPanel();
+}
+function distribute(vertical) {
+  const objects = board.getActiveObjects();
+  if (objects.length < 3 || objects.some(o => o.kbLocked)) return;
+  board.discardActiveObject();
+  const pos = vertical ? 'top' : 'left', span = vertical ? 'height' : 'width';
+  objects.sort((a, b) => a.getBoundingRect()[pos] - b.getBoundingRect()[pos]);
+  const first = objects[0].getBoundingRect(), last = objects.at(-1).getBoundingRect();
+  const gap = (last[pos] + last[span] - first[pos] - objects.reduce((n, o) => n + o.getBoundingRect()[span], 0)) / (objects.length - 1);
+  let at = first[pos];
+  for (const o of objects) { const r = o.getBoundingRect(); o.set(pos, o[pos] + at - r[pos]); o.setCoords(); at += r[span] + gap; }
+  selectObjects(objects); commitDesign();
+}
+function groupSelected(ungroup = false) {
+  const active = board.getActiveObject(), objects = board.getActiveObjects();
+  if (!active || objects.some(o => o.kbLocked)) return;
+  if (ungroup) {
+    if (active.type !== 'group') return;
+    const index = board.getObjects().indexOf(active), children = active.removeAll();
+    board.discardActiveObject(); board.remove(active); board.insertAt(index, ...children);
+    children.forEach(applyLock); selectObjects(children);
+  } else {
+    if (objects.length < 2) return;
+    const index = Math.min(...objects.map(o => board.getObjects().indexOf(o)));
+    board.discardActiveObject(); board.remove(...objects);
+    const group = new fabric.Group(objects, { kbName: 'Group' });
+    // Fabric keeps old child bounds unless nested hit testing is enabled; guides need local bounds.
+    objects.forEach(o => o.setCoords()); board.insertAt(index, group); selectObjects([group]);
+  }
+  commitDesign();
+}
+$('#prop-distribute-x').onclick = () => distribute(false);
+$('#prop-distribute-y').onclick = () => distribute(true);
+$('#prop-group').onclick = () => groupSelected();
+$('#prop-ungroup').onclick = () => groupSelected(true);
 
 // ---- Layers and the selected thing ----
 const kindOf = o => o.kbName || ({ textbox: 'Text', rect: 'Rectangle', circle: 'Circle', line: 'Line', image: 'Picture', group: 'Group' }[o.type] || o.type);
 function applyLock(o) {
+  if (o.type === 'group') o.getObjects().forEach(applyLock);
   const locked = !!o.kbLocked;
   o.set({ lockMovementX: locked, lockMovementY: locked, lockRotation: locked, lockScalingX: locked, lockScalingY: locked, hasControls: !locked, editable: !locked });
 }
@@ -324,6 +450,16 @@ function paintPanel() {
     $('#prop-fill').value = hex(o.fill) || '#000000';
     $('#prop-stroke').value = hex(o.stroke) || '#000000';
     if (text) { $('#prop-font').value = o.fontFamily; $('#prop-size').value = Math.round(o.fontSize * (o.scaleY || 1)); $('#prop-bold').classList.toggle('on', o.fontWeight === 'bold' || o.fontWeight === 700); }
+    $('#prop-opacity').value = Math.round(o.opacity * 100); $('#prop-width').value = o.strokeWidth;
+    $('#prop-dash').value = o.strokeDashArray ? (o.strokeDashArray[0] === 1 ? 'dot' : 'dash') : 'solid';
+    $('#prop-corners').value = o.rx || 0; $('#prop-shadow').checked = !!o.shadow;
+    $('#prop-frame').disabled = o.type !== 'image';
+    $('#prop-frame').value = !o.clipPath ? 'none' : o.clipPath.type === 'circle' ? 'circle' : o.clipPath.rx ? 'rounded' : 'rect';
+    if (text) {
+      $('#prop-italic').classList.toggle('on', o.fontStyle === 'italic'); $('#prop-underline').classList.toggle('on', !!o.underline);
+      $('#prop-spacing').value = o.charSpacing; $('#prop-line-height').value = o.lineHeight;
+      $('#prop-highlight-on').checked = !!o.textBackgroundColor; $('#prop-highlight').value = hex(o.textBackgroundColor) || '#fff2cc';
+    }
     $('#prop-fav').classList.toggle('on', text && settings.fonts.includes(o.fontFamily));
   }
   paintLayers();
@@ -332,11 +468,11 @@ function hex(c) { return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c 
 function change(props) {
   const targets = board.getActiveObjects();
   if (!targets.length) return;
-  for (const o of targets) o.set(typeof props === 'function' ? props(o) : props);
+  for (const o of targets) { o.set(typeof props === 'function' ? props(o) : props); o.setCoords(); }
   board.requestRenderAll(); commitDesign();
 }
 $('#prop-fill').oninput = e => change(o => o.type === 'line' ? { stroke: e.target.value } : { fill: e.target.value });
-$('#prop-stroke').oninput = e => change({ stroke: e.target.value });
+$('#prop-stroke').oninput = e => change({ stroke: e.target.value, paintFirst: 'stroke' });
 $('#prop-fill').onchange = $('#prop-stroke').onchange = () => paintPanel();
 $('#prop-font').onchange = e => change(o => o.type === 'textbox' ? { fontFamily: e.target.value } : {});
 $('#prop-size').onchange = e => change(o => o.type === 'textbox' ? { fontSize: Math.min(400, Math.max(6, +e.target.value || 40)), scaleX: 1, scaleY: 1 } : {});
@@ -348,6 +484,47 @@ $('#prop-fav').onclick = () => {
   settings.fonts = settings.fonts.includes(o.fontFamily) ? settings.fonts.filter(f => f !== o.fontFamily) : [o.fontFamily, ...settings.fonts];
   saveSettings(); paintFonts(); paintPanel();
 };
+const bounded = (e, min, max, fallback = min) => Math.min(max, Math.max(min, Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : fallback));
+$('#prop-opacity').onchange = e => change({ opacity: bounded(e, 0, 100, 100) / 100 });
+$('#prop-width').onchange = e => change(o => ({ strokeWidth: bounded(e, 0, 100), stroke: o.stroke || $('#prop-stroke').value, paintFirst: 'stroke' }));
+$('#prop-dash').onchange = e => change({ strokeDashArray: e.target.value === 'solid' ? null : e.target.value === 'dot' ? [1, 5] : [8, 5] });
+$('#prop-corners').onchange = e => change(o => o.type === 'rect' ? { rx: bounded(e, 0, 200), ry: bounded(e, 0, 200) } : {});
+$('#prop-shadow').onchange = e => change({ shadow: e.target.checked ? new fabric.Shadow({ color: '#00000055', blur: 10, offsetX: 6, offsetY: 6 }) : null });
+$('#prop-flip-x').onclick = () => change(o => ({ flipX: !o.flipX }));
+$('#prop-flip-y').onclick = () => change(o => ({ flipY: !o.flipY }));
+$('#prop-italic').onclick = () => change(o => o.type === 'textbox' ? { fontStyle: o.fontStyle === 'italic' ? 'normal' : 'italic' } : {});
+$('#prop-underline').onclick = () => change(o => o.type === 'textbox' ? { underline: !o.underline } : {});
+$('#prop-spacing').onchange = e => change(o => o.type === 'textbox' ? { charSpacing: bounded(e, -100, 1000) } : {});
+$('#prop-line-height').onchange = e => change(o => o.type === 'textbox' ? { lineHeight: bounded(e, 0.5, 5, 1.16) } : {});
+const highlight = () => change(o => o.type === 'textbox' ? { textBackgroundColor: $('#prop-highlight-on').checked ? $('#prop-highlight').value : '' } : {});
+$('#prop-highlight-on').onchange = $('#prop-highlight').oninput = highlight;
+$('#prop-frame').onchange = e => change(o => {
+  if (o.type !== 'image') return {};
+  const options = { width: o.width, height: o.height, originX: 'center', originY: 'center' };
+  return { clipPath: e.target.value === 'none' ? null : e.target.value === 'circle' ? new fabric.Circle({ originX: 'center', originY: 'center', radius: Math.min(o.width, o.height) / 2 }) : new fabric.Rect({ ...options, rx: e.target.value === 'rounded' ? o.width / 8 : 0, ry: e.target.value === 'rounded' ? o.height / 8 : 0 }) };
+});
+$('#prop-cut').onclick = () => copySelected(true);
+$('#prop-clipboard-copy').onclick = () => copySelected();
+$('#prop-paste').onclick = () => pasteSelected();
+function copySelected(cut = false) {
+  const objects = board.getActiveObjects(); if (!objects.length) return;
+  board.discardActiveObject(); designClipboard = objects.map(o => o.toObject(KEEP)); selectObjects(objects);
+  if (cut) removeSelected();
+}
+function pasteSelected(source = designClipboard) {
+  if (!source?.length) return Promise.resolve();
+  return track((async () => {
+    const copies = await fabric.util.enlivenObjects(source);
+    for (const copy of copies) { copy.set({ left: copy.left + 24, top: copy.top + 24 }); applyLock(copy); }
+    board.add(...copies); selectObjects(copies); commitDesign();
+  })().catch(e => { $('#create-saved').textContent = 'Could not paste: ' + e; }));
+}
+document.addEventListener('paste', e => {
+  if (mode !== 'create' || $('#create').inert || e.target.matches?.('input, textarea, select') || board?.getActiveObject()?.isEditing) return;
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (files.length) { e.preventDefault(); importFiles(files); }
+  else if (designClipboard) { e.preventDefault(); pasteSelected(); }
+});
 $('#prop-delete').onclick = () => removeSelected();
 $('#prop-copy').onclick = () => duplicateSelected();
 function removeSelected() {
@@ -357,13 +534,10 @@ function removeSelected() {
   board.remove(...targets);
   commitDesign();
 }
-async function duplicateSelected() {
-  const o = board.getActiveObject();
-  if (!o || o.type === 'activeselection') return;
-  const copy = await o.clone(KEEP);
-  copy.set({ left: o.left + 24, top: o.top + 24 });
-  board.add(copy); board.setActiveObject(copy);
-  commitDesign();
+function duplicateSelected() {
+  if (!board.getActiveObjects().length) return Promise.resolve();
+  const previous = designClipboard; copySelected(); const source = designClipboard; designClipboard = previous;
+  return pasteSelected(source);
 }
 
 // ---- Page, background, saved colours and fonts ----
@@ -450,18 +624,35 @@ $('#create-png').onclick = () => output('png');
 $('#create-jpeg').onclick = () => output('jpeg');
 $('#create-print').onclick = () => output('pdf', true);
 
+function reorderSelected(by) {
+  const objects = board.getActiveObjects().sort((a, b) => board.getObjects().indexOf(a) - board.getObjects().indexOf(b));
+  if (by > 0) objects.reverse();
+  for (const o of objects) {
+    const stack = board.getObjects(), next = stack.indexOf(o) + by;
+    if (stack[next] && !objects.includes(stack[next])) board.moveObjectTo(o, next);
+  }
+  board.requestRenderAll(); commitDesign();
+}
+
 // ---- Keys ----
 document.addEventListener('keydown', event => {
-  if (mode !== 'create' || !board || event.target.matches('input, select, textarea, button')) return;
+  if (mode !== 'create' || !board || $('#create').inert || event.target.matches?.('input, select, textarea')) return;
   const active = board.getActiveObject();
   if (active?.isEditing) return;
   const key = event.key.toLowerCase();
   if (event.ctrlKey || event.metaKey) {
-    const run = { z: () => stepHistory(event.shiftKey ? 1 : -1), y: () => stepHistory(1), d: duplicateSelected }[key];
+    const run = {
+      z: () => stepHistory(event.shiftKey ? 1 : -1), y: () => stepHistory(1), d: duplicateSelected,
+      g: () => groupSelected(event.shiftKey), c: () => copySelected(), x: () => copySelected(true),
+      a: () => selectObjects(board.getObjects().filter(o => o.visible !== false && !o.kbLocked)),
+      '[': () => reorderSelected(-1), ']': () => reorderSelected(1)
+    }[key];
     if (run) { event.preventDefault(); run(); }
-  } else if (key === 'delete' || key === 'backspace') { event.preventDefault(); removeSelected(); }
+  } else if (key === '+' || key === '=' || key === '-') { event.preventDefault(); zoomBoard(board.getZoom() * (key === '-' ? 0.8 : 1.25)); }
+  else if (key === '0') { event.preventDefault(); fitBoard(); }
+  else if (key === 'delete' || key === 'backspace') { event.preventDefault(); removeSelected(); }
   else if (key === 'escape') board.discardActiveObject().requestRenderAll();
-  else if (key.startsWith('arrow') && active) {
+  else if (key.startsWith('arrow') && active && !board.getActiveObjects().some(o => o.kbLocked)) {
     event.preventDefault();
     const d = event.shiftKey ? 10 : 1;
     active.set({ left: active.left + (key === 'arrowright' ? d : key === 'arrowleft' ? -d : 0), top: active.top + (key === 'arrowdown' ? d : key === 'arrowup' ? -d : 0) });
@@ -509,9 +700,10 @@ loadSettings();
 // The window is closing: save, then go. If saving fails, say so and let a second close go through anyway.
 let closeTried = false;
 window.kbClose = async () => {
+  if (navigating) await navigating.catch(() => {}); // a transition may still be loading or saving its destination
   $('#create').inert = true; // no edits slip in while the save runs
   // Photos' saves land first; an import finishing meanwhile is still caught. Awaiting the imports is also what yields to the event loop so a decode in flight can finish.
   try { do { await saving; await Promise.allSettled([...adding]); await flush(); } while (dirty || adding.size); }
-  catch { $('#create').inert = false; if (!closeTried) { closeTried = true; $('#create-saved').textContent += ' — close again to quit anyway'; return; } }
+  catch { $('#create').inert = updating; if (!closeTried) { closeTried = true; $('#create-saved').textContent += ' — close again to quit anyway'; return; } }
   invoke('quit');
 };

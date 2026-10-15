@@ -1007,21 +1007,21 @@ async function checkForUpdate() {
 $('#update-now').onclick = async () => {
   $('#update-now').disabled = true;
   updating = true; // no new ratings or edits once the restart is coming
-  $('#create').inert = true; // nor new Create edits
+  $('#create').inert = $('#home').inert = true; // nor new Create edits or navigation
   if (editing) saveLook(editing);
   paintSliders();
   $('#update-text').textContent = 'Updating… KB Studio will restart by itself.';
   const progress = new window.__TAURI__.core.Channel();
   progress.onmessage = percent => { $('#update-text').textContent = `Downloading update… ${percent}%`; };
   try {
-    await saving;
-    await flush(); // a design still waiting for its autosave
+    if (navigating) await navigating.catch(() => {}); // a failed open must not cancel the update; flush still checks unsaved work
+    do { await saving; await Promise.allSettled([...adding]); await flush(); } while (dirty || adding.size);
     await invoke('install_update', { progress });
   } catch (error) {
     $('#update-text').textContent = `The update didn't install (${error}). Your photos and ratings are fine; try again later.`;
     $('#update-now').disabled = false;
     updating = false;
-    $('#create').inert = false;
+    $('#create').inert = $('#home').inert = false;
     paintSliders();
   }
 };

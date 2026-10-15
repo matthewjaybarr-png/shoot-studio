@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Create 0.9.0 (B1)
+
+- Create editing: smart guides and page snapping; group and ungroup; align selected objects and distribute equal gaps; cut, copy, paste and duplicate selections across designs; paste or drop pictures; zoom and Fit.
+- More shape and text properties, picture frames, triangles, stars, rounded rectangles, speech bubbles and free drawing. A 0.25-inch print-safe overlay stays out of exports.
+- Switching designs waits for pending imports and pastes to save; layer shortcuts preserve selection order at stack boundaries. Native file drops use the HTML importer.
+- Updating waits for design navigation and pending additions to save, and keeps editing frozen until restart or update failure. A failed design open does not cancel the update.
+- Undo history shares embedded image data between snapshots instead of repeating it.
+
 ## 0.8.0
 
 - Detail in Develop: Sharpen (with Masking, so flat areas and noise aren't sharpened), Colour noise and Luminance noise reduction. Photos without Detail render exactly as before. Recipes move to version 5; older KB Studio can't open them.

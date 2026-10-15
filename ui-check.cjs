@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-studio-check-'));
+if (JSON.parse(fs.readFileSync(path.join(__dirname, 'src-tauri/tauri.conf.json'), 'utf8')).app.windows.some(w => w.dragDropEnabled !== false)) throw Error('HTML file drops require native interception disabled');
 const ui = name => fs.readFileSync(path.join(__dirname, 'ui', name), 'utf8');
 const mock = `<script>
 window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
@@ -823,6 +824,149 @@ const test = `<script>
     $('#emoji-list').querySelector('[data-code="2764"]').click();
     await until(() => board.getObjects().length === countBefore + 1 && board.getObjects().at(-1).kbName === 'heart', 'a clip-art button adds it');
     step($('#emoji-list').children.length === 40 && document.body.textContent.includes('CC-BY 4.0'), 'clip art is credited in the app');
+    { // B1: editing, using the real Fabric canvas and save format.
+    await settle(newDesign(), 'B1 blank design');
+    const boxes = [0, 1, 2].map(i => new fabric.Rect({ left: 40 + i * 150, top: 60 + i * 40, width: 60 + i * 10, height: 50, strokeWidth: 0, fill: '#ffd966' }));
+    board.add(...boxes); selectObjects(boxes); commitDesign();
+    const positions = () => boxes.map(o => o.getCoords().map(p => [p.x, p.y]));
+    const beforeGroup = JSON.stringify(positions());
+    $('#prop-group').click(); $('#prop-ungroup').click();
+    step(JSON.stringify(positions()) === beforeGroup && board.getObjects().length === 3, 'group and ungroup preserve scene positions');
+    // Rotated and scaled groups also preserve their children when ungrouped.
+    groupSelected(); board.getActiveObject().set({ angle: 23, scaleX: 1.4, scaleY: 0.8 }); board.getActiveObject().setCoords();
+    const transformed = positions(); groupSelected(true);
+    step(positions().every((coords, i) => coords.every((p, j) => p.every((v, k) => Math.abs(v - transformed[i][j][k]) < 0.001))), () => 'ungroup preserves a rotated and scaled group: ' + JSON.stringify(transformed) + ' -> ' + JSON.stringify(positions()));
+    // Return to simple rectangles for measurable bounds.
+    board.discardActiveObject(); boxes.forEach((o, i) => { o.set({ angle: 0, skewX: 0, skewY: 0, scaleX: 1, scaleY: 1, left: 40 + i * 150, top: 60 + i * 40 }); o.setCoords(); });
+    selectObjects(boxes); $('#prop-distribute-x').click();
+    const bounds = boxes.map(o => o.getBoundingRect());
+    step(Math.abs(bounds[1].left - bounds[0].left - bounds[0].width - (bounds[2].left - bounds[1].left - bounds[1].width)) < 0.001, 'distribute gives three different widths equal gaps');
+    document.querySelector('[data-align=top]').click();
+    step(boxes.every(o => Math.abs(o.getBoundingRect().top - 60) < 0.001), 'multi-selection aligns its objects to their shared top');
+    selectObjects([boxes[0]]); boxes[0].set({ left: 380, top: 400 }); boxes[0].setCoords();
+    board.fire('object:moving', { target: boxes[0] });
+    step(Math.abs(boxes[0].getBoundingRect().left + boxes[0].getBoundingRect().width / 2 - 408) < 0.001, 'moving near the page centre snaps to it');
+    board.fire('mouse:up');
+    boxes[0].set({ left: 2 }); boxes[0].setCoords(); board.fire('object:moving', { target: boxes[0] });
+    step(Math.abs(boxes[0].getBoundingRect().left) < 0.001, 'moving near a page edge snaps to it'); board.fire('mouse:up');
+    // Fabric's bundled guides snap against another object as well.
+    boxes[1].set({ left: 100, top: 200 }); boxes[0].set({ left: 103, top: 300 }); boxes.forEach(o => o.setCoords());
+    board.fire('object:moving', { target: boxes[0] });
+    step(Math.abs(boxes[0].getBoundingRect().left + boxes[0].width / 2 - boxes[1].getBoundingRect().left - boxes[1].width / 2) < 0.001, 'Fabric guidelines snap neighbouring object centres'); board.fire('mouse:up');
+    selectObjects(boxes.slice(0, 2)); copySelected();
+    await settle(newDesign(), 'clipboard survives a new design'); await settle(pasteSelected(), 'multi-object paste');
+    step(board.getObjects().length === 2 && board.getActiveObjects().length === 2 && Math.abs(board.getObjects()[0].getBoundingRect().left - designClipboard[0].left - 24) < 0.001, 'clipboard pastes a multi-selection across designs in scene coordinates');
+    await settle(duplicateSelected(), 'multi-object duplicate');
+    step(board.getObjects().length === 4 && board.getActiveObjects().length === 2, 'duplicate accepts a multi-selection');
+    const duplicateTargets = board.getActiveObjects(); board.discardActiveObject(); await settle(duplicateSelected(), 'empty duplicate');
+    step(board.getObjects().length === 4, 'duplicate with no selection leaves the clipboard alone'); selectObjects(duplicateTargets);
+    const cutCount = board.getObjects().length; copySelected(true); await settle(pasteSelected(), 'cut then paste');
+    step(board.getObjects().length === cutCount, 'cut and paste move selected objects');
+    const lockedCopy = board.getObjects()[0]; lockedCopy.kbLocked = true; applyLock(lockedCopy); selectObjects([lockedCopy]); copySelected();
+    await settle(pasteSelected(), 'locked paste');
+    step(board.getActiveObject().kbLocked && board.getActiveObject().lockMovementX && !board.getActiveObject().hasControls, 'paste reapplies saved locks');
+    const zoomBefore = board.getZoom(); $('#create-zoom-in').click();
+    step(board.getZoom() > zoomBefore && board.getWidth() === Math.round(816 * board.getZoom()), 'zoom resizes the scrollable page');
+    const wheel = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, cancelable: true }); board.fire('mouse:wheel', { e: wheel });
+    step(wheel.defaultPrevented && board.getZoom() > zoomBefore * 1.25, 'Ctrl wheel zoom prevents the browser zoom'); $('#create-fit').click();
+    step(board.getZoom() < 1, 'Fit restores the whole page');
+    const pasteDestination = design.title;
+    for (const destination of ['new', 'open', 'home']) {
+      await settle(newDesign(), 'pending paste source');
+      const sourceTitle = design.title, original = addShape('rect'); copySelected(true);
+      const fromObject = fabric.Rect.fromObject;
+      let releaseDecode;
+      const decodeGate = new Promise(r => releaseDecode = r);
+      fabric.Rect.fromObject = async (...args) => { await decodeGate; return fromObject.call(fabric.Rect, ...args); };
+      try {
+        const pasting = pasteSelected();
+        const leaving = destination === 'new' ? newDesign() : destination === 'open' ? openDesign(pasteDestination) : $('#create-home').onclick();
+        await tick();
+        step(design.title === sourceTitle && board.getObjects().length === 0 && $('#create').inert && $('#home').inert, destination + ' waits for decoding and freezes navigation and editing');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
+        document.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true }));
+        step(adding.size === 1, 'transition refuses another paste');
+        releaseDecode(); await settle(pasting, 'pending paste lands'); await settle(leaving, 'navigation after paste');
+        const stored = JSON.parse(disk['c:designs:' + sourceTitle]).canvas.objects;
+        step(stored.length === 1 && stored[0].left === original.left + 24, destination + ' saves the pending cut/paste to its source design');
+        step(!$('#create').inert && !$('#home').inert && (destination === 'home' ? mode === 'home' : design.title !== sourceTitle), 'transition finishes and unfreezes');
+        if (destination === 'new') step(board.getObjects().length === 0, 'pending paste never lands in the new design');
+      } finally { releaseDecode(); fabric.Rect.fromObject = fromObject; }
+    }
+    await settle(newDesign(), 'pending image batch source');
+    const batchTitle = design.title, bitmap = window.createImageBitmap;
+    let releaseBitmap;
+    const bitmapGate = new Promise(r => releaseBitmap = r);
+    window.createImageBitmap = async (...args) => { await bitmapGate; return bitmap(...args); };
+    try {
+      const batch = importFiles([new File([png], 'one.png', { type: 'image/png' }), new File([png], 'two.png', { type: 'image/png' })]);
+      const leaving = newDesign(); await tick();
+      step(design.title === batchTitle && $('#create').inert, 'navigation waits for the whole image batch');
+      releaseBitmap(); await settle(batch, 'pending batch finishes'); await settle(leaving, 'navigation after batch');
+      step(JSON.parse(disk['c:designs:' + batchTitle]).canvas.objects.length === 2 && board.getObjects().length === 0, 'both imported images save to their source design');
+    } finally { releaseBitmap(); window.createImageBitmap = bitmap; }
+    await settle(newDesign(), 'new properties design');
+    const styledRect = addShape('rounded'), styledText = addText(); styledText.exitEditing();
+    selectObjects([styledRect]);
+    put($('#prop-opacity'), '55', 'change'); put($('#prop-width'), '7', 'change'); put($('#prop-dash'), 'dash', 'change'); put($('#prop-corners'), '30', 'change');
+    $('#prop-shadow').checked = true; $('#prop-shadow').dispatchEvent(new Event('change')); $('#prop-flip-x').click(); $('#prop-flip-y').click();
+    selectObjects([styledText]); $('#prop-italic').click(); $('#prop-underline').click();
+    put($('#prop-spacing'), '120', 'change'); put($('#prop-line-height'), '1.8', 'change'); put($('#prop-width'), '2', 'change');
+    $('#prop-highlight-on').checked = true; $('#prop-highlight-on').dispatchEvent(new Event('change'));
+    await settle(flush(), 'properties save'); const propertiesTitle = design.title; await settle(openDesign(propertiesTitle), 'properties reopen');
+    const [savedRect, savedText] = board.getObjects();
+    step(savedRect.opacity === 0.55 && savedRect.strokeWidth === 7 && savedRect.strokeDashArray.join() === '8,5' && savedRect.rx === 30 && savedRect.ry === 30 && savedRect.shadow.blur === 10 && savedRect.flipX && savedRect.flipY && savedText.fontStyle === 'italic' && savedText.underline && savedText.charSpacing === 120 && savedText.lineHeight === 1.8 && savedText.strokeWidth === 2 && savedText.stroke === '#000000' && savedText.paintFirst === 'stroke' && savedText.textBackgroundColor === '#fff2cc', 'all new shape and text properties survive save/reopen');
+    const dropFile = new File([png], 'dropped.png', { type: 'image/png' }), transfer = new DataTransfer(); transfer.items.add(dropFile);
+    $('#create-stage').dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    step(adding.size >= 1, 'drop registers tracked import work');
+    await until(() => adding.size === 0 && board.getObjects().length === 3, 'drop finishes and drains');
+    const framed = board.getObjects().at(-1); selectObjects([framed]); put($('#prop-frame'), 'rounded', 'change');
+    await settle(flush(), 'frame saved'); await settle(openDesign(propertiesTitle), 'frame reopened');
+    step(board.getObjects().at(-1).clipPath?.rx === board.getObjects().at(-1).width / 8, 'picture clipPath survives reopening');
+    $('#create').inert = true;
+    document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+    step(adding.size === 0 && board.getObjects().length === 3, 'paste respects the closing freeze'); $('#create').inert = false;
+    document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+    await until(() => adding.size === 0 && board.getObjects().length === 4, 'clipboard image imports and drains');
+    const keyEvent = key => document.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true }));
+    keyEvent('a'); step(board.getActiveObjects().length === 4, 'Ctrl+A selects unlocked visible objects');
+    selectObjects([board.getObjects()[0]]); const firstLayer = board.getActiveObject(); keyEvent(']');
+    step(board.getObjects().indexOf(firstLayer) === 1, 'Ctrl+] brings a layer forward'); keyEvent('[');
+    step(board.getObjects().indexOf(firstLayer) === 0, 'Ctrl+[ sends a layer backward');
+    const stack = board.getObjects();
+    selectObjects(stack.slice(-2)); keyEvent(']');
+    step(board.getObjects().every((o, i) => o === stack[i]), 'forward at the top preserves selected layer order');
+    selectObjects(stack.slice(0, 2)); keyEvent('[');
+    step(board.getObjects().every((o, i) => o === stack[i]), 'backward at the bottom preserves selected layer order');
+    selectObjects([stack[1], stack[3]]); keyEvent(']');
+    step(board.getObjects().every((o, i) => o === [stack[0], stack[2], stack[1], stack[3]][i]), 'noncontiguous selection advances without crossing selected layers');
+    keyEvent('[');
+    step(board.getObjects().every((o, i) => o === [stack[0], stack[1], stack[3], stack[2]][i]), 'selected block moves backward with its order intact');
+    await settle(newDesign(), 'shapes and draw design');
+    for (const kind of ['triangle', 'star', 'rounded', 'bubble']) $('#add-' + kind).click();
+    $('#create-draw').click(); step(board.isDrawingMode && board.freeDrawingBrush instanceof fabric.PencilBrush, 'Draw enables Fabric PencilBrush');
+    const brush = board.freeDrawingBrush;
+    brush.onMouseDown(new fabric.Point(40, 40), { e: new MouseEvent('mousedown', { button: 0 }) });
+    brush.onMouseMove(new fabric.Point(100, 80), { e: new MouseEvent('mousemove', { buttons: 1 }) });
+    brush.onMouseUp({ e: new MouseEvent('mouseup', { button: 0 }) }); $('#create-draw').click();
+    step(board.getObjects().length === 5 && board.getObjects().at(-1).kbName === 'Drawing' && !board.isDrawingMode, 'new shapes and free drawing create saved objects');
+    await settle(newDesign(), 'blank margin export');
+    $('#create-margin').checked = true; board.renderAll();
+    step(board.contextTop.getImageData(0, 0, board.upperCanvasEl.width, board.upperCanvasEl.height).data.some((v, i) => i % 4 === 3 && v > 0), 'print-safe margin is visible on the top context');
+    const marginPNG = await settle(render(1, 'png'), 'margin export');
+    const marginBitmap = await createImageBitmap(new Blob([toBytes(marginPNG)], { type: 'image/png' }));
+    const marginCanvas = document.createElement('canvas'); marginCanvas.width = 816; marginCanvas.height = 1056;
+    const marginCtx = marginCanvas.getContext('2d'); marginCtx.drawImage(marginBitmap, 0, 0); marginBitmap.close();
+    step(marginCtx.getImageData(0, 0, 816, 1056).data.every(v => v === 255), 'print-safe overlay never enters exported pixels');
+    const sharedImage = await settle(addImageBlob(png, 'history'), 'history image');
+    for (let i = 0; i < 5; i++) { selectObjects([sharedImage]); await settle(duplicateSelected(), 'history image duplicate'); }
+    const srcLength = sharedImage.getSrc().length;
+    step(historyImages.size === 1 && historyBytes < srcLength * 3 + 100000, 'five image copies share one history source instead of five per snapshot');
+    await settle(stepHistory(-1), 'interned history undo'); await settle(stepHistory(1), 'interned history redo');
+    step(board.getObjects().length === 6 && board.getObjects().every(o => o.getSrc() === sharedImage.getSrc()), 'interned image sources restore through undo and redo');
+    await settle(flush(), 'interned design save');
+    step(JSON.parse(disk['c:designs:' + design.title]).canvas.objects.every(o => typeof o.src === 'string' && o.src.startsWith('data:')), 'disk format retains real image sources, no history tokens');
+    }
     // Photos sends a developed photo to Create.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
 
@@ -842,7 +986,7 @@ const test = `<script>
     step(await flush().then(() => 'saved', e => String(e)) === 'disk full', 'a failed save is reported to the caller');
     await $('#create-home').onclick();
     step(mode === 'create', () => 'Start stays put when the save failed: ' + mode + ' ' + dirty + ' ' + $('#create-saved').textContent);
-    step(await newDesign().then(() => 'opened', () => 'refused') === 'refused' && design.title === 'Renamed A', 'a new design is refused too, so the work stays on the page');
+    step(await newDesign().then(() => 'opened', () => 'refused') === 'refused' && design.title === 'Renamed A' && !$('#create').inert && !$('#home').inert, 'a new design is refused too, so the work stays on the page');
     window.failSave = false;
     await flush();
     step(JSON.parse(disk['c:designs:Renamed A']).canvas.objects[0].left === 7, 'retrying saves it');
@@ -864,6 +1008,63 @@ const test = `<script>
       await $('#create-home').onclick();
       step(mode === 'create', 'and navigation is blocked');
       window.failSave = false; await flush();
+    }
+    // Updating owns the freeze while navigation and destination additions drain.
+    {
+      const releaseLoad = hold('load_creation'), releaseInstall = hold('install_update'), installs = count('install_update');
+      const loads = count('load_creation'), opening = openDesign(design.title);
+      await until(() => count('load_creation') > loads, 'destination loading is held');
+      const update = $('#update-now').onclick(); await tick();
+      step(count('install_update') === installs && updating && $('#create').inert && $('#home').inert, 'update waits for destination loading with both screens frozen');
+      let releaseAddition;
+      const addition = track(new Promise(r => releaseAddition = r).then(() => { board.getObjects()[0].set({ left: 37 }); commitDesign(); }));
+      releaseLoad(); await settle(opening, 'destination finishes loading during update'); await tick();
+      step(count('install_update') === installs && updating && $('#create').inert && $('#home').inert, 'navigation preserves the update freeze and installation waits for additions');
+      releaseAddition(); await settle(addition, 'destination addition lands');
+      await until(() => count('install_update') === installs + 1, 'installation starts after destination work saves');
+      step(!dirty && adding.size === 0 && JSON.parse(disk['c:designs:' + design.title]).canvas.objects[0].left === 37, 'the final update save includes destination additions');
+      selectObjects([board.getObjects()[0]]);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      document.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true }));
+      step(updating && $('#create').inert && $('#home').inert && !dirty && adding.size === 0 && board.getObjects()[0].left === 37, 'editing stays blocked during installation');
+      const quitsBeforeClose = count('quit'), triedBeforeClose = closeTried;
+      window.failSave = true; board.getObjects()[0].set({ left: 39 }); commitDesign();
+      await settle(kbClose(), 'failed close during installation');
+      step(count('quit') === quitsBeforeClose && dirty && updating && $('#create').inert && $('#home').inert, 'failed close preserves the update freeze');
+      closeTried = triedBeforeClose; window.failSave = false; await flush();
+      releaseInstall(); await settle(update, 'failed installation restores interaction');
+      step(!updating && !$('#create').inert && !$('#home').inert && !$('#update-now').disabled, 'update failure releases its freeze');
+      window.failSave = true; board.getObjects()[0].set({ left: 38 }); commitDesign();
+      await settle($('#update-now').onclick(), 'failed final update save');
+      step(count('install_update') === installs + 1 && dirty && !updating && !$('#create').inert && !$('#home').inert && $('#update-text').textContent.includes('disk full'), 'a failed final save prevents installation and restores interaction');
+      window.failSave = false; await flush();
+    }
+    // A damaged design refuses to open without cancelling an update already waiting for it.
+    {
+      const brokenKey = 'c:designs:Damaged update test', sourceTitle = design.title, installs = count('install_update');
+      disk[brokenKey] = '{';
+      const releaseLoad = hold('load_creation'), releaseInstall = hold('install_update'), loads = count('load_creation');
+      const opening = openDesign('Damaged update test').then(() => null, error => error);
+      await until(() => count('load_creation') > loads, 'damaged design loading is held');
+      const update = $('#update-now').onclick(); await tick();
+      step(count('install_update') === installs, 'update waits for the damaged design open to finish');
+      releaseLoad();
+      step(await settle(opening, 'damaged design open fails') instanceof SyntaxError, 'damaged JSON is refused');
+      await until(() => count('install_update') === installs + 1, 'update proceeds after failed design open');
+      step(design.title === sourceTitle && !dirty && updating && $('#create').inert && $('#home').inert, 'failed open retains the saved source and update freeze');
+      releaseInstall(); await settle(update, 'installation result after failed open');
+      step($('#update-text').textContent.includes('signature mismatch') && !updating && !$('#create').inert && !$('#home').inert, 'update reports its own result after failed open');
+      delete disk[brokenKey];
+    }
+    // Closing during navigation waits until the destination finishes loading.
+    {
+      const release = hold('load_creation'), q0 = count('quit');
+      const opening = openDesign(design.title); await tick();
+      const closing = kbClose(); await tick();
+      step(count('quit') === q0 && $('#create').inert, 'close waits for navigation to finish');
+      release(); await settle(opening, 'destination loads before close'); await settle(closing, 'close after navigation');
+      step(count('quit') === q0 + 1 && $('#create').inert, 'close preserves the editing freeze after navigation');
+      $('#create').inert = false;
     }
     // Edits during a delayed close are saved before quitting.
     {
@@ -933,6 +1134,7 @@ const html = ui('index.html')
   .replace('<head>', '<head><base href="file://' + path.join(__dirname, 'ui') + '/">')
   .replace('<script src="app.js"></script>', '<script>' + ui('app.js') + '</script>')
   .replace('<script src="vendor/fabric.min.js"></script>', () => '<script>' + ui('vendor/fabric.min.js') + '</script>')
+  .replace('<script src="vendor/fabric-extensions.min.js"></script>', () => '<script>' + ui('vendor/fabric-extensions.min.js') + '</script>')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
