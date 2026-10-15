@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased — Create 0.9.0 (B1)
+## Unreleased — Create 0.9.0 (B1, B2)
 
 - Create editing: smart guides and page snapping; group and ungroup; align selected objects and distribute equal gaps; cut, copy, paste and duplicate selections across designs; paste or drop pictures; zoom and Fit.
 - More shape and text properties, picture frames, triangles, stars, rounded rectangles, speech bubbles and free drawing. A 0.25-inch print-safe overlay stays out of exports.
 - Switching designs waits for pending imports and pastes to save; layer shortcuts preserve selection order at stack boundaries. Native file drops use the HTML importer.
 - Updating waits for design navigation and pending additions to save, and keeps editing frozen until restart or update failure. A failed design open does not cancel the update.
 - Undo history shares embedded image data between snapshots instead of repeating it.
+- Create content: the full Twemoji 15.0.0 bundle with searchable categories and paged results; six more fonts; certificate, name-tag, flash-card, calendar and handwriting templates; editable tables, handwriting lines and vector QR codes. Designs and starters open with a persistent fallback-font warning if fonts fail to load; exports and Print wait for all bundled fonts and refuse output after a font failure. Save and restart KB Studio to try loading fonts again; reinstall if the problem persists. Local clip-art requests are allowed by the packaged CSP; narrow table cells start with blank text.
 
 ## 0.8.0
 

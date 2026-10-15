@@ -34,8 +34,9 @@
       <button id="create-save-template" type="button">Save as template</button>
       <button id="create-png" type="button">PNG</button><button id="create-jpeg" type="button">JPEG</button><button id="create-pdf" type="button">PDF</button><button id="create-print" type="button">Print</button>
     </div>
+    <p id="create-font-warning" role="status" hidden>Some fonts could not load. Fallback fonts may change text layout. Export and Print are unavailable. Save your work and restart KB Studio; if this keeps happening, reinstall it.</p>
     <div class="create-body">
-      <div class="create-side"><div id="create-tools"></div><input id="create-file" type="file" accept="image/*" multiple hidden><details><summary>Clip art</summary><div id="emoji-list"></div><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p></details></div>
+      <div class="create-side"><div id="create-tools"></div><input id="create-file" type="file" accept="image/*" multiple hidden><details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details><details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details><details><summary>Clip art</summary><input id="emoji-search" type="search" placeholder="Search clip art" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p></details></div>
       <div id="create-stage"><canvas id="create-canvas"></canvas></div>
       <div class="create-side">
         <div id="props" class="none">
@@ -97,5 +98,7 @@
   <script src="vendor/fabric.min.js"></script>
   <script src="vendor/fabric-extensions.min.js"></script>
   <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="vendor/qrcode.js"></script>
+  <script src="vendor/qrcode_UTF8.js"></script>
   <script src="create.js"></script>
 </body></html>

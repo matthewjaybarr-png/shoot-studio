@@ -117,3 +117,18 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 #layers li{display:flex;gap:2px;flex-wrap:wrap}#layers li.active{outline:2px solid #6aa8ff}#layers li.off .layer-name{opacity:.45}
 .swatch{width:24px;height:24px;border:1px solid #888;padding:0}#colours{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 button.on{outline:2px solid #6aa8ff}
+
+@font-face{font-family:'Balsamiq Sans';font-weight:400;src:url(fonts/balsamiq-sans-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Balsamiq Sans';font-weight:700;src:url(fonts/balsamiq-sans-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Nunito';font-weight:400;src:url(fonts/nunito-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Nunito';font-weight:700;src:url(fonts/nunito-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Lora';font-weight:400;src:url(fonts/lora-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Lora';font-weight:700;src:url(fonts/lora-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Patrick Hand';font-weight:400;src:url(fonts/patrick-hand-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Caveat';font-weight:400;src:url(fonts/caveat-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Caveat';font-weight:700;src:url(fonts/caveat-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Roboto Slab';font-weight:400;src:url(fonts/roboto-slab-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Roboto Slab';font-weight:700;src:url(fonts/roboto-slab-latin-700-normal.woff2) format('woff2')}
+#create-table input{width:60px}#create-table label{display:block;margin:6px 0}#qr-text,#emoji-search,#emoji-category{width:100%;margin:6px 0}#emoji-results{font-size:12px}
+
+#create-font-warning{margin:0;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--edge)}

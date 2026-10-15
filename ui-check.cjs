@@ -5,8 +5,18 @@ const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-studio-check-'));
-if (JSON.parse(fs.readFileSync(path.join(__dirname, 'src-tauri/tauri.conf.json'), 'utf8')).app.windows.some(w => w.dragDropEnabled !== false)) throw Error('HTML file drops require native interception disabled');
+const appConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'src-tauri/tauri.conf.json'), 'utf8')).app;
+if (appConfig.windows.some(w => w.dragDropEnabled !== false)) throw Error('HTML file drops require native interception disabled');
 const ui = name => fs.readFileSync(path.join(__dirname, 'ui', name), 'utf8');
+// Literal relative fetches use connect-src, not script-src or img-src.
+const connectPolicy = appConfig.security.csp.split(';').map(s => s.trim()).find(s => s.startsWith('connect-src ')) || appConfig.security.csp.split(';').map(s => s.trim()).find(s => s.startsWith('default-src ')) || '';
+for (const file of fs.readdirSync(path.join(__dirname, 'ui')).filter(f => f.endsWith('.js'))) {
+  for (const [, url] of ui(file).matchAll(/\bfetch\s*\(\s*['"]([^'"]+)['"]/g)) {
+    if (!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url) && !connectPolicy.split(/\s+/).includes("'self'")) throw Error(file + ': local fetch requires connect-src self: ' + url);
+  }
+}
+const emojiIndex = JSON.parse(ui('emoji-index.json'));
+if (new Set(emojiIndex.map(e => e.code)).size !== emojiIndex.length || emojiIndex.some(e => !fs.existsSync(path.join(__dirname, 'ui/emoji', e.code + '.svg')))) throw Error('Clip art index must reference unique existing SVGs');
 const mock = `<script>
 window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
 // Half floats for develop_source's layout: width and height as u32s, then RGB.
@@ -74,7 +84,7 @@ const test = `<script>
   const lastSave = () => calls.filter(c => c.command === 'save_shoot').at(-1)?.args.data.ratings;
   try {
     step(!$('#home').hidden && mode === 'home', 'the app starts on the home screen');
-    await until(() => $('#home-templates').children.length === 4, 'the home screen is filled in at launch with no shoot');
+    await until(() => $('#home-templates').children.length === 9, 'the home screen is filled in at launch with no shoot');
     $('#home-photos').click();
     step($('#home').hidden && mode === 'photos', 'Photos leaves the home screen');
     $('#open').click();
@@ -787,11 +797,12 @@ const test = `<script>
     // Starter templates, saved templates, fonts, colours and clip art.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
     const names = [...$('#home-templates').children].map(b => b.textContent);
-    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter', () => 'four starter templates: ' + names);
+    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet', () => 'nine starter templates: ' + names);
     for (const name of names) {
       await settle(Promise.resolve($('#home-templates').children[names.indexOf(name)].click()));
       await until(() => mode === 'create' && design.title === 'My ' + name && board.getObjects().length > 5, 'the ' + name + ' template opens');
       step(board.getObjects().some(o => o.type === 'textbox' && o.text) && board.getObjects().every(o => !o.text || o.text.length < 120), 'the ' + name + ' has placeholder text');
+      step(history.length === 2, 'the ' + name + ' template is one undo step');
       await settle($('#create-home').onclick(), 'Start saves and leaves');
       await until(() => $('#home-templates').children.length >= 4, 'home again');
     }
@@ -804,8 +815,8 @@ const test = `<script>
     [...$('#home-templates').children].find(b => b.textContent === 'My Behaviour chart 2').click();
     await until(() => mode === 'create' && design.title === 'My My Behaviour chart 2' && board.getObjects().length > 5, 'a saved template makes a new design');
     // Fonts.
-    step([...$('#prop-font').options].map(o => o.value).join() === 'Lexend,Andika,Atkinson Hyperlegible,Comic Neue,Fredoka', 'five fonts are offered');
-    step(FONTS.every(f => document.fonts.check('16px "' + f + '"')), 'all five fonts are loaded');
+    step([...$('#prop-font').options].map(o => o.value).join() === FONTS.join() && FONTS.length === 11, 'eleven fonts are offered');
+    step(FONTS.every(f => document.fonts.check('16px "' + f + '"')), 'all eleven fonts are loaded');
     $('#add-text').click(); board.getActiveObject().exitEditing?.();
     const words = board.getActiveObject();
     put($('#prop-font'), 'Fredoka', 'change');
@@ -821,9 +832,86 @@ const test = `<script>
     step(board.backgroundColor === '#12ab34', 'a saved colour fills the page when nothing is selected');
     // Clip art.
     const countBefore = board.getObjects().length;
+    await settle(emojiReady, 'clip art index loads');
+    put($('#emoji-search'), 'red heart', 'input');
     $('#emoji-list').querySelector('[data-code="2764"]').click();
-    await until(() => board.getObjects().length === countBefore + 1 && board.getObjects().at(-1).kbName === 'heart', 'a clip-art button adds it');
-    step($('#emoji-list').children.length === 40 && document.body.textContent.includes('CC-BY 4.0'), 'clip art is credited in the app');
+    await until(() => board.getObjects().length === countBefore + 1 && board.getObjects().at(-1).kbName === 'red heart', 'a clip-art button adds it');
+    step(emojiEntries.length > 3600 && $('#emoji-list').children.length <= 60 && document.body.textContent.includes('CC-BY 4.0'), 'full clip art is indexed and credited with bounded results');
+    put($('#emoji-search'), 'cat', 'input');
+    step([...$('#emoji-list').children].some(b => b.dataset.code === '1f408'), 'search cat finds the cat');
+    put($('#emoji-category'), 'Animals & Nature', 'change');
+    step([...$('#emoji-list').children].every(b => emojiEntries.find(e => e.code === b.dataset.code).group === 'Animals & Nature'), 'category filters search results');
+    put($('#emoji-search'), 'no such graphic xyz', 'input');
+    step(!$('#emoji-list').children.length && $('#emoji-next').disabled && $('#emoji-prev').disabled, 'empty search has no pages');
+    put($('#emoji-search'), '', 'input'); put($('#emoji-category'), '', 'change');
+    const firstCode = $('#emoji-list').firstChild.dataset.code;
+    $('#emoji-next').click();
+    step($('#emoji-list').children.length === 60 && $('#emoji-list').firstChild.dataset.code !== firstCode, 'clip art advances a page');
+    step([...$('#emoji-list').querySelectorAll('img')].every(i => i.loading === 'lazy'), 'clip art images load lazily');
+    $('#emoji-prev').click();
+    step($('#emoji-list').firstChild.dataset.code === firstCode, 'clip art returns to the first page');
+    { // B2: real Fabric objects, save/reopen and output font waits.
+      await settle(newDesign(), 'B2 blank design');
+      $('#create-table').requestSubmit();
+      step(board.getObjects().filter(o => o.kbName === 'Table cell').length === 12 && board.getObjects().filter(o => o.kbName === 'Cell text').length === 12 && board.getObjects().every(o => !o.group), 'a 3x4 table has twelve editable cells');
+      let rejected = 0;
+      for (const args of [[0, 4], [3, 21], [1.5, 2], [NaN, 2]]) { try { addTable(...args); } catch { rejected++; } }
+      step(rejected === 4 && board.getObjects().length === 24, 'table dimensions reject invalid values before adding objects');
+      const previousPage = design.page; design.page = 'quarter';
+      const narrow = tableCells(20, 20);
+      step(narrow.filter(o => o.kbName === 'Cell text').every(o => o.text === '' && o.width <= (pagePx()[0] - 96) / 20 - 12), 'narrow quarter-sheet cells start blank without expanding their textboxes');
+      design.page = previousPage;
+      $('#add-handwriting').click();
+      step(board.getActiveObject().getObjects().length === 3 && board.getActiveObject().getObjects()[1].strokeDashArray.join() === '6,4', 'handwriting lines have a dashed middle');
+      $('#qr-text').value = 'HELLO WORLD'; $('#create-qr').requestSubmit();
+      const qrObject = board.getActiveObject(), modules = qrObject.getObjects();
+      step(modules[0].width === 29 && modules[0].fill === '#ffffff' && modules[1].type === 'path' && modules[1].width === 21 && modules[1].left - modules[0].left === 4, 'known QR has 21 modules and a four-module white quiet zone');
+      const savedPath = JSON.stringify(modules[1].path), title = design.title;
+      step(qrcode.stringToBytes('Café 📚').join() === [...new TextEncoder().encode('Café 📚')].join(), 'QR text uses UTF-8 bytes');
+      let badQr = 0;
+      for (const text of ['', ' ', 'x'.repeat(1001)]) { try { addQr(text); } catch { badQr++; } }
+      step(badQr === 3, 'QR rejects empty or overlong input');
+      await flush(); await settle(openDesign(title), 'B2 objects reopen');
+      step(board.getObjects().filter(o => o.kbName === 'Table cell').length === 12 && board.getObjects().find(o => o.kbName === 'Handwriting lines').getObjects()[1].strokeDashArray.join() === '6,4' && JSON.stringify(board.getObjects().at(-1).getObjects()[1].path) === savedPath, 'table, handwriting and vector QR survive saving');
+      const loadFont = document.fonts.load.bind(document.fonts); let releaseFont, fontFinished = false, rendered = false;
+      const fontGate = new Promise(r => releaseFont = r);
+      document.fonts.load = async (...args) => { await fontGate; fontFinished = true; return loadFont(...args); };
+      const rendering = render(0.2, 'png').then(value => { rendered = true; return value; });
+      await tick(); step(!rendered && !fontFinished, 'export waits for pending font loads');
+      releaseFont(); await settle(rendering, 'export resumes after fonts');
+      // One unused font fails while the others are still loading.
+      board.add(T('Requested typeface', 40, 40, { fontFamily: 'Lora' })); commitDesign(); await flush();
+      const originalDisk = disk['c:designs:' + title], savesBeforeOpen = count('save_creation');
+      let releaseOthers, opened = false, settledFonts = 0;
+      const othersGate = new Promise(r => releaseOthers = r);
+      document.fonts.load = async (...args) => {
+        if (args[0].includes('Roboto Slab')) throw Error('missing font');
+        await othersGate; const value = await loadFont(...args); settledFonts++; return value;
+      };
+      const opening = openDesign(title).then(() => { opened = true; });
+      await tick(); step(!opened, 'opening waits for the other font requests after a rejection');
+      releaseOthers(); await settle(opening, 'existing design opens with a failed unused font');
+      step(settledFonts === FONTS.length * 2 - 2 && !$('#create-font-warning').hidden && $('#create-font-warning').textContent.includes('text layout') && $('#create-font-warning').textContent.includes('restart KB Studio') && $('#create-font-warning').textContent.includes('reinstall'), 'font attempts all settle and fallback layout warning is visible');
+      step(!dirty && count('save_creation') === savesBeforeOpen && disk['c:designs:' + title] === originalDisk, 'failed font loading alone neither dirties nor rewrites an opened design');
+      const requestedText = board.getObjects().at(-1);
+      selectObjects([requestedText]); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await flush();
+      step(requestedText.left === 41 && requestedText.fontFamily === 'Lora' && JSON.parse(disk['c:designs:' + title]).canvas.objects.at(-1).fontFamily === 'Lora' && !$('#create-font-warning').hidden, 'opened design remains editable and saving retains its font and warning');
+      await settle(newDesign('Certificate', 'starter'), 'starter opens despite a font failure');
+      const starterText = board.getObjects().find(o => o.fontFamily === 'Lora'), starterLeft = starterText.left;
+      selectObjects([starterText]); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await flush();
+      step(starterText.left === starterLeft + 1 && JSON.parse(disk['c:designs:' + design.title]).canvas.objects.some(o => o.fontFamily === 'Lora') && !$('#create-font-warning').hidden, 'starter remains editable and saves requested fonts without erasing the warning');
+      const fontError = await settle(render(0.2, 'png').then(() => null, e => e), 'font failure reaches export');
+      step(fontError?.message === 'missing font', 'font failures prevent exporting with a silent fallback');
+      const outputCalls = count('save_output');
+      for (const [kind, print] of [['png', false], ['jpeg', false], ['pdf', false], ['pdf', true]]) {
+        await settle(output(kind, print), 'failed fonts block ' + kind + (print ? ' print' : ''));
+        step(count('save_output') === outputCalls && $('#create-saved').textContent.includes('missing font') && !$('#create-font-warning').hidden, 'unused broken font prevents output publication and preserves warning');
+      }
+      document.fonts.load = loadFont;
+      // Restore the injected loader and warning for later tests; this is not browser font recovery.
+      $('#create-font-warning').hidden = true;
+    }
+
     { // B1: editing, using the real Fabric canvas and save format.
     await settle(newDesign(), 'B1 blank design');
     const boxes = [0, 1, 2].map(i => new fabric.Rect({ left: 40 + i * 150, top: 60 + i * 40, width: 60 + i * 10, height: 50, strokeWidth: 0, fill: '#ffd966' }));
@@ -1136,6 +1224,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/fabric.min.js"></script>', () => '<script>' + ui('vendor/fabric.min.js') + '</script>')
   .replace('<script src="vendor/fabric-extensions.min.js"></script>', () => '<script>' + ui('vendor/fabric-extensions.min.js') + '</script>')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
+  .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
+  .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
   .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);

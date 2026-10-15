@@ -78,6 +78,7 @@ CI builds the AppImage, signs it, and publishes a release with `latest.json`, wh
 The start screen offers Create next to Photos: a small Canva-style maker for posters, labels, charts and cards. It is offline too; everything it uses is bundled.
 
 - Pick a page (Letter, landscape Letter, half sheet, quarter sheet), then add text, pictures, shapes, arrows and clip art from the left. Click a thing to change its font, size, colour or outline on the right; the Layers list reorders, hides and locks. Delete removes, Ctrl+Z / Ctrl+Y undo and redo, arrow keys nudge.
+- Search clip art by name or category. Add editable tables, handwriting lines or a QR code containing a link or text. Eleven bundled fonts and nine starter templates cover charts, cards, certificates, calendars and worksheets.
 - Designs save themselves as one `.json` file each (pictures included) in `~/Documents/KB Studio/`, and your own templates in its `Templates` folder. Saved fonts and colours live in the app's settings.
 - PDF, PNG and JPEG export are at 300 dpi and go to the `Exports` folder there. Print makes the PDF and opens it in your PDF viewer, which prints it. Tile mode puts two half sheets or four quarter sheets on one Letter page with cut marks. "Preview in B&W" shows a greyscale preview only; the file is still in colour.
 - In Photos, **Use in a design** sends the developed photo, at 2048 pixels, to a new page.

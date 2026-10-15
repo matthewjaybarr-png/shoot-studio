@@ -5,8 +5,11 @@
 const PX = 96;                                         // design pixels per inch
 const PAGES = { letter: [8.5, 11], 'letter-landscape': [11, 8.5], half: [5.5, 8.5], quarter: [4.25, 5.5] };
 const PAGE_NAMES = { letter: 'Letter', 'letter-landscape': 'Letter, landscape', half: 'Half sheet card', quarter: 'Quarter sheet card' };
-const FONTS = ['Lexend', 'Andika', 'Atkinson Hyperlegible', 'Comic Neue', 'Fredoka'];
-const EMOJI = { '2b50': 'star', '1f31f': 'glowing star', '2764': 'heart', '1f34e': 'apple', '1f4da': 'books', '1f4d6': 'open book', '270f': 'pencil', '1f4dd': 'memo', '1f4cf': 'ruler', '1f308': 'rainbow', '2705': 'check', '1f3c6': 'trophy', '1f600': 'smile', '1f44d': 'thumbs up', '1f3a8': 'palette', '1f393': 'graduation cap', '1f3eb': 'school', '1f50d': 'magnifier', '1f33b': 'sunflower', '1f98b': 'butterfly', '1f40c': 'snail', '1f422': 'turtle', '1f43b': 'bear', '1f984': 'unicorn', '1f680': 'rocket', '1f30d': 'earth', '26bd': 'ball', '1f3b5': 'music', '1f382': 'cake', '1f388': 'balloon', '1f389': 'party', '1f381': 'gift', '1f9e9': 'puzzle', '1f9ee': 'abacus', '23f0': 'clock', '1f4a1': 'idea', '1f512': 'lock', '1f4cc': 'pin', '1f340': 'clover', '2600': 'sun' };
+const FONTS = ['Lexend', 'Andika', 'Atkinson Hyperlegible', 'Comic Neue', 'Fredoka', 'Balsamiq Sans', 'Nunito', 'Lora', 'Patrick Hand', 'Caveat', 'Roboto Slab'];
+// Generated offline from Unicode 15.0 emoji-test.txt; assets stay local.
+let emojiEntries = [], emojiPage = 0;
+const emojiReady = fetch('emoji-index.json').then(r => { if (!r.ok) throw Error('clip art index missing'); return r.json(); }).then(entries => { emojiEntries = entries; });
+emojiReady.catch(error => { $('#create-saved').textContent = 'Could not load clip art: ' + error; });
 const IMAGE_EDGE = 3300;                               // imported pictures are shrunk to this many pixels on the long edge
 const MAX_HISTORY = 50, MAX_HISTORY_BYTES = 250e6;
 const KEEP = ['kbName', 'kbLocked'];                   // our own fields, saved with every object
@@ -135,12 +138,14 @@ function fitBoard() {
 const blob = () => ({ format: 1, page: design.page, tile: design.tile, copies: design.copies, canvas: board.toObject(KEEP) });
 
 async function fonts() {
-  await Promise.all(FONTS.flatMap(f => ['400', '700'].map(w => document.fonts.load(`${w} 16px "${f}"`).catch(() => []))));
+  const loads = await Promise.allSettled(FONTS.flatMap(f => ['400', '700'].map(w => document.fonts.load(`${w} 16px "${f}"`))));
+  const failed = loads.find(result => result.status === 'rejected'), warning = $('#create-font-warning');
+  if (failed) { warning.hidden = false; throw failed.reason; }
 }
 
 async function open(doc, title, name) {
   startBoard();
-  await fonts();
+  await fonts().catch(() => {}); // Editing can use fallback fonts; output remains strict.
   restoring = true;
   design = { title, page: PAGES[doc.page] ? doc.page : 'letter', tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)) };
   diskName = name; dirty = false;
@@ -285,6 +290,7 @@ function addShape(kind) {
     rounded: () => new fabric.Rect({ width: 260, height: 160, rx: 24, ry: 24, ...SHAPE, kbName: 'Rounded rectangle' }),
     triangle: () => new fabric.Triangle({ width: 200, height: 180, ...SHAPE, kbName: 'Triangle' }),
     star: () => new fabric.Polygon(Array.from({ length: 10 }, (_, i) => { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 45 : 100; return { x: Math.cos(a) * r, y: Math.sin(a) * r }; }), { ...SHAPE, kbName: 'Star' }),
+    handwriting: () => handwritingLines(Math.min(500, pagePx()[0] - 96)),
     bubble: () => new fabric.Path('M 20 0 L 240 0 Q 260 0 260 20 L 260 120 Q 260 140 240 140 L 90 140 L 40 180 L 50 140 L 20 140 Q 0 140 0 120 L 0 20 Q 0 0 20 0 Z', { ...SHAPE, kbName: 'Speech bubble' }),
     circle: () => new fabric.Circle({ radius: 90, ...SHAPE, kbName: 'Circle' }),
     line: () => new fabric.Line([0, 0, 300, 0], { stroke: '#444444', strokeWidth: 6, strokeLineCap: 'round', kbName: 'Line' }),
@@ -324,11 +330,12 @@ $('#create-file').onchange = async event => {
 // Clip art is an SVG copied onto a canvas, so the design keeps its own picture.
 const addEmoji = code => track(addingEmoji(code));
 async function addingEmoji(code) {
+  await emojiReady;
   const img = await new Promise((done, fail) => Object.assign(new Image(), { onload() { done(this); }, onerror: () => fail('clip art missing'), src: `emoji/${code}.svg` }));
   const out = Object.assign(document.createElement('canvas'), { width: 512, height: 512 });
   out.getContext('2d').drawImage(img, 0, 0, 512, 512);
   const image = await fabric.FabricImage.fromURL(out.toDataURL('image/png'));
-  image.set({ scaleX: 150 / 512, scaleY: 150 / 512, kbName: EMOJI[code] || 'Clip art' });
+  image.set({ scaleX: 150 / 512, scaleY: 150 / 512, kbName: emojiEntries.find(e => e.code === code)?.name || 'Clip art' });
   return place(image);
 }
 
@@ -343,13 +350,11 @@ function paintCreateTools() {
   add('add-arrow', 'Arrow', () => addShape('arrow'));
   for (const [kind, label] of [['triangle', 'Triangle'], ['star', 'Star'], ['rounded', 'Rounded rectangle'], ['bubble', 'Speech bubble']]) add('add-' + kind, label, () => addShape(kind));
   add('create-draw', 'Draw', () => { board.isDrawingMode = !board.isDrawingMode; $('#create-draw').classList.toggle('on', board.isDrawingMode); board.discardActiveObject(); board.requestRenderAll(); });
-  const picker = $('#emoji-list');
-  for (const [code, label] of Object.entries(EMOJI)) {
-    const b = button('', () => addEmoji(code).catch(e => { $('#create-saved').textContent = String(e); }));
-    b.title = label; b.dataset.code = code;
-    const i = document.createElement('img'); i.src = `emoji/${code}.svg`; i.alt = label; b.append(i);
-    picker.append(b);
-  }
+  add('add-handwriting', 'Handwriting lines', () => addShape('handwriting'));
+  emojiReady.then(() => {
+    $('#emoji-category').replaceChildren(Object.assign(document.createElement('option'), { value: '', textContent: 'All categories' }), ...[...new Set(emojiEntries.map(e => e.group))].map(group => Object.assign(document.createElement('option'), { value: group, textContent: group })));
+    paintEmoji();
+  }).catch(() => {}); // the index failure is reported beside the save status
   const font = $('#prop-font');
   font.replaceChildren(...FONTS.map(f => Object.assign(document.createElement('option'), { value: f, textContent: f })));
   const align = $('#align-tools');
@@ -361,6 +366,59 @@ function paintCreateTools() {
     const b = button(label, () => alignTo(id, vertical, run)); b.dataset.align = id; align.append(b);
   }
 }
+function paintEmoji() {
+  const query = $('#emoji-search').value.trim().toLowerCase(), category = $('#emoji-category').value;
+  const matches = emojiEntries.filter(e => (!category || e.group === category) && e.name.toLowerCase().includes(query));
+  const pages = Math.max(1, Math.ceil(matches.length / 60));
+  emojiPage = Math.min(emojiPage, pages - 1);
+  $('#emoji-list').replaceChildren(...matches.slice(emojiPage * 60, (emojiPage + 1) * 60).map(({ code, name }) => {
+    const b = button('', () => addEmoji(code).catch(e => { $('#create-saved').textContent = String(e); }));
+    b.title = name; b.dataset.code = code;
+    const img = new Image(); img.loading = 'lazy'; img.src = `emoji/${code}.svg`; img.alt = name; b.append(img);
+    return b;
+  }));
+  $('#emoji-results').textContent = matches.length ? `${matches.length} graphics · Page ${emojiPage + 1} of ${pages}` : 'No matching graphics';
+  $('#emoji-prev').disabled = emojiPage === 0; $('#emoji-next').disabled = emojiPage === pages - 1;
+}
+$('#emoji-search').oninput = $('#emoji-category').onchange = () => { emojiPage = 0; paintEmoji(); };
+$('#emoji-prev').onclick = () => { emojiPage--; paintEmoji(); };
+$('#emoji-next').onclick = () => { emojiPage++; paintEmoji(); };
+
+function handwritingLines(width) {
+  return new fabric.Group([0, 24, 48].map((y, i) => new fabric.Line([0, y, width, y], { stroke: '#777777', strokeWidth: 1, strokeDashArray: i === 1 ? [6, 4] : null })), { kbName: 'Handwriting lines' });
+}
+function tableCells(rows, cols, top = 180, height = Math.min(rows * 72, pagePx()[1] - top - 48), text = 'Text') {
+  if (![rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 20)) throw Error('Use 1 to 20 rows and columns');
+  const width = (pagePx()[0] - 96) / cols, cellHeight = height / rows, cells = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const left = 48 + c * width, y = top + r * cellHeight;
+    cells.push(R(left, y, width, cellHeight, { kbName: 'Table cell' }), T(width < 72 ? '' : text, left + 6, y + 6, { width: width - 12, minWidth: 1, fontSize: Math.min(24, cellHeight / 3), kbName: 'Cell text' }));
+  }
+  return cells;
+}
+function addTable(rows, cols) {
+  const cells = tableCells(rows, cols);
+  board.discardActiveObject(); board.add(...cells); commitDesign();
+}
+$('#create-table').onsubmit = e => { e.preventDefault(); addTable(Number($('#table-rows').value), Number($('#table-cols').value)); };
+function addQr(text) {
+  if (!text.trim() || text.length > 1000) throw Error('Enter up to 1,000 characters');
+  const qr = qrcode(0, 'M'); qr.addData(text, 'Byte'); qr.make();
+  const count = qr.getModuleCount(), path = [];
+  for (let row = 0; row < count; row++) for (let col = 0; col < count; col++) {
+    if (qr.isDark(row, col)) path.push(`M ${col + 4} ${row + 4} h 1 v 1 h -1 z`);
+  }
+  // A white four-module quiet zone is part of the object, so coloured pages remain scannable.
+  return place(new fabric.Group([
+    new fabric.Rect({ width: count + 8, height: count + 8, fill: '#ffffff', strokeWidth: 0 }),
+    new fabric.Path(path.join(' '), { fill: '#000000', strokeWidth: 0 })
+  ], { scaleX: 200 / (count + 8), scaleY: 200 / (count + 8), kbName: 'QR code' }));
+}
+$('#create-qr').onsubmit = e => {
+  e.preventDefault();
+  try { addQr($('#qr-text').value); } catch (error) { $('#create-saved').textContent = 'Could not add QR: ' + error; }
+};
+
 // One object aligns to the page; a selection aligns its objects within their common bounds.
 function alignTo(id, vertical, shift) {
   const active = board.getActiveObject(), targets = board.getActiveObjects();
@@ -586,6 +644,7 @@ $('#colour-save').onclick = () => {
 // ---- Output: PNG, JPEG and a 300-dpi PDF ----
 // Draw the design on a fresh canvas so the screen's zoom and selection never get in.
 async function render(multiplier, format, quality = 0.92) {
+  await fonts();
   const [w, h] = pagePx(), sc = new fabric.StaticCanvas(document.createElement('canvas'), { width: w, height: h });
   try {
     await sc.loadFromJSON(board.toObject(KEEP));
@@ -692,7 +751,37 @@ const STARTERS = {
     board.add(R(0, 0, 816, 170, { fill: '#6aa84f', stroke: '#6aa84f' }), T('Our Class Newsletter', 40, 30, { width: 736, fontSize: 60, fill: '#ffffff', fontWeight: 'bold', textAlign: 'center', kbName: 'Title' }), T('Month Year', 40, 112, { width: 736, fontSize: 28, fill: '#ffffff', textAlign: 'center' }));
     const body = 'Write your news here. Tell families what the class has been learning and what is coming up.';
     [['This week', 40, 200], ['Coming up', 428, 200], ['Reminders', 40, 600], ['Thank you', 428, 600]].forEach(([h, x, y]) => board.add(T(h, x, y, { width: 348, fontSize: 34, fontWeight: 'bold', fill: '#38761d' }), T(body, x, y + 56, { width: 348, fontSize: 24 })));
-  }
+  },
+  'Certificate': async () => {
+    board.add(R(32, 32, 752, 992, { stroke: '#b08a32', strokeWidth: 6 }), R(48, 48, 720, 960),
+      T('Certificate', 80, 120, { width: 656, fontSize: 72, textAlign: 'center', fontFamily: 'Lora' }),
+      T('of Achievement', 80, 220, { width: 656, fontSize: 40, textAlign: 'center' }),
+      T('Presented to', 80, 360, { width: 656, textAlign: 'center' }),
+      T('Student Name', 80, 440, { width: 656, fontSize: 56, textAlign: 'center', fontFamily: 'Caveat' }),
+      T('For your wonderful work', 80, 570, { width: 656, textAlign: 'center' }),
+      T('Date: __________', 90, 820), T('Signed: __________', 430, 820));
+  },
+  'Name tags': async () => {
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) {
+      const x = 32 + c * 384, y = 48 + r * 240;
+      board.add(R(x, y, 368, 216, { rx: 16, ry: 16, fill: '#e6f1ff' }), T('Hello, my name is', x + 16, y + 24, { width: 336, textAlign: 'center', fontSize: 26 }), T('Name', x + 16, y + 92, { width: 336, textAlign: 'center', fontSize: 54, fontFamily: 'Balsamiq Sans' }));
+    }
+  },
+  'Flash cards': async () => {
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) {
+      const x = 32 + c * 384, y = 48 + r * 320;
+      board.add(R(x, y, 368, 304, { strokeDashArray: [6, 6] }), T('Word', x + 20, y + 80, { width: 328, fontSize: 52, textAlign: 'center' }), T('Meaning or picture', x + 20, y + 200, { width: 328, fontSize: 24, textAlign: 'center' }));
+    }
+  },
+  'Calendar': async () => {
+    board.add(T('Month Year', 48, 48, { width: 720, fontSize: 56, textAlign: 'center', kbName: 'Title' }));
+    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((day, c) => board.add(T(day, 48 + c * 720 / 7, 162, { width: 720 / 7, fontSize: 24, textAlign: 'center' })));
+    board.add(...tableCells(6, 7, 210, 780, 'Date'));
+  },
+  'Handwriting worksheet': async () => {
+    board.add(T('Handwriting Practice', 48, 40, { width: 720, fontSize: 48 }), T('Name: __________   Date: __________', 48, 120, { width: 720, fontSize: 26 }));
+    for (let r = 0; r < 8; r++) board.add(handwritingLines(720).set({ left: 48, top: 230 + r * 96 }), T(r === 0 ? 'Trace your words here' : ' ', 52, 216 + r * 96, { width: 700, fontSize: 42, fontFamily: 'Patrick Hand', fill: '#aaaaaa' }));
+  },
 };
 
 loadSettings();

@@ -17,7 +17,11 @@ KB Studio is built on these open-source projects. Thank you to their authors.
 | Fabric.js 6.9.1 | The Create page editor and aligning guidelines (`ui/vendor/fabric.min.js` and `fabric-extensions.min.js`, unmodified; both covered by `LICENSES/fabric-MIT.txt`) | MIT | © 2008-2015 Printio (Juriy Zaytsev, Maxim Chernyak) and contributors | https://github.com/fabricjs/fabric.js |
 | jsPDF 2.5.2 | Making Create's 300-dpi PDFs (`ui/vendor/jspdf.umd.min.js`, unmodified) | MIT | © 2010-2021 James Hall, © 2015-2021 yWorks GmbH | https://github.com/parallax/jsPDF |
 | Lexend, Andika, Atkinson Hyperlegible, Comic Neue, Fredoka | The five fonts in Create (`ui/fonts/`, Latin subsets, WOFF2) | SIL OFL 1.1 | © their authors: the Lexend Project Authors, SIL International, Braille Institute of America, the Comic Neue Project Authors, the Fredoka Project Authors. Full notices in `LICENSES/font-*-OFL.txt` | https://github.com/googlefonts/lexend, https://software.sil.org/andika/, https://github.com/googlefonts/atkinson-hyperlegible, https://github.com/crozynski/comicneue, https://github.com/hafontia/Fredoka-One |
-| Twemoji 15.0.0 (40 graphics) | The clip art in Create (`ui/emoji/`, unmodified SVGs) | CC-BY 4.0 | © Twitter, Inc and other contributors | https://github.com/jdecked/twemoji |
+| qrcode-generator 1.4.4 | Vector QR codes in Create (`ui/vendor/qrcode.js` and `qrcode_UTF8.js`, unmodified) | MIT | © 2009, 2011 Kazuhiko Arase; full licence in `LICENSES/qrcode-generator-MIT.txt` | https://github.com/kazuhikoarase/qrcode-generator |
+| Balsamiq Sans, Nunito, Lora, Patrick Hand, Caveat | Five more fonts in Create (`ui/fonts/`, Latin WOFF2 from the corresponding @fontsource packages, pinned to 5.3.0) | SIL OFL 1.1 | © their respective authors; full notices in `LICENSES/font-*-OFL.txt` | https://github.com/fontsource/fontsource, https://github.com/google/fonts/tree/main/ofl |
+| Roboto Slab | Create font (`ui/fonts/`, Latin WOFF2 from @fontsource/roboto-slab 5.3.0, unmodified) | Apache 2.0 | Copyright 2018 The Roboto Slab Project Authors; full licence in `LICENSES/font-roboto-slab-Apache-2.0.txt` | https://github.com/google/fonts/tree/main/apache/robotoslab |
+| Unicode Emoji 15.0 data | Names and categories in `ui/emoji-index.json`, generated offline from emoji-test.txt (fully-qualified entries and components), matched with and without FE0F | Unicode data licence | © 2022 Unicode, Inc.; licence in `LICENSES/unicode-data.txt` | https://www.unicode.org/Public/emoji/15.0/emoji-test.txt |
+| Twemoji 15.0.0 (3,720 graphics) | The clip art in Create (`ui/emoji/`, unmodified SVGs) | CC-BY 4.0 | © Twitter, Inc and other contributors | https://github.com/jdecked/twemoji |
 
 The transitive Rust dependencies are under permissive licences (MIT, Apache-2.0, BSD, Zlib, Unicode-3.0, MPL-2.0 and similar). rawler is the only LGPL dependency, and nothing in the tree is GPL. To list them all, run `cargo tree -e normal -f '{p} {l}'` in `src-tauri/`.
 
@@ -41,8 +45,8 @@ No code from GPL projects (darktable, RawTherapee) has been copied into KB Studi
 
 ## Fonts (SIL Open Font License 1.1)
 
-The five fonts are bundled, not modified except for subsetting to Latin and converting to WOFF2. The OFL permits that, and each font's licence and copyright is in `LICENSES/font-<name>-OFL.txt`. The fonts are not sold on their own.
+Ten fonts use SIL OFL 1.1; Roboto Slab uses Apache 2.0. The Latin WOFF2 subsets are bundled unmodified from their providers. Copyright notices and licences are in `LICENSES/font-*-OFL.txt` and `LICENSES/font-roboto-slab-Apache-2.0.txt`. The fonts are not sold on their own.
 
 ## Clip art (CC-BY 4.0)
 
-The clip art in Create is Twemoji, © Twitter, Inc and other contributors, licensed under Creative Commons Attribution 4.0 International (`LICENSES/twemoji-CC-BY-4.0.txt`, https://creativecommons.org/licenses/by/4.0/). The SVGs are used as published. The app shows this credit beside the clip art picker.
+The clip art in Create is Twemoji, © Twitter, Inc and other contributors, licensed under Creative Commons Attribution 4.0 International (`LICENSES/twemoji-CC-BY-4.0.txt`, https://creativecommons.org/licenses/by/4.0/). The SVGs are used as published in @twemoji/svg 15.0.0. The full package has 3,720 SVGs (8,147,297 bytes); the index exposes all 3,655 Unicode 15.0 fully-qualified emoji and 9 components. Older nonstandard variants remain bundled but are not indexed. The app shows this credit beside the clip art picker.
