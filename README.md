@@ -12,13 +12,15 @@ Develop: D edits the current photo. ←/→ go to the previous/next photo, hold 
 
 Retouch, in Develop: pick a brush, then paint over what you want gone. Strokes are saved in the recipe and can be undone like any other edit.
 - **J spot heal**: paint over a blemish or dust spot; the app finds clean texture nearby and blends it in to match the light around it.
-- **H heal**: Ctrl+click a clean area first, then paint. Like spot heal, but you choose where the texture comes from.
-- **S clone**: Ctrl+click a source, then paint an exact copy of it, with no blending.
+- **H heal**: Alt+click (or Ctrl+click) a clean area first, then paint. Like spot heal, but you choose where the texture comes from.
+- **S clone**: Alt+click (or Ctrl+click) a source, then paint an exact copy of it, with no blending.
 - **B soften skin**: paint over skin to even out blotchy colour while keeping pores and fine detail. Strength sets how much.
-- [ and ] change the brush size. Heal and clone start each stroke from the spot you Ctrl+clicked, then follow the brush at that distance; a dashed line joins the brush to the source while you paint.
+- [ and ] change the brush size. Heal and clone show source pixels inside the brush. With Aligned on (the default), the source offset carries between strokes; turn it off to restart each stroke from the chosen source. Strength controls every brush.
 - **E red eye**: click a red pupil, or drag out a circle over the eye. Only strongly red pixels are darkened, so the white catchlight stays.
 
 Looks, in Develop: pick one from the Look list (black & white, toned such as sepia, or a colour look), then set its strength from 0 to 100%. Every slider still works on top of it. Split toning tints shadows and highlights separately; Finishing adds a vignette (darker or lighter corners), film grain and a faded, matte black.
+
+Detail, in Develop: Sharpen adds definition; Masking limits it to edges. Colour noise and Luminance noise reduce coloured speckles and grain.
 
 Presets save the current settings under a name for every shoot; choose one from the Presets list to apply it, and Ctrl+Z takes it back off. Retouch strokes belong to one photo, so presets and copy/paste leave them alone.
 
@@ -67,9 +69,10 @@ npx @tauri-apps/cli@2 dev                                   # run the app
 
 Release builds come only from CI (`.github/workflows/release.yml`, on Ubuntu 22.04), so they run on Zorin OS 17 and newer.
 
-1. Set the new version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, and add it to `CHANGELOG.md`.
+1. Set the new version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and the application entry in `src-tauri/Cargo.lock`, and add it to `CHANGELOG.md`.
 2. Run the Rust tests and the UI check; both must pass.
-3. Commit, then tag and push: `git tag v0.1.1 && git push origin main v0.1.1`.
+3. Validate a local candidate in the packaged app: cropping and dialog focus, fonts and clip art, native clipboard and file drops, printing, and a representative large design. A local build does not validate signed updates.
+4. Commit, then tag and push: `git tag v0.1.1 && git push origin main v0.1.1`.
 
 CI builds the AppImage, signs it, and publishes a release with `latest.json`, which installed apps check. The workflow needs two repository secrets: `TAURI_SIGNING_PRIVATE_KEY` (the private key file's contents) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The matching public key is in `tauri.conf.json`. If the private key is lost, installed copies can no longer update and must be reinstalled by hand.
 
@@ -78,9 +81,12 @@ CI builds the AppImage, signs it, and publishes a release with `latest.json`, wh
 The start screen offers Create next to Photos: a small Canva-style maker for posters, labels, charts and cards. It is offline too; everything it uses is bundled.
 
 - Pick a page (Letter, landscape Letter, half sheet, quarter sheet), then add text, pictures, shapes, arrows and clip art from the left. Click a thing to change its font, size, colour or outline on the right; the Layers list reorders, hides and locks. Delete removes, Ctrl+Z / Ctrl+Y undo and redo, arrow keys nudge.
+- Group/ungroup with Ctrl+G / Ctrl+Shift+G, align or distribute selected objects, and copy/paste between designs. Paste or drop pictures; use Ctrl+wheel or the zoom buttons to zoom and Fit to show the page.
+- Select a picture and choose Crop picture. Drag edges to crop or drag inside to reposition the source, then Apply crop; Cancel or Esc discards it. Frames resize with the crop.
 - Search clip art by name or category. Add editable tables, handwriting lines or a QR code containing a link or text. Eleven bundled fonts and nine starter templates cover charts, cards, certificates, calendars and worksheets.
 - Designs save themselves as one `.json` file each (pictures included) in `~/Documents/KB Studio/`, and your own templates in its `Templates` folder. Saved fonts and colours live in the app's settings.
 - PDF, PNG and JPEG export are at 300 dpi and go to the `Exports` folder there. Print makes the PDF and opens it in your PDF viewer, which prints it. Tile mode puts two half sheets or four quarter sheets on one Letter page with cut marks. "Preview in B&W" shows a greyscale preview only; the file is still in colour.
+- If a bundled font fails to load, designs remain editable and retain their font choices, but fallback fonts may change layout. Export and Print are blocked. Save and restart KB Studio; reinstall if the warning persists.
 - In Photos, **Use in a design** sends the developed photo, at 2048 pixels, to a new page.
 
 ## Licence notices

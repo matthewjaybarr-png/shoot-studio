@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Create 0.9.0 (B1, B2, B3)
+## 0.9.0
 
 - Create editing: smart guides and page snapping; group and ungroup; align selected objects and distribute equal gaps; cut, copy, paste and duplicate selections across designs; paste or drop pictures; zoom and Fit.
 - More shape and text properties, picture frames, triangles, stars, rounded rectangles, speech bubbles and free drawing. A 0.25-inch print-safe overlay stays out of exports.
