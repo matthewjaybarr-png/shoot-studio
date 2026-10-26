@@ -17,11 +17,14 @@
     <p id="home-status" role="status"></p>
     <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button><button id="home-import" type="button"><strong>Import from Canva</strong><small>In Canva: Share → Download → PowerPoint</small></button><input id="import-file" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" hidden></div>
     <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
-    <h2 hidden>Recent designs</h2><div id="home-recent" class="home-list"></div>
+    <div id="home-designs" hidden><h2>Your designs</h2><div id="home-folders" class="folder-bar" role="toolbar" aria-label="Folders"></div><p id="home-folder-note" class="hint"></p><div id="home-recent" class="home-list"></div></div>
   </section>
+  <div id="home-menu" role="menu" hidden></div>
+  <dialog id="name-dialog"><form method="dialog"><h3 id="name-title"></h3><input id="name-input" type="text" maxlength="80" spellcheck="false" aria-labelledby="name-title"><p id="name-error" role="alert"></p><div class="row"><button value="ok" class="primary">OK</button><button value="cancel" formnovalidate>Cancel</button></div></form></dialog>
   <section id="create" aria-label="Create" hidden>
     <div class="create-bar">
       <button id="create-home" type="button">⌂ Start</button>
+      <button id="file-open" type="button" data-pop="pop-file">File</button>
       <input id="create-title" type="text" aria-label="Design name" spellcheck="false">
       <button id="create-undo" type="button" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button><button id="create-redo" type="button" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
       <button type="button" data-pop="pop-resize">Resize</button>
@@ -45,7 +48,7 @@
       <label data-for="rect">Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
       <button data-for="image" id="prop-crop" type="button">Crop</button>
       <button data-for="image" type="button" data-pop="pop-filters" id="filters-open">Filters</button>
-      <label data-for="image">Frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option></select></label>
+      <label data-for="image">Frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option><option value="oval">Oval</option><option value="arch">Arch</option><option value="heart">Heart</option><option value="star">Star</option><option value="hexagon">Hexagon</option></select></label>
       <button data-for="shape image group multi" type="button" data-pop="pop-flip">Flip</button>
       <button data-for="object" type="button" data-pop="pop-effects">Effects</button>
       <button data-for="object" type="button" data-pop="pop-transparency">Transparency</button>
@@ -68,6 +71,7 @@
         <section data-panel="elements" hidden>
           <h3>Shapes</h3><div id="create-tools" class="shape-grid"></div>
           <h3>Frames</h3><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div>
+          <h3>Photo grids</h3><p class="hint">Fill the page with frames, then drop photos into them.</p><div id="create-grids" class="shape-grid frames"></div>
           <h3>Graphics</h3><input id="emoji-search" type="search" placeholder="Search graphics" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p>
           <details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details>
           <details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details>
@@ -78,6 +82,7 @@
           <button id="add-subheading" type="button" class="text-preset subheading">Add a subheading</button>
           <button id="add-body" type="button" class="text-preset body">Add a little bit of body text</button>
           <button id="add-text" type="button">Add a text box</button>
+          <h3>Font combinations</h3><div id="font-combos"></div>
         </section>
         <section data-panel="uploads" hidden>
           <h3>Uploads</h3>
@@ -118,6 +123,17 @@
       <label>Page size <select id="create-page"></select></label>
       <div id="custom-size" class="row"><label>Width <input id="custom-w" type="number" min="1" max="36" step="0.25"> in</label><label>Height <input id="custom-h" type="number" min="1" max="36" step="0.25"> in</label></div>
       <label class="check"><input id="resize-scale" type="checkbox" checked> Scale everything to fit the new size</label>
+    </div>
+    <div id="pop-file" class="pop" hidden>
+      <button id="file-new" type="button" class="wide">Create new design</button>
+      <button id="file-import" type="button" class="wide">Import from Canva…</button>
+      <button id="file-copy" type="button" class="wide">Make a copy</button>
+      <button id="file-rename" type="button" class="wide">Rename</button>
+      <label>Folder <select id="file-folder"></select></label>
+      <button id="file-template" type="button" class="wide">Save as template</button>
+      <button id="file-download" type="button" class="wide">Download &amp; print…</button>
+      <button id="file-trash" type="button" class="wide">Move to trash</button>
+      <p id="file-info" class="hint"></p>
     </div>
     <div id="pop-share" class="pop" hidden>
       <h4>Download</h4>
@@ -178,16 +194,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new in Create</h3>
       <ul>
-        <li>Add things from the buttons on the left: Templates, Elements, Text, Uploads, Draw and Layers.</li>
-        <li>Click something on the page and its options appear along the top.</li>
-        <li>New: <b>pages</b>. Add, duplicate, reorder and delete them in the strip under the page. PDFs hold every page; PNG and JPEG save one picture per page.</li>
-        <li>New: <b>Import from Canva</b> on the start screen. In Canva, choose Share → Download → PowerPoint, then pick that file here to keep working on it.</li>
-        <li>New: <b>Filters</b>. Select a picture and click Filters at the top for the looks from Photos and your own presets. You can change or remove a filter any time.</li>
-        <li>Resize scales everything to fit the new size, and offers a custom size.</li>
-        <li><b>This shoot</b> on the left holds the photos you're editing, with your edits. Drop one on a frame (Elements → Frames) or on a picture to fill it.</li>
-        <li>Drag shapes, text and graphics from the left straight onto the page. Things can hang off the edge.</li>
-        <li>Scroll to move around the page, Ctrl+scroll to zoom, or hold Space and drag.</li>
-        <li>Right-click for copy, paste, layers and lock. Download and Print are at the top right.</li>
+        <li><b>Folders</b> for your designs on the start screen: drag a design onto a folder, or use the ⋯ on a design. Deleted designs wait in the Trash.</li>
+        <li>A <b>File</b> menu next to Start: new design, make a copy, rename, folder, download and more.</li>
+        <li>In Elements: many more shapes, frames shaped like an arch, heart or star, and <b>photo grids</b> that fill the page with frames.</li>
+        <li><b>Font combinations</b> in Text: ready-made pairings to click or drag in.</li>
+        <li><b>Import from Canva</b> on the start screen (in Canva: Share → Download → PowerPoint), and <b>Filters</b> for pictures.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -238,5 +249,6 @@
   <script src="vendor/qrcode_UTF8.js"></script>
   <script src="create.js"></script>
   <script src="canva.js"></script>
+  <script src="projects.js"></script>
 
 </body></html>

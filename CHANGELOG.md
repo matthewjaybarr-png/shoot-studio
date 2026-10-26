@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.0
+
+- Folders for designs on the start screen, under Your designs: All designs, your folders, and + New folder. Drag a design onto a folder to move it there, or use the ⋯ on a design (or right-click it) to open, make a copy, rename, move to a folder or move to the trash. Folders can be renamed or deleted; deleting one keeps its designs.
+- A Trash: designs moved there disappear from your lists but stay until you restore them or empty the trash.
+- A File menu in Create, next to Start: create a new design, import from Canva, make a copy, rename, choose its folder, save as template, download and print, or move it to the trash. It also shows how many pages the design has and its size.
+- More in Elements: 16 new shapes (oval, half circle, diamond, pentagon, hexagon, octagon, parallelogram, heart, 4- and 6-point stars, plus, block and double arrows, badge, banner, cloud), dashed and dotted lines, and a two-way arrow.
+- New frame shapes: arch, oval, heart, star and hexagon. Pictures can take these shapes from the Frame menu too.
+- Photo grids in Elements: seven layouts (two side by side, two stacked, three across, one big and two small, big top with three below, four and nine squares) that fill the page with frames, ready for photos.
+- Font combinations in the Text drawer: twelve ready-made pairings, shown in their own fonts (Thank you, Mini sessions, Student of the week, Save the date, New gallery and more). Click or drag one onto the page; its lines arrive together and selected, and each stays its own text to edit.
+- The What's new card appears once more, shorter, listing only the latest changes, and it scrolls on small windows instead of running off the top.
+
 ## 0.17.0
 
 - Import from Canva, on the start screen. In Canva choose Share → Download → PowerPoint, then pick the file: every page comes across as an editable design, with its pictures (cropped and shaped as in Canva), text, shapes, tables, groups and colours, in the same page size.

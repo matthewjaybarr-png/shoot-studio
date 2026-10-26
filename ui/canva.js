@@ -521,5 +521,5 @@ $('#home-import').onclick = () => $('#import-file').click();
 $('#import-file').onchange = event => {
   const file = event.target.files[0];
   event.target.value = '';
-  if (file) importCanva(file).catch(error => { $('#home-status').textContent = `Could not import “${file.name}”: ${error.message || error}`; });
+  if (file) importCanva(file).catch(error => { $(mode === 'create' ? '#create-saved' : '#home-status').textContent = `Could not import “${file.name}”: ${error.message || error}`; });
 };

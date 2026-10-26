@@ -1723,6 +1723,114 @@ const test = `<script>
     pdfInput.onchange({ target: pdfInput });
     await until(() => $('#home-status').textContent.includes('PDFs can') && $('#home-status').textContent.includes('PowerPoint'), 'a PDF gets a message saying how to download from Canva instead');
     delete pdfInput.files;
+    // 0.18: Projects (folders and a trash) and Create's File menu.
+    const cardOf = name => [...$('#home-recent').children].find(b => [...b.childNodes].find(n => n.nodeType === 3)?.textContent === name);
+    const menuItem = label => [...$('#home-menu').querySelectorAll('button')].find(b => b.textContent === label);
+    const answer = async (pending, text) => { await until(() => $('#name-dialog').open, 'the name dialog opens'); $('#name-input').value = text; $('#name-dialog').querySelector('[value=ok]').click(); return pending; };
+    const placedIn = name => settings.projects.placed[name];
+    await settle($('#create-home').onclick(), 'home for projects');
+    await until(() => cardOf('Fall flyer'), 'designs are listed under All designs');
+    step($('#home-folders').textContent.includes('All designs') && $('#home-folders').textContent.includes('+ New folder'), 'the folder bar offers All designs and New folder');
+    const folderMade = await answer(newFolder(), 'Classroom');
+    step(folderMade === 'Classroom' && settings.projects.folders.includes('Classroom') && !$('#name-dialog').open, 'New folder names and makes a folder');
+    const twice = newFolder(); await answer(Promise.resolve(), 'Classroom');
+    step($('#name-dialog').open && $('#name-error').textContent.includes('already'), 'a folder name can only be used once');
+    $('#name-dialog').querySelector('[value=cancel]').click();
+    step(await twice === null, 'Cancel makes nothing');
+    await settle(paintHome(), 'folders painted');
+    cardOf('Fall flyer').querySelector('.card-more').click();
+    step(!$('#home-menu').hidden && menuItem('Classroom') && menuItem('Move to trash'), 'the ⋯ on a design opens its menu with the folders');
+    menuItem('Classroom').click();
+    await until(() => placedIn('Fall flyer') === 'Classroom' && $('#home-menu').hidden, 'Move to puts the design in the folder');
+    const dragCard = cardOf('Filters test'), folderDrag = new DataTransfer();
+    dragCard.dispatchEvent(new DragEvent('dragstart', { dataTransfer: folderDrag, bubbles: true }));
+    const classroomChip = [...$('#home-folders').children].find(b => b.textContent.startsWith('Classroom'));
+    classroomChip.dispatchEvent(new DragEvent('dragover', { dataTransfer: folderDrag, bubbles: true, cancelable: true }));
+    classroomChip.dispatchEvent(new DragEvent('drop', { dataTransfer: folderDrag, bubbles: true, cancelable: true }));
+    await until(() => placedIn('Filters test') === 'Classroom', 'dragging a design onto a folder moves it there');
+    [...$('#home-folders').children].find(b => b.textContent.startsWith('Classroom')).click();
+    await until(() => homeFolder === 'Classroom' && $('#home-recent').children.length === 2 && cardOf('Fall flyer') && cardOf('Filters test'), 'a folder shows only its designs');
+    cardOf('Fall flyer').querySelector('.card-more').click(); menuItem('Rename').click();
+    await answer(Promise.resolve(), 'Harvest flyer');
+    await until(() => disk['c:designs:Harvest flyer'] && !disk['c:designs:Fall flyer'] && placedIn('Harvest flyer') === 'Classroom' && !placedIn('Fall flyer'), 'Rename renames the file and keeps it in its folder');
+    await until(() => cardOf('Harvest flyer'), 'renamed card');
+    cardOf('Harvest flyer').querySelector('.card-more').click(); menuItem('Make a copy').click();
+    await until(() => disk['c:designs:Copy of Harvest flyer'] === disk['c:designs:Harvest flyer'] && placedIn('Copy of Harvest flyer') === 'Classroom', 'Make a copy copies it into the same folder');
+    await until(() => cardOf('Copy of Harvest flyer'), 'copy card');
+    cardOf('Copy of Harvest flyer').querySelector('.card-more').click(); menuItem('Move to trash').click();
+    await until(() => !cardOf('Copy of Harvest flyer') && [...$('#home-folders').children].some(b => b.textContent.startsWith('Trash')), 'Move to trash hides it and shows the Trash');
+    [...$('#home-folders').children].find(b => b.textContent.startsWith('Trash')).click();
+    await until(() => homeFolder === TRASH && cardOf('Copy of Harvest flyer'), 'the Trash lists it');
+    cardOf('Copy of Harvest flyer').click(); menuItem('Restore').click();
+    await until(() => !inTrash('Copy of Harvest flyer') && $('#home-folder-note').textContent.includes('empty'), 'Restore takes it out of the trash');
+    moveToTrash('Copy of Harvest flyer'); await settle(paintHome(), 'trash again');
+    [...$('#home-folders').children].find(b => b.textContent === 'Empty trash').click();
+    await until(() => !disk['c:designs:Copy of Harvest flyer'] && !inTrash('Copy of Harvest flyer'), 'Empty trash deletes for good');
+    homeFolder = 'Classroom'; await settle(paintHome(), 'back to the folder');
+    $('#home-folder-more').click(); menuItem('Rename folder').click();
+    await answer(Promise.resolve(), 'Class 2B');
+    await until(() => homeFolder === 'Class 2B' && placedIn('Harvest flyer') === 'Class 2B' && !settings.projects.folders.includes('Classroom'), 'renaming a folder keeps its designs in it');
+    step(JSON.parse(disk.createSettings).projects.folders.includes('Class 2B'), 'folders are saved with the settings');
+    // The File menu in Create.
+    await settle(openDesign('Harvest flyer'), 'open for the File menu');
+    $('#file-open').click();
+    step(shown('#pop-file') && $('#file-folder').value === 'Class 2B' && $('#file-info').textContent.includes('2 pages'), () => 'File shows the folder and the pages: ' + $('#file-folder').value + ' / ' + $('#file-info').textContent);
+    put($('#file-folder'), '', 'change');
+    step(!placedIn('Harvest flyer'), 'choosing No folder takes it out');
+    put($('#file-folder'), 'Class 2B', 'change');
+    put($('#create-title'), 'Harvest invite', 'change');
+    await settle(flush(), 'rename by title');
+    step(placedIn('Harvest invite') === 'Class 2B' && !placedIn('Harvest flyer'), 'renaming in Create keeps the folder');
+    $('#file-open').click(); $('#file-copy').click();
+    await until(() => design?.title === 'Copy of Harvest invite' && !navigating, 'Make a copy opens the copy');
+    $('#file-open').click(); $('#file-trash').click();
+    await until(() => mode === 'home' && inTrash('Copy of Harvest invite') && $('#home-status').textContent.includes('trash'), 'Move to trash goes home and says where it went');
+    // Font combinations.
+    await settle(newDesign(), 'combos design');
+    showDrawer('text');
+    step($('#font-combos').children.length === COMBOS.length && $('#font-combos').children[0].querySelector('span').style.fontFamily.includes('Caveat'), 'the Text drawer shows each font combination in its own fonts');
+    const beforeCombo = board.getObjects().length;
+    $('#font-combos').children[0].click();
+    const comboSel = board.getActiveObject();
+    step(board.getObjects().length === beforeCombo + 2 && comboSel?.type === 'activeselection' && comboSel.getObjects().length === 2 && board.getObjects().at(-2).fontFamily === 'Caveat' && board.getObjects().at(-1).charSpacing === 200, 'a combination adds its lines together, selected as one');
+    const [comboTop, comboBottom] = board.getObjects().slice(-2);
+    step(comboBottom.top > comboTop.top + comboTop.height && Math.abs(comboTop.getCenterPoint().x - 408) < 1, 'its lines are stacked and centred on the page');
+    $('#create-undo').click();
+    await until(() => board.getObjects().length === beforeCombo && !restoring, 'one undo takes the whole combination off');
+    dropItem(['combo', 5], new fabric.Point(300, 700));
+    const tripLines = board.getObjects().slice(-3);
+    step(tripLines.length === 3 && tripLines[0].text === 'Field Trip' && Math.abs(tripLines[1].getCenterPoint().x - 300) < 1, 'dropping a combination places it where it lands');
+    // More elements: shapes, lines, frame outlines and photo grids.
+    await settle(newDesign(), 'elements design');
+    showDrawer('elements');
+    step($('#create-tools').children.length === SHAPE_TILES.length && $('#create-frames').children.length === FRAME_TILES.length && $('#create-grids').children.length === GRIDS.length, 'Elements shows every shape, frame and grid');
+    for (const [kind, label] of NEW_SHAPES) { const made = addShape(kind); step(made.type === 'path' && made.width > 20 && made.height > 20 && made.kbName === label, 'the ' + label + ' shape draws'); }
+    $('#add-dashed').click();
+    step(board.getActiveObject().strokeDashArray?.length === 2 && board.getActiveObject().type === 'line', 'a dashed line is a line with dashes');
+    $('#add-double-line-arrow').click();
+    step(board.getActiveObject().type === 'group' && board.getActiveObject().getObjects().length === 3, 'a two-way arrow has a head at each end');
+    $('#add-frame-arch').click();
+    const archFrame = board.getActiveObject();
+    step(archFrame.type === 'path' && archFrame.kbFrame === 'arch' && emptyFrame(archFrame), 'an arch frame is an empty frame shaped like an arch');
+    const archCanvas = Object.assign(document.createElement('canvas'), { width: 300, height: 200 });
+    archCanvas.getContext('2d').fillRect(0, 0, 300, 200);
+    const archPhoto = await fillFrame(archFrame, new File([await new Promise(done => archCanvas.toBlob(done, 'image/png'))], 'a.png', { type: 'image/png' }), 'a');
+    step(archPhoto.type === 'image' && archPhoto.clipPath?.kbFrame === 'arch' && Math.abs(archPhoto.getScaledWidth() - archFrame.getScaledWidth()) < 1, 'a photo dropped in it takes the arch shape and size');
+    selectObjects([archPhoto]);
+    step($('#prop-frame').value === 'arch', 'the Frame menu shows the arch');
+    put($('#prop-frame'), 'heart', 'change');
+    step(archPhoto.clipPath?.kbFrame === 'heart', 'and can change it to a heart');
+    const gridAt = board.getObjects().length;
+    $('#add-grid-3').click();
+    const gridFrames = board.getObjects().slice(gridAt);
+    step(board.getActiveObject()?.type === 'activeselection' && board.getActiveObject().getObjects().length === 3, 'the new grid is selected');
+    board.discardActiveObject();
+    step(gridFrames.length === 3 && gridFrames.every(emptyFrame) && gridFrames[0].left === 0 && gridFrames[0].top === 0 && Math.abs(gridFrames[0].width - (816 * 2 / 3 - 3)) < 0.01 && Math.abs(gridFrames[2].top + gridFrames[2].height - 1056) < 0.01, () => 'a grid fills the page edge to edge with gaps between: ' + gridFrames.map(f => [f.left, f.top, f.width, f.height].map(Math.round)));
+    await settle(flush(), 'elements save'); await settle(openDesign(design.title), 'elements reopen');
+    const reopenedHeart = board.getObjects().find(o => o.type === 'image');
+    step(reopenedHeart.clipPath?.kbFrame === 'heart' && board.getObjects().filter(o => o.kbFrame === 'rect' && o.kbName === 'Grid frame').length === 3, 'frame shapes and grids survive save and reopen');
+    deleteFolder('Class 2B');
+    step(!settings.projects.folders.length && !placedIn('Harvest invite') && disk['c:designs:Harvest invite'], 'deleting a folder keeps its designs');
     closeMenus();
     document.body.dataset.testResult = 'PASS';
   } catch (e) { document.body.dataset.testResult = 'FAIL: ' + e.message; }
@@ -1738,8 +1846,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

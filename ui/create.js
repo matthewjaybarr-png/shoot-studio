@@ -59,7 +59,7 @@ const PASTEBOARD = '#3a3c44';
 let design = null;                                     // { title, page, size (inches), tile, copies }
 let designPages = [], pageAt = 0;                      // every page's canvas JSON; the one being edited lives on the board instead
 let designFonts = [];                                  // fonts that came inside an imported design: [{ family, src }], saved with it
-let settings = { colours: [], fonts: [], seen: 0 };
+let settings = { colours: [], fonts: [], seen: 0, projects: { folders: [], placed: Object.create(null), trash: Object.create(null) } };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => design.size.map(v => Math.round(v * PX));
@@ -79,12 +79,15 @@ function setMode(next) {
 
 // ---- Home ----
 async function paintHome() {
-  const recent = $('#home-recent'), starters = $('#home-templates');
-  const [designs, mine] = await Promise.all([invoke('list_creations', { kind: 'designs' }).catch(() => []), invoke('list_creations', { kind: 'templates' }).catch(() => [])]);
-  const status = $('#home-status'), tell = name => error => { status.textContent = `Could not open “${name}”: ${error.message || error}`; };
-  status.textContent = '';
+  const recent = $('#home-recent'), starters = $('#home-templates'), status = $('#home-status');
+  status.textContent = ''; // cleared first, so a message set just after this call stays
+  const [all, mine] = await Promise.all([invoke('list_creations', { kind: 'designs' }).catch(() => []), invoke('list_creations', { kind: 'templates' }).catch(() => [])]);
+  const tell = name => error => { status.textContent = `Could not open “${name}”: ${error.message || error}`; };
+  paintFolders(all);
+  const designs = all.filter(shownHere);
   recent.replaceChildren(...designs.map((d, i) => {
-    const b = button(d.name, () => openDesign(d.name).catch(tell(d.name)), new Date(d.modified * 1000).toLocaleDateString());
+    const when = inTrash(d.name) ? 'In the trash' : new Date(d.modified * 1000).toLocaleDateString();
+    const b = designCard(button(d.name, () => openDesign(d.name).catch(tell(d.name)), when), d.name);
     // The newest designs show their first page, drawn once per saved version.
     if (i < 24) {
       const img = new Image(); img.alt = ''; b.prepend(img); b.classList.add('template');
@@ -96,7 +99,7 @@ async function paintHome() {
     }
     return b;
   }));
-  recent.previousElementSibling.hidden = !designs.length;
+  $('#home-designs').hidden = !all.length && !projects().folders.length;
   starters.replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, () => newDesign(n, 'starter').catch(tell(n)))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, () => newDesign(t.name, 'mine').catch(tell(t.name)))));
 }
 function button(text, onclick, small) {
@@ -404,7 +407,7 @@ function save() {
     if (name !== old && (await invoke('list_creations', { kind: 'designs' })).some(d => d.name === name)) throw `a design called “${name}” already exists`;
     await invoke('save_creation', new TextEncoder().encode(doc), { headers: { kind: 'designs', name: encodeURIComponent(name) } });
     diskName = name;
-    if (old && old !== name) await invoke('delete_creation', { kind: 'designs', name: old });
+    if (old && old !== name) { await invoke('delete_creation', { kind: 'designs', name: old }); designRenamed(old, name); }
     if (rev === edits) dirty = false; // a newer edit stays dirty until its own save lands
     $('#create-saved').textContent = 'Saved';
   });
@@ -474,6 +477,46 @@ const TEXT_PRESETS = {
   subheading: { text: 'Add a subheading', width: 560, fontSize: 40, fontWeight: 'bold', kbName: 'Subheading' },
   body: { text: 'Add a little bit of body text', width: 480, fontSize: 24, kbName: 'Body text' }
 };
+// Font combinations, as in Canva: a few lines in paired fonts, added together and selected as one so they move
+// together, but each stays its own text box to edit. Sizes are for a Letter page; smaller pages scale them down.
+// Each line: [text, font, size, extra style].
+const COMBOS = [
+  ['Thank you', [['Thank you', 'Caveat', 96], ['FOR BEING PART OF OUR CLASS', 'Lexend', 20, { charSpacing: 200 }]]],
+  ['Mini sessions', [['Fall Mini Sessions', 'Lora', 60, { fontWeight: 'bold' }], ['20 minutes · 10 edited photos', 'Nunito', 24], ['Book your spot', 'Caveat', 40]]],
+  ['Welcome back', [['Welcome back!', 'Fredoka', 72, { fontWeight: 'bold' }], ['Room 12 · Second grade', 'Nunito', 26]]],
+  ['Student of the week', [['STUDENT OF THE WEEK', 'Roboto Slab', 40, { fontWeight: 'bold', charSpacing: 120 }], ['Student Name', 'Caveat', 64]]],
+  ['Happy holidays', [['Happy Holidays', 'Caveat', 84], ['from our family to yours', 'Lora', 26, { fontStyle: 'italic' }]]],
+  ['Field trip', [['Field Trip', 'Balsamiq Sans', 64, { fontWeight: 'bold' }], ['Friday, 9:00 am', 'Andika', 28], ['Please pack a lunch and a water bottle', 'Andika', 20]]],
+  ['Save the date', [['SAVE THE DATE', 'Lora', 26, { charSpacing: 300 }], ['June 14', 'Caveat', 88], ['Spring concert', 'Lora', 26]]],
+  ['Reading goals', [['Reading Goals', 'Comic Neue', 60, { fontWeight: 'bold' }], ['This week I will read…', 'Patrick Hand', 32]]],
+  ['Family portraits', [['Family Portraits', 'Lora', 60], ['OUTDOOR SESSIONS ALL AUTUMN', 'Lexend', 18, { charSpacing: 250 }]]],
+  ['New gallery', [['NEW GALLERY', 'Lexend', 52, { fontWeight: 'bold', charSpacing: 150 }], ['Tap the link to see your photos', 'Nunito', 22]]],
+  ['Hello friends', [['Hello, friends!', 'Patrick Hand', 72], ['Notes from the classroom', 'Atkinson Hyperlegible', 24]]],
+  ['Congratulations', [['Congratulations', 'Caveat', 80], ['CLASS OF 2027', 'Roboto Slab', 28, { fontWeight: 'bold', charSpacing: 200 }]]]
+];
+function addCombo(index, at) {
+  const [name, lines] = COMBOS[index], [w, h] = pagePx(), k = Math.min(1, w / 816), gap = 10 * k;
+  const texts = lines.map(([text, fontFamily, size, extra]) => new fabric.Textbox(text, { fontFamily, fontSize: Math.round(size * k), fill: textColour(), textAlign: 'center', width: Math.min(w - 48, 640 * k), ...extra, kbName: text.slice(0, 40) }));
+  const total = texts.reduce((n, t) => n + t.height, 0) + gap * (texts.length - 1), x = at ? at.x : w / 2;
+  let y = (at ? at.y : h / 2) - total / 2;
+  for (const t of texts) { t.set({ left: Math.round(x - t.width / 2), top: Math.round(y) }); y += t.height + gap; }
+  board.add(...texts); selectObjects(texts); for (const t of texts) t.setCoords();
+  commitDesign();
+  return texts;
+}
+// The drawer shows each combination in its own fonts.
+function paintCombos() {
+  $('#font-combos').replaceChildren(...COMBOS.map(([name, lines], i) => {
+    const b = button('', () => addCombo(i)); b.title = name; b.className = 'combo'; draggable(b, ['combo', i]);
+    for (const [text, fontFamily, size, extra = {}] of lines) {
+      const line = Object.assign(document.createElement('span'), { textContent: text });
+      const longest = Math.max(...text.split(' ').map(word => word.length)); // long words shrink rather than break
+      Object.assign(line.style, { fontFamily: `"${fontFamily}"`, fontSize: Math.max(9, Math.min(Math.round(size * 0.3), Math.floor(230 / longest))) + 'px', fontWeight: extra.fontWeight || 'normal', fontStyle: extra.fontStyle || 'normal', letterSpacing: (extra.charSpacing || 0) / 1000 + 'em' });
+      b.append(line);
+    }
+    return b;
+  }));
+}
 function addText(preset, at) {
   const { text, ...style } = TEXT_PRESETS[preset] || { text: 'Double-click to edit', width: 420, fontSize: 40, kbName: 'Text' };
   const t = new fabric.Textbox(text, { fontFamily: settings.fonts[0] || FONTS[0], fill: textColour(), textAlign: 'center', ...style });
@@ -492,6 +535,13 @@ function addShape(kind, at) {
     bubble: () => new fabric.Path('M 20 0 L 240 0 Q 260 0 260 20 L 260 120 Q 260 140 240 140 L 90 140 L 40 180 L 50 140 L 20 140 Q 0 140 0 120 L 0 20 Q 0 0 20 0 Z', { ...SHAPE, kbName: 'Speech bubble' }),
     circle: () => new fabric.Circle({ radius: 90, ...SHAPE, kbName: 'Circle' }),
     line: () => new fabric.Line([0, 0, 300, 0], { stroke: '#444444', strokeWidth: 6, strokeLineCap: 'round', kbName: 'Line' }),
+    ...Object.fromEntries(LINE_STYLES.map(([key, name, dash]) => [key, () => new fabric.Line([0, 0, 300, 0], { stroke: '#444444', strokeWidth: 6, strokeLineCap: 'round', strokeDashArray: dash, kbName: name })])),
+    'double-line-arrow': () => new fabric.Group([
+      new fabric.Line([10, 0, 290, 0], { stroke: '#444444', strokeWidth: 6, strokeLineCap: 'round' }),
+      new fabric.Triangle({ width: 36, height: 36, fill: '#444444', left: 2, top: -18, angle: -90 }),
+      new fabric.Triangle({ width: 36, height: 36, fill: '#444444', left: 298, top: 18, angle: 90 })
+    ], { kbName: 'Two-way arrow' }),
+    ...Object.fromEntries(NEW_SHAPES.map(([kind, name, w, h]) => [kind, () => new fabric.Path(SHAPE_PATHS[kind](w, h), { ...SHAPE, kbName: name })])),
     arrow: () => new fabric.Group([
       new fabric.Line([0, 0, 280, 0], { stroke: '#444444', strokeWidth: 6, strokeLineCap: 'round' }),
       new fabric.Triangle({ width: 36, height: 36, fill: '#444444', left: 270, top: 18, angle: 90 })
@@ -540,26 +590,84 @@ async function addingEmoji(code, at) {
 }
 
 // Frames are grey placeholders: drop or click a photo to fill one. Sizes are 1:1, 4:5 and 3:2.
+// Outlines in a w × h box as SVG paths: shapes on the page, their drawer pictures and frame cut-outs all use these.
+const pathPoly = pts => 'M ' + pts.map(([x, y]) => `${+x.toFixed(2)} ${+y.toFixed(2)}`).join(' L ') + ' Z';
+const ring = (n, w, h, radius = () => 1, turn = -Math.PI / 2) => Array.from({ length: n }, (_, i) => { const a = turn + i * 2 * Math.PI / n, r = radius(i, a); return [w / 2 + Math.cos(a) * r * w / 2, h / 2 + Math.sin(a) * r * h / 2]; });
+const SHAPE_PATHS = {
+  ellipse: (w, h) => `M 0 ${h / 2} A ${w / 2} ${h / 2} 0 1 1 ${w} ${h / 2} A ${w / 2} ${h / 2} 0 1 1 0 ${h / 2} Z`,
+  pentagon: (w, h) => pathPoly(ring(5, w, h)),
+  hexagon: (w, h) => pathPoly([[w / 4, 0], [w * 3 / 4, 0], [w, h / 2], [w * 3 / 4, h], [w / 4, h], [0, h / 2]]),
+  octagon: (w, h) => { const x = Math.min(w, h) * 0.29; return pathPoly([[x, 0], [w - x, 0], [w, x], [w, h - x], [w - x, h], [x, h], [0, h - x], [0, x]]); },
+  diamond: (w, h) => pathPoly([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]]),
+  parallelogram: (w, h) => pathPoly([[w * 0.25, 0], [w, 0], [w * 0.75, h], [0, h]]),
+  'half-circle': (w, h) => `M 0 ${h} A ${w / 2} ${h} 0 0 1 ${w} ${h} Z`,
+  star: (w, h) => pathPoly(ring(10, w, h, i => i % 2 ? 0.45 : 1)),
+  star4: (w, h) => pathPoly(ring(8, w, h, i => i % 2 ? 0.38 : 1)),
+  star6: (w, h) => pathPoly(ring(12, w, h, i => i % 2 ? 0.55 : 1)),
+  heart: (w, h) => `M ${w / 2} ${h * 0.28} C ${w / 2} ${h * 0.05} ${w * 0.02} ${-h * 0.02} 0 ${h * 0.3} C 0 ${h * 0.58} ${w * 0.4} ${h * 0.8} ${w / 2} ${h} C ${w * 0.6} ${h * 0.8} ${w} ${h * 0.58} ${w} ${h * 0.3} C ${w * 0.98} ${-h * 0.02} ${w / 2} ${h * 0.05} ${w / 2} ${h * 0.28} Z`,
+  arch: (w, h) => { const r = Math.min(w / 2, h); return `M 0 ${h} L 0 ${r} A ${w / 2} ${r} 0 0 1 ${w} ${r} L ${w} ${h} Z`; },
+  plus: (w, h) => { const t = Math.min(w, h) / 3, x = (w - t) / 2, y = (h - t) / 2; return pathPoly([[x, 0], [x + t, 0], [x + t, y], [w, y], [w, y + t], [x + t, y + t], [x + t, h], [x, h], [x, y + t], [0, y + t], [0, y], [x, y]]); },
+  'block-arrow': (w, h) => { const head = Math.min(w * 0.45, h * 0.8); return pathPoly([[0, h * 0.28], [w - head, h * 0.28], [w - head, 0], [w, h / 2], [w - head, h], [w - head, h * 0.72], [0, h * 0.72]]); },
+  'double-arrow': (w, h) => { const head = Math.min(w * 0.3, h * 0.8); return pathPoly([[0, h / 2], [head, 0], [head, h * 0.28], [w - head, h * 0.28], [w - head, 0], [w, h / 2], [w - head, h], [w - head, h * 0.72], [head, h * 0.72], [head, h]]); },
+  badge: (w, h) => pathPoly(ring(96, w, h, (i, a) => 0.9 + 0.1 * Math.cos(16 * (a + Math.PI / 2)))),
+  banner: (w, h) => { const notch = Math.min(w * 0.12, h * 0.4); return pathPoly([[0, 0], [w, 0], [w - notch, h / 2], [w, h], [0, h], [notch, h / 2]]); },
+  cloud: (w, h) => `M ${w * 0.22} ${h * 0.92} Q ${w * 0.01} ${h * 0.92} ${w * 0.04} ${h * 0.64} Q ${-w * 0.01} ${h * 0.34} ${w * 0.27} ${h * 0.37} Q ${w * 0.33} ${h * 0.02} ${w * 0.6} ${h * 0.14} Q ${w * 0.9} ${h * 0.04} ${w * 0.88} ${h * 0.42} Q ${w * 1.02} ${h * 0.56} ${w * 0.92} ${h * 0.8} Q ${w * 0.86} ${h * 0.95} ${w * 0.66} ${h * 0.92} Z`
+};
+const NEW_SHAPES = [['ellipse', 'Oval', 240, 160], ['half-circle', 'Half circle', 240, 120], ['diamond', 'Diamond', 200, 240], ['pentagon', 'Pentagon', 220, 210], ['hexagon', 'Hexagon', 240, 210],
+  ['octagon', 'Octagon', 220, 220], ['parallelogram', 'Parallelogram', 260, 150], ['heart', 'Heart', 220, 200], ['star4', '4-point star', 200, 200], ['star6', '6-point star', 220, 220],
+  ['plus', 'Plus', 200, 200], ['block-arrow', 'Block arrow', 260, 150], ['double-arrow', 'Double arrow', 300, 140], ['badge', 'Badge', 220, 220], ['banner', 'Banner', 340, 110], ['cloud', 'Cloud', 280, 190]];
+const LINE_STYLES = [['dashed', 'Dashed line', [18, 12]], ['dotted', 'Dotted line', [0.1, 16]]];
+// Frames cut to an outline: the shape's path, stretched to the frame or picture.
+const FRAME_NAMES = { arch: 'Arch', oval: 'Oval', heart: 'Heart', star: 'Star', hexagon: 'Hexagon' };
+const framePath = (kind, w, h) => SHAPE_PATHS[kind === 'oval' ? 'ellipse' : kind](w, h);
 const FRAME_FILL = '#dfe3ea';
 const FRAME_TILES = [
   ['square', 'Square', '<rect x="8" y="4" width="24" height="24"/>'],
   ['portrait', 'Portrait', '<rect x="10" y="2" width="20" height="28"/>'],
   ['landscape', 'Landscape', '<rect x="4" y="7" width="32" height="20"/>'],
   ['rounded', 'Rounded', '<rect x="8" y="4" width="24" height="24" rx="5"/>'],
-  ['circle', 'Circle', '<circle cx="20" cy="16" r="13"/>']
+  ['circle', 'Circle', '<circle cx="20" cy="16" r="13"/>'],
+  ...['arch', 'oval', 'heart', 'star', 'hexagon'].map(kind => [kind, FRAME_NAMES[kind], `<path transform="translate(9 3)" d="${SHAPE_PATHS[kind === 'oval' ? 'ellipse' : kind](22, 26)}"/>`])
 ];
-// `kind` is 'rect', 'rounded' or 'circle' (a circle uses the smaller side).
+// `kind` is 'rect', 'rounded', 'circle' (a circle uses the smaller side) or one of FRAME_NAMES.
 const makeFrame = (width, height, kind = 'rect', o = {}) => kind === 'circle'
   ? new fabric.Circle({ radius: Math.min(width, height) / 2, fill: FRAME_FILL, strokeWidth: 0, kbFrame: 'circle', kbName: 'Photo frame', ...o })
+  : FRAME_NAMES[kind] ? new fabric.Path(framePath(kind, width, height), { fill: FRAME_FILL, strokeWidth: 0, kbFrame: kind, kbName: 'Photo frame', ...o })
   : new fabric.Rect({ width, height, rx: kind === 'rounded' ? width / 8 : 0, ry: kind === 'rounded' ? height / 8 : 0, fill: FRAME_FILL, strokeWidth: 0, kbFrame: kind, kbName: 'Photo frame', ...o });
+// Photo grids, as in Canva: empty frames filling the page edge to edge with thin gaps, ready for photos.
+// Each layout is a list of [x, y, width, height] as fractions of the page.
+const GRIDS = [
+  ['Two side by side', [[0, 0, 1 / 2, 1], [1 / 2, 0, 1 / 2, 1]]],
+  ['Two stacked', [[0, 0, 1, 1 / 2], [0, 1 / 2, 1, 1 / 2]]],
+  ['Three across', [[0, 0, 1 / 3, 1], [1 / 3, 0, 1 / 3, 1], [2 / 3, 0, 1 / 3, 1]]],
+  ['One big, two small', [[0, 0, 2 / 3, 1], [2 / 3, 0, 1 / 3, 1 / 2], [2 / 3, 1 / 2, 1 / 3, 1 / 2]]],
+  ['Big top, three below', [[0, 0, 1, 0.6], [0, 0.6, 1 / 3, 0.4], [1 / 3, 0.6, 1 / 3, 0.4], [2 / 3, 0.6, 1 / 3, 0.4]]],
+  ['Four squares', [[0, 0, 1 / 2, 1 / 2], [1 / 2, 0, 1 / 2, 1 / 2], [0, 1 / 2, 1 / 2, 1 / 2], [1 / 2, 1 / 2, 1 / 2, 1 / 2]]],
+  ['Nine squares', Array.from({ length: 9 }, (_, i) => [(i % 3) / 3, Math.floor(i / 3) / 3, 1 / 3, 1 / 3])]
+];
+const GRID_GAP = 6;
+function addGrid(index) {
+  const [w, h] = pagePx(), frames = GRIDS[index][1].map(([x, y, fw, fh]) => {
+    // Gaps only between frames: a frame touching the page edge keeps that edge.
+    const l = x * w + (x > 0 ? GRID_GAP / 2 : 0), t = y * h + (y > 0 ? GRID_GAP / 2 : 0);
+    const r = (x + fw) * w - (x + fw < 0.999 ? GRID_GAP / 2 : 0), b = (y + fh) * h - (y + fh < 0.999 ? GRID_GAP / 2 : 0);
+    return makeFrame(r - l, b - t, 'rect', { left: l, top: t, kbName: 'Grid frame' });
+  });
+  board.add(...frames); selectObjects(frames); for (const f of frames) f.setCoords();
+  commitDesign();
+  return frames;
+}
+const gridTile = cells => '<rect x="5" y="2" width="30" height="28" style="fill:none;stroke-width:1"/>' + cells.map(([x, y, fw, fh]) => `<rect x="${5 + x * 30 + 0.8}" y="${2 + y * 28 + 0.8}" width="${fw * 30 - 1.6}" height="${fh * 28 - 1.6}"/>`).join('');
 function addFrame(kind, at) {
-  const [width, height] = { portrait: [300, 375], landscape: [375, 250] }[kind] || [300, 300];
-  return place(makeFrame(width, height, kind === 'circle' || kind === 'rounded' ? kind : 'rect'), at);
+  const [width, height] = { portrait: [300, 375], landscape: [375, 250], arch: [280, 360], oval: [270, 340] }[kind] || [300, 300];
+  return place(makeFrame(width, height, kind === 'circle' || kind === 'rounded' || FRAME_NAMES[kind] ? kind : 'rect'), at);
 }
 const emptyFrame = o => !!o?.kbFrame && o.type !== 'image';
 // The frame or picture under a page point, topmost first; locked and hidden ones are passed over.
 const dropTarget = at => board.getObjects().findLast(o => o.visible !== false && !o.kbLocked && (emptyFrame(o) || o.type === 'image') && o.containsPoint(at));
-const frameKind = o => o.kbFrame || (!o.clipPath ? 'rect' : o.clipPath.type === 'circle' ? 'circle' : o.clipPath.rx ? 'rounded' : 'rect');
+// A picture's frame shape, from its clip: outlines carry their kind; older designs have only rectangles and circles.
+const clipKind = o => !o.clipPath ? 'rect' : o.clipPath.kbFrame || (o.clipPath.type === 'circle' ? 'circle' : o.clipPath.rx ? 'rounded' : 'rect');
+const frameKind = o => o.kbFrame || clipKind(o);
 // The picture takes the target's place, size, angle and frame shape, cropped from its middle to fill it, as in Canva.
 const fillFrame = (target, file, name) => track(fillingFrame(target, file, name));
 async function fillingFrame(target, file, name) {
@@ -588,7 +696,11 @@ const SHAPE_TILES = [
   ['bubble', 'Speech bubble', '<path d="M7 4h26a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H16l-6 6 1-6H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z"/>'],
   ['line', 'Line', '<path d="M4 16h32" style="stroke-width:3"/>'],
   ['arrow', 'Arrow', '<path d="M4 16h30M26 9l8 7-8 7" style="fill:none;stroke-width:3"/>'],
-  ['handwriting', 'Handwriting lines', '<path d="M4 9h32M4 23h32" style="fill:none"/><path d="M4 16h32" style="fill:none;stroke-dasharray:3 2"/>']
+  ['handwriting', 'Handwriting lines', '<path d="M4 9h32M4 23h32" style="fill:none"/><path d="M4 16h32" style="fill:none;stroke-dasharray:3 2"/>'],
+  ['dashed', 'Dashed line', '<path d="M4 16h32" style="stroke-width:3;stroke-dasharray:5 4"/>'],
+  ['dotted', 'Dotted line', '<path d="M4 16h32" style="stroke-width:4;stroke-linecap:round;stroke-dasharray:0.1 7"/>'],
+  ['double-line-arrow', 'Two-way arrow', '<path d="M7 16h26M12 9l-7 7 7 7M28 9l7 7-7 7" style="fill:none;stroke-width:3"/>'],
+  ...NEW_SHAPES.map(([kind, label, w, h]) => { const k = Math.min(32 / w, 24 / h); return [kind, label, `<path transform="translate(${(40 - w * k) / 2} ${(32 - h * k) / 2}) scale(${k})" style="stroke-width:${2 / k}" d="${SHAPE_PATHS[kind](w, h)}"/>`]; })
 ];
 // Drawer items can be dragged onto the page as well as clicked.
 const DRAG_TYPE = 'application/x-kb-studio-item';
@@ -601,8 +713,10 @@ function draggable(el, item) {
 function dropItem([kind, value], at) {
   if (kind === 'shape' && SHAPE_TILES.some(([k]) => k === value)) addShape(value, at);
   else if (kind === 'text') { const t = addText(value || undefined, at); t.exitEditing?.(); board.setActiveObject(t); }
+  else if (kind === 'combo' && COMBOS[value]) addCombo(value, at);
   else if (kind === 'emoji') addEmoji(value, at).catch(e => { $('#create-saved').textContent = String(e); });
   else if (kind === 'frame' && FRAME_TILES.some(([k]) => k === value)) addFrame(value, at);
+  else if (kind === 'grid' && GRIDS[value]) addGrid(value);
   else if (kind === 'photo') addShootPhoto(value, at, dropTarget(at));
 }
 
@@ -653,7 +767,13 @@ function paintCreateTools() {
     b.innerHTML = `<svg viewBox="0 0 40 32">${svg}</svg>`; b.append(label);
     return b;
   }));
+  $('#create-grids').replaceChildren(...GRIDS.map(([label, cells], i) => {
+    const b = button('', () => addGrid(i)); b.id = 'add-grid-' + i; b.title = label + ' photo grid'; draggable(b, ['grid', i]);
+    b.innerHTML = `<svg viewBox="0 0 40 32">${gridTile(cells)}</svg>`; b.append(label);
+    return b;
+  }));
   $('#add-text').onclick = () => addText(); draggable($('#add-text'), ['text', '']);
+  paintCombos();
   for (const preset of Object.keys(TEXT_PRESETS)) { $('#add-' + preset).onclick = () => addText(preset); draggable($('#add-' + preset), ['text', preset]); }
   $('#add-image').onclick = () => $('#create-file').click();
   $('#create-draw').onclick = () => toggleDraw();
@@ -856,7 +976,7 @@ function paintPanel() {
     $('#prop-dash').value = o.strokeDashArray ? (o.strokeDashArray[0] === 1 ? 'dot' : 'dash') : 'solid';
     $('#prop-corners').value = o.rx || 0; $('#prop-shadow').checked = !!o.shadow;
     $('#prop-frame').disabled = o.type !== 'image';
-    $('#prop-frame').value = !o.clipPath ? 'none' : o.clipPath.type === 'circle' ? 'circle' : o.clipPath.rx ? 'rounded' : 'rect';
+    $('#prop-frame').value = o.clipPath ? clipKind(o) : 'none';
     if (text) {
       $('#prop-italic').classList.toggle('on', o.fontStyle === 'italic'); $('#prop-underline').classList.toggle('on', !!o.underline);
       $('#prop-spacing').value = o.charSpacing; $('#prop-line-height').value = o.lineHeight;
@@ -922,6 +1042,7 @@ $('#text-effects').replaceChildren(...TEXT_EFFECTS.map(([kind, label]) => {
 $('#prop-highlight-on').onchange = $('#prop-highlight').oninput = highlight;
 function pictureFrame(image, kind) {
   const options = { width: image.width, height: image.height, originX: 'center', originY: 'center' };
+  if (FRAME_NAMES[kind]) return new fabric.Path(framePath(kind, image.width, image.height), { originX: 'center', originY: 'center', kbFrame: kind });
   return kind === 'none' ? null : kind === 'circle' ? new fabric.Circle({ originX: 'center', originY: 'center', radius: Math.min(image.width, image.height) / 2 }) : new fabric.Rect({ ...options, rx: kind === 'rounded' ? image.width / 8 : 0, ry: kind === 'rounded' ? image.height / 8 : 0 });
 }
 $('#prop-frame').onchange = e => change(o => o.type === 'image' ? { clipPath: pictureFrame(o, e.target.value) } : {});
@@ -1041,7 +1162,7 @@ function finishCrop(apply, exited = false) {
   if (!exited) image.fire('mousedblclick'); // Fabric's exit restores its controls and removes ghost/pan handlers.
   image.off('mousedblclick'); // The demo API rearms itself with once(); pictures have no other double-click handlers.
   if (!apply) image.set(original);
-  else if (image.clipPath) image.set({ clipPath: pictureFrame(image, image.clipPath.type === 'circle' ? 'circle' : image.clipPath.rx ? 'rounded' : 'rect') });
+  else if (image.clipPath) image.set({ clipPath: pictureFrame(image, clipKind(image)) });
   for (const [o, selectable, evented] of targets) o.set({ selectable, evented });
   board.selection = selection; board.isDrawingMode = drawing;
   parent.insertBefore($('#create-stage'), next); $('#create-crop-dialog').close();
@@ -1254,7 +1375,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 6;
+const WHATS_NEW = 7;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1372,7 +1493,7 @@ function paintBw() { $('#create-stage').classList.toggle('bw', $('#create-bw').c
 
 async function loadSettings() {
   const s = await invoke('load_create_settings').catch(() => null);
-  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0 };
+  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, projects: cleanProjects(s.projects) };
   paintWhatsNew();
 }
 const saveSettings = () => invoke('save_create_settings', { settings }).catch(() => {});
