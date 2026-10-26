@@ -6,7 +6,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ICON_SVG: &[u8] = include_bytes!("../icons/src/kb-studio.svg");
 const ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
 /// The window's app id is `shoot-studio`, so the dock matches the window to this entry. It is also
 /// the file name the README once told people to create by hand, which this replaces.
@@ -59,7 +58,14 @@ fn write_if_changed(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
 /// Writes the menu entry and icons under `data` (~/.local/share). Returns whether anything changed.
 pub fn integrate(data: &Path, appimage: &str) -> std::io::Result<bool> {
     let icons = data.join("icons/hicolor");
-    let mut changed = write_if_changed(&icons.join(format!("scalable/apps/{ICON_NAME}.svg")), ICON_SVG)?;
+    // Remove the previous vector icon, so desktops do not keep showing it
+    // instead of the updated illustrated PNG.
+    let old_svg = icons.join(format!("scalable/apps/{ICON_NAME}.svg"));
+    let mut changed = match fs::remove_file(old_svg) {
+        Ok(()) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(e),
+    };
     changed |= write_if_changed(&icons.join(format!("512x512/apps/{ICON_NAME}.png")), ICON_PNG)?;
     changed |= write_if_changed(&data.join("applications").join(DESKTOP_ID), entry(appimage).as_bytes())?;
     Ok(changed)
@@ -159,10 +165,14 @@ mod tests {
         let data = std::env::temp_dir().join(format!("kb-desktop-{}", std::process::id()));
         let _ = fs::remove_dir_all(&data);
         fs::create_dir_all(data.join("applications")).unwrap();
+        let old_svg = data.join("icons/hicolor/scalable/apps/kb-studio.svg");
+        fs::create_dir_all(old_svg.parent().unwrap()).unwrap();
+        fs::write(&old_svg, b"previous icon").unwrap();
         fs::write(data.join("applications").join(DESKTOP_ID), "[Desktop Entry]\nName=KB Studio\nExec=/old\n").unwrap(); // the hand-made README entry
         assert!(integrate(&data, "/apps/KB.AppImage").unwrap());
         assert_eq!(fs::read_to_string(data.join("applications").join(DESKTOP_ID)).unwrap(), entry("/apps/KB.AppImage"));
-        assert!(data.join("icons/hicolor/scalable/apps/kb-studio.svg").exists() && data.join("icons/hicolor/512x512/apps/kb-studio.png").exists());
+        assert!(!old_svg.exists(), "the replaced scalable icon must be removed");
+        assert_eq!(fs::read(data.join("icons/hicolor/512x512/apps/kb-studio.png")).unwrap(), ICON_PNG);
         assert!(!integrate(&data, "/apps/KB.AppImage").unwrap());
         assert!(integrate(&data, "/moved/KB.AppImage").unwrap(), "a moved AppImage updates Exec");
         fs::remove_dir_all(&data).unwrap();
