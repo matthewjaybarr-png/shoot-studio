@@ -58,6 +58,7 @@ let cropSession = null, guidelines, transforming = false, openPop = null, fitted
 const PASTEBOARD = '#3a3c44';
 let design = null;                                     // { title, page, size (inches), tile, copies }
 let designPages = [], pageAt = 0;                      // every page's canvas JSON; the one being edited lives on the board instead
+let designFonts = [];                                  // fonts that came inside an imported design: [{ family, src }], saved with it
 let settings = { colours: [], fonts: [], seen: 0 };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
@@ -89,6 +90,7 @@ async function paintHome() {
       const img = new Image(); img.alt = ''; b.prepend(img); b.classList.add('template');
       cached(`design:${d.name}:${d.modified}`, async () => {
         const doc = JSON.parse(await invoke('load_creation', { kind: 'designs', name: d.name }));
+        await addDesignFonts(doc.fonts);
         return drawThumb(docSize(doc), c => c.loadFromJSON(docPages(doc)[0]), 200);
       }).then(url => { img.src = url; }, () => img.remove());
     }
@@ -301,11 +303,29 @@ const pageJSON = i => i === pageAt ? board.toObject(KEEP) : designPages[i];
 const allPages = () => designPages.map((_, i) => pageJSON(i));
 function blob() {
   const list = allPages(), base = { page: design.page, tile: design.tile, copies: design.copies };
-  return list.length === 1 && design.page !== 'custom' ? { format: 1, ...base, canvas: list[0] } : { format: 2, ...base, size: design.page === 'custom' ? design.size : undefined, pages: list };
+  const fonts = designFonts.length ? designFonts : undefined; // older versions ignore them and show a bundled font
+  return list.length === 1 && design.page !== 'custom' ? { format: 1, ...base, fonts, canvas: list[0] } : { format: 2, ...base, fonts, size: design.page === 'custom' ? design.size : undefined, pages: list };
 }
 
+// Fonts carried in a design, such as the ones Canva embeds in its PowerPoint files. They are added from their
+// bytes, which the page's content policy allows, unlike font URLs. Bundled names always win.
+// Each is { family, src, weight: 'normal' | 'bold', style: 'normal' | 'italic' }.
+const fontFaces = new Map();                           // family, weight and style → the src added for them
+const faceKey = f => `${f.family}|${f.weight}|${f.style}`;
+async function addDesignFonts(list) {
+  const good = (Array.isArray(list) ? list : []).filter(f => typeof f?.family === 'string' && f.family.length <= 64 && !FONTS.includes(f.family) && typeof f.src === 'string' && /^data:font\/(otf|ttf);base64,/.test(f.src))
+    .map(f => ({ family: f.family, src: f.src, weight: f.weight === 'bold' ? 'bold' : 'normal', style: f.style === 'italic' ? 'italic' : 'normal' }));
+  await Promise.allSettled(good.filter(f => fontFaces.get(faceKey(f)) !== f.src).map(async f => {
+    const face = await new FontFace(f.family, dataBytes(f.src).buffer, { weight: f.weight, style: f.style }).load();
+    document.fonts.add(face); fontFaces.set(faceKey(f), f.src);
+  }));
+  return good.filter(f => fontFaces.get(faceKey(f)) === f.src);
+}
+const dataBytes = url => Uint8Array.from(atob(url.slice(url.indexOf(',') + 1)), c => c.charCodeAt(0));
+const designFamilies = () => [...new Set(designFonts.map(f => f.family))];
+
 async function fonts() {
-  const loads = await Promise.allSettled(FONTS.flatMap(f => ['400', '700'].map(w => document.fonts.load(`${w} 16px "${f}"`))));
+  const loads = await Promise.allSettled([...FONTS, ...designFamilies()].flatMap(f => ['400', '700'].map(w => document.fonts.load(`${w} 16px "${f}"`))));
   const failed = loads.find(result => result.status === 'rejected'), warning = $('#create-font-warning');
   if (failed) { warning.hidden = false; throw failed.reason; }
 }
@@ -313,6 +333,7 @@ async function fonts() {
 async function open(doc, title, name) {
   if ((doc.format ?? 1) > FORMAT) throw Error('it was made by a newer KB Studio; update KB Studio to open it');
   startBoard();
+  designFonts = await addDesignFonts(doc.fonts);
   await fonts().catch(() => {}); // Editing can use fallback fonts; output remains strict.
   restoring = true;
   design = { title, page: docPage(doc), size: docSize(doc), tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)) };
@@ -1233,7 +1254,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 5;
+const WHATS_NEW = 6;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1357,7 +1378,8 @@ async function loadSettings() {
 const saveSettings = () => invoke('save_create_settings', { settings }).catch(() => {});
 function paintFonts() {
   const sorted = [...settings.fonts, ...FONTS.filter(f => !settings.fonts.includes(f))];
-  $('#prop-font').replaceChildren(...sorted.map(f => Object.assign(document.createElement('option'), { value: f, textContent: (settings.fonts.includes(f) ? '★ ' : '') + f })));
+  $('#prop-font').replaceChildren(...sorted.map(f => Object.assign(document.createElement('option'), { value: f, textContent: (settings.fonts.includes(f) ? '★ ' : '') + f })),
+    ...designFamilies().map(f => Object.assign(document.createElement('option'), { value: f, textContent: f + ' (in this design)' })));
 }
 // One colour for the selection, or the background when nothing is selected. Lines and hollow text take it as their outline.
 function applyColour(c) {

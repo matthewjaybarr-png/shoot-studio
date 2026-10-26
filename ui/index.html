@@ -15,7 +15,7 @@
   <section id="home" aria-label="Start">
     <h1><img src="icon.png" alt="" class="logo">KB Studio</h1>
     <p id="home-status" role="status"></p>
-    <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button></div>
+    <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button><button id="home-import" type="button"><strong>Import from Canva</strong><small>In Canva: Share → Download → PowerPoint</small></button><input id="import-file" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" hidden></div>
     <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
     <h2 hidden>Recent designs</h2><div id="home-recent" class="home-list"></div>
   </section>
@@ -181,6 +181,7 @@
         <li>Add things from the buttons on the left: Templates, Elements, Text, Uploads, Draw and Layers.</li>
         <li>Click something on the page and its options appear along the top.</li>
         <li>New: <b>pages</b>. Add, duplicate, reorder and delete them in the strip under the page. PDFs hold every page; PNG and JPEG save one picture per page.</li>
+        <li>New: <b>Import from Canva</b> on the start screen. In Canva, choose Share → Download → PowerPoint, then pick that file here to keep working on it.</li>
         <li>New: <b>Filters</b>. Select a picture and click Filters at the top for the looks from Photos and your own presets. You can change or remove a filter any time.</li>
         <li>Resize scales everything to fit the new size, and offers a custom size.</li>
         <li><b>This shoot</b> on the left holds the photos you're editing, with your edits. Drop one on a frame (Elements → Frames) or on a picture to fill it.</li>
@@ -189,6 +190,11 @@
         <li>Right-click for copy, paste, layers and lock. Download and Print are at the top right.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
+    </div>
+    <div id="create-import-note" role="dialog" aria-labelledby="import-note-title" hidden>
+      <h3 id="import-note-title">Imported from Canva</h3>
+      <ul></ul>
+      <button id="import-note-ok" type="button" class="primary">OK</button>
     </div>
   </section>
   <main id="grid" class="grid" tabindex="-1"></main>
@@ -231,5 +237,6 @@
   <script src="vendor/qrcode.js"></script>
   <script src="vendor/qrcode_UTF8.js"></script>
   <script src="create.js"></script>
+  <script src="canva.js"></script>
 
 </body></html>

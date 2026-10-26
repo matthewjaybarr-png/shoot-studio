@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.0
+
+- Import from Canva, on the start screen. In Canva choose Share → Download → PowerPoint, then pick the file: every page comes across as an editable design, with its pictures (cropped and shaped as in Canva), text, shapes, tables, groups and colours, in the same page size.
+- The fonts Canva puts inside the file come too, saved with the design and listed at the bottom of the font menu as "(in this design)". Fonts it didn't include are swapped for the closest bundled one, and a note lists the swaps and anything left out, such as charts or videos.
+- A PNG or JPEG downloaded from Canva opens as a locked picture on a page of the same shape, ready for new text and photos on top.
+- The What's new card appears once more.
+
 ## 0.16.0
 
 - Filters for pictures in Create: select a picture and click Filters for the same looks as Photos, and your own Develop presets, shown as previews of that picture. A strength slider tones a look down, and Brightness, Contrast, Saturation, Warmth and Vignette adjust it further.

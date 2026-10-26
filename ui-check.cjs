@@ -19,6 +19,50 @@ const emojiIndex = JSON.parse(ui('emoji-index.json'));
 // Saved and rendered by Fabric 6.9.1: images, text, transformed group and clipPath frame.
 const fabric6Fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'test-data/create-fabric6.json'), 'utf8'));
 if (new Set(emojiIndex.map(e => e.code)).size !== emojiIndex.length || emojiIndex.some(e => !fs.existsSync(path.join(__dirname, 'ui/emoji', e.code + '.svg')))) throw Error('Clip art index must reference unique existing SVGs');
+// A made-up PowerPoint package shaped like Canva's exports (what read_pptx returns), with a bundled font standing in for an embedded one.
+const pptxFixture = (() => {
+  const A = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+  const xfrm = (x, y, w, h, more = '') => `<a:xfrm${more}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
+  const rectPath = (w, h) => `<a:custGeom><a:pathLst><a:path w="${w}" h="${h}"><a:moveTo><a:pt x="${w}" y="${h}"/></a:moveTo><a:lnTo><a:pt x="0" y="${h}"/></a:lnTo><a:lnTo><a:pt x="0" y="0"/></a:lnTo><a:lnTo><a:pt x="${w}" y="0"/></a:lnTo><a:lnTo><a:pt x="${w}" y="${h}"/></a:lnTo><a:close/></a:path></a:pathLst></a:custGeom>`;
+  const sp = (name, body) => `<p:sp><p:nvSpPr><p:cNvPr id="1" name="${name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>${body}</p:sp>`;
+  const blip = (fill = 'l="0" t="0" r="0" b="0"') => `<a:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect ${fill}/></a:stretch></a:blipFill>`;
+  const cellBody = text => `<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="1200"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:latin typeface="Fixture Script"/></a:rPr><a:t>${text}</a:t></a:r></a:p></a:txBody>`;
+  const cell = (text, tcPr) => `<a:tc>${cellBody(text)}<a:tcPr marL="0" marT="0">${tcPr}</a:tcPr></a:tc>`;
+  const run = (text, attrs, fill, face) => `<a:r><a:rPr lang="en-US" ${attrs}><a:solidFill>${fill}</a:solidFill><a:latin typeface="${face}"/></a:rPr><a:t>${text}</a:t></a:r>`;
+  const slide1 = `<p:sld ${A}><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFF6E9"/></a:solidFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>`
+    + sp('Turned', `<p:spPr>${xfrm(914400, 914400, 1828800, 914400, ' rot="5400000" flipH="true"')}${rectPath(1828800, 914400)}${blip()}</p:spPr>`)
+    + sp('Overflowing', `<p:spPr>${xfrm(0, 3657600, 914400, 914400)}${rectPath(914400, 914400)}${blip('l="-50000" t="0" r="-50000" b="0"')}</p:spPr>`)
+    + `<p:pic><p:nvPicPr><p:cNvPr id="4" name="Round"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>${blip()}<p:spPr>${xfrm(2743200, 3657600, 914400, 914400)}<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
+    + `<p:sp><p:nvSpPr><p:cNvPr id="5" name="Title"/><p:cNvSpPr txBox="true"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(457200, 457200, 3657600, 1371600)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr anchor="t" tIns="0" lIns="0" bIns="0" rIns="0"><a:spAutoFit/></a:bodyPr><a:lstStyle/>`
+    + `<a:p><a:pPr algn="ctr"><a:lnSpc><a:spcPts val="3360"/></a:lnSpc></a:pPr>${run('Fall ', 'sz="2400"', '<a:srgbClr val="B84620"/>', 'Fixture Script')}${run('Festival', 'sz="2400" b="1"', '<a:srgbClr val="112233"/>', 'Montserrat')}</a:p>`
+    + `<a:p><a:pPr algn="ctr"/>${run('second line', 'sz="2400" cap="all"', '<a:srgbClr val="B84620"/>', 'Fixture Script')}</a:p></p:txBody></p:sp>`
+    + sp('Badge', `<p:spPr>${xfrm(0, 0, 914400, 457200)}<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="00FF00"><a:alpha val="50000"/></a:srgbClr></a:solidFill></p:spPr>`)
+    + sp('Cloud', `<p:spPr>${xfrm(0, 0, 914400, 914400)}<a:prstGeom prst="cloud"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></p:spPr>`)
+    + `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="8" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="4572000"/><a:ext cx="1828800" cy="914400"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="914400"/><a:gridCol w="914400"/></a:tblGrid>`
+    + `<a:tr h="457200">${cell('Name', '<a:lnT w="12700"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:lnT><a:solidFill><a:srgbClr val="FFEEAA"/></a:solidFill>')}${cell('Score', '')}</a:tr>`
+    + `<a:tr h="457200"><a:tc gridSpan="2">${cellBody('Total')}<a:tcPr anchor="ctr"/></a:tc><a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>`
+    + `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="9" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="3657600" y="5486400"/><a:ext cx="914400" cy="914400"/><a:chOff x="0" y="0"/><a:chExt cx="1828800" cy="1828800"/></a:xfrm></p:grpSpPr>`
+    + sp('Grouped', `<p:spPr>${xfrm(0, 0, 1828800, 1828800)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill></p:spPr>`) + `</p:grpSp>`
+    + `</p:spTree></p:cSld></p:sld>`;
+  const slide2 = `<p:sld ${A}><p:cSld><p:bg><p:bgPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:bgPr></p:bg><p:spTree>`
+    + `<p:sp><p:nvSpPr><p:cNvPr id="2" name="Note"/><p:cNvSpPr txBox="true"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(457200, 457200, 3657600, 914400)}</p:spPr><p:txBody><a:bodyPr/><a:p>${run('Page two', 'sz="1800"', '<a:schemeClr val="tx1"/>', 'Fixture Script')}</a:p></p:txBody></p:sp>`
+    + `</p:spTree></p:cSld></p:sld>`;
+  const rel = (id, target, type) => `<Relationship Id="${id}" Target="${target}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}"/>`;
+  const relsOf = (...r) => `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${r.join('')}</Relationships>`;
+  const font = fs.readFileSync(path.join(__dirname, 'ui/fonts/caveat-latin-400-normal.woff2')).toString('base64');
+  return {
+    parts: {
+      'ppt/presentation.xml': `<p:presentation ${A}><p:sldIdLst><p:sldId id="256" r:id="rId6"/><p:sldId id="257" r:id="rId7"/></p:sldIdLst><p:sldSz cx="4572000" cy="6400800"/><p:embeddedFontLst><p:embeddedFont><p:font typeface="Fixture Script"/><p:regular r:id="rId9"/></p:embeddedFont></p:embeddedFontLst></p:presentation>`,
+      'ppt/_rels/presentation.xml.rels': relsOf(rel('rId4', 'theme/theme1.xml', 'theme'), rel('rId6', 'slides/slide1.xml', 'slide'), rel('rId7', 'slides/slide2.xml', 'slide'), rel('rId9', 'fonts/font9.fntdata', 'font')),
+      'ppt/theme/theme1.xml': `<a:theme ${A}><a:themeElements><a:clrScheme name="t"><a:dk1><a:srgbClr val="222222"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme></a:themeElements></a:theme>`,
+      'ppt/slides/slide1.xml': slide1, 'ppt/slides/slide2.xml': slide2,
+      'ppt/slides/_rels/slide1.xml.rels': relsOf(rel('rId2', '../media/image1.png', 'image')),
+      'ppt/slides/_rels/slide2.xml.rels': relsOf()
+    },
+    media: {},                                         // the test draws image1.png
+    fonts: { 'ppt/fonts/font9.fntdata': 'data:font/ttf;base64,' + font }
+  };
+})();
 const mock = `<script>
 window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
 // Half floats for develop_source's layout: width and height as u32s, then RGB.
@@ -39,6 +83,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; (window.outputs ??= {})[name] = { bytes: args, open: h.open }; return '/out/' + name; }
   if (command === 'load_create_settings') return JSON.parse(disk.createSettings || 'null');
   if (command === 'save_create_settings') { disk.createSettings = JSON.stringify(args.settings); return null; }
+  if (command === 'read_pptx') { if (!(args instanceof Uint8Array)) throw 'read_pptx needs the file as its body'; if (!window.pptxPackage) throw "this is not a PowerPoint file"; return JSON.parse(JSON.stringify(window.pptxPackage)); }
   if (command === 'pick_shoot') return args?.title ? '/elsewhere/Out' : '/shoots/Smith Wedding';
   if (command === 'startup_shoot') return null;
   if (command === 'app_version') return '0.1.0';
@@ -1621,6 +1666,63 @@ const test = `<script>
     const clearOut = await filterPicture(clearCanvas.toDataURL('image/png'), { look: 'sepia' });
     const [leftPx, rightPx] = [await pixelOf(clearOut, 5, 5), await pixelOf(clearOut, 30, 5)];
     step(clearOut.startsWith('data:image/png') && leftPx[3] === 255 && rightPx[3] === 0, () => 'transparent parts stay transparent: ' + leftPx + ' / ' + rightPx);
+    // 0.17: Import from Canva (PowerPoint, or a picture).
+    await settle($('#create-home').onclick(), 'home for import');
+    step(shown('#home-import'), 'the start screen offers Import from Canva');
+    const pptxPic = Object.assign(document.createElement('canvas'), { width: 200, height: 100 }), pptxCtx = pptxPic.getContext('2d');
+    pptxCtx.fillStyle = '#c03030'; pptxCtx.fillRect(0, 0, 200, 100);
+    window.pptxPackage = ${JSON.stringify(pptxFixture)};
+    pptxPackage.media['ppt/media/image1.png'] = pptxPic.toDataURL('image/png');
+    const pptxCalls = count('read_pptx');
+    await settle(importCanva(new File(['PK fake zip'], 'Fall flyer.pptx')), 'import a PowerPoint');
+    step(count('read_pptx') === pptxCalls + 1 && design.title === 'Fall flyer' && design.page === 'photo-5x7' && designPages.length === 2, () => 'the file becomes a 5 x 7 design with both pages: ' + design.title + ' ' + design.page + ' ' + designPages.length);
+    step(board.backgroundColor === '#fff6e9', 'the slide background comes across');
+    const imported = board.getObjects();
+    step(imported.map(o => o.type).join() === 'image,image,image,textbox,rect,rect,textbox,rect,textbox,rect,textbox,rect', () => 'pictures, text, shapes and table cells in order, the unknown shape left out: ' + imported.map(o => o.type));
+    const [turned, overflowing, round, title, badge, nameCell, nameText, scoreCell, , totalCell, totalText, grouped] = imported;
+    step(nameCell.kbName === 'Table cell' && nameCell.left === 48 && nameCell.top === 480 && nameCell.width === 96 && nameCell.height === 48 && nameCell.fill === '#ffeeaa' && nameCell.stroke === '#333333', () => 'a table cell keeps its place, size, fill and border: ' + JSON.stringify([nameCell.left, nameCell.top, nameCell.width, nameCell.height, nameCell.fill, nameCell.stroke]));
+    step(nameText.text === 'Name' && nameText.kbName === 'Cell text' && Math.abs(nameText.left - 48) < 1 && scoreCell.left === 144 && !scoreCell.fill, 'cell text sits in its cell, with the cell margins');
+    step(totalCell.width === 192 && totalText.text === 'Total' && totalText.top > totalCell.top + 8, () => 'a merged cell spans both columns and centres its text: ' + totalCell.width + ' ' + totalText.top);
+    step(turned.angle === 90 && turned.flipX && Math.abs(turned.getScaledWidth() - 192) < 0.5 && Math.abs(turned.getScaledHeight() - 96) < 0.5, () => 'a turned, flipped picture keeps its size: ' + turned.angle + ' ' + turned.getScaledWidth() + 'x' + turned.getScaledHeight());
+    const turnedCentre = turned.getCenterPoint();
+    step(Math.abs(turnedCentre.x - 192) < 0.5 && Math.abs(turnedCentre.y - 144) < 0.5, () => 'and turns about its centre: ' + turnedCentre.x + ',' + turnedCentre.y);
+    step(Math.abs(overflowing.cropX - 50) < 0.5 && Math.abs(overflowing.width - 100) < 0.5 && Math.abs(overflowing.getScaledWidth() - 96) < 0.5 && Math.abs(overflowing.left) < 0.5, () => 'a picture wider than its box is cropped to it: ' + overflowing.cropX + ' ' + overflowing.width);
+    step(round.clipPath?.type === 'ellipse', 'a round picture is clipped to a circle');
+    step(title.text === 'Fall Festival' + String.fromCharCode(10) + 'SECOND LINE' && title.textAlign === 'center' && title.fontFamily === 'Fixture Script' && title.fontSize === 32 && title.fill === '#b84620', () => 'text keeps its words, size, colour and font: ' + JSON.stringify([title.text, title.fontFamily, title.fontSize, title.fill]));
+    step(Math.abs(title.lineHeight - 1.239) < 0.01 && Math.abs(title.left - 48) < 1 && Math.abs(title.width - 384) < 0.5, () => 'and its line spacing, place and width: ' + title.lineHeight + ' ' + title.left + ' ' + title.width);
+    const festival = title.styles[0]?.[5];
+    step(festival?.fontFamily === 'Lexend' && festival.fontWeight === 'bold' && festival.fill === '#112233' && !title.styles[0][4], () => 'a bold word in another font keeps its own style: ' + JSON.stringify(title.styles));
+    step(badge.rx > 0 && badge.opacity === 0.5 && badge.fill === '#00ff00', 'a see-through rounded shape comes across');
+    step(Math.abs(grouped.getScaledWidth() - 96) < 0.5 && Math.abs(grouped.left - 384) < 0.5 && Math.abs(grouped.top - 576) < 0.5, () => 'shapes in groups are placed and scaled with the group: ' + grouped.left + ',' + grouped.top + ' ' + grouped.getScaledWidth());
+    step(designFonts.some(f => f.family === 'Fixture Script') && [...$('#prop-font').options].some(o => o.value === 'Fixture Script'), 'embedded fonts are added to the design and the font menu');
+    step(document.fonts.check('16px "Fixture Script"'), 'and are ready to draw');
+    const importNoteText = $('#create-import-note').textContent;
+    step(shown('#create-import-note') && importNoteText.includes('Montserrat → Lexend') && !importNoteText.includes('a table') && importNoteText.includes('a shape') && importNoteText.includes('2 pages'), () => 'a note says what was swapped and left out: ' + importNoteText);
+    $('#import-note-ok').click();
+    step($('#create-import-note').hidden, 'OK closes the note');
+    showPage(1); await until(() => pageAt === 1 && !restoring, 'page two');
+    step(board.backgroundColor === '#336699' && board.getObjects()[0]?.fill === '#222222', 'theme colours come across');
+    await settle(flush(), 'import save');
+    const importedDoc = JSON.parse(disk['c:designs:Fall flyer']);
+    step(importedDoc.format === 2 && importedDoc.fonts?.[0]?.family === 'Fixture Script' && importedDoc.pages.length === 2, 'the design saves with its fonts');
+    designFonts = [];
+    await settle(openDesign('Fall flyer'), 'imported reopen');
+    step(designFonts[0]?.family === 'Fixture Script' && board.getObjects()[3].fontFamily === 'Fixture Script', 'reopening brings the fonts back');
+    await settle(render(1, 'png'), 'imported design renders with its fonts');
+    // A picture download becomes a locked picture on a page of its shape; PDFs and other files are refused kindly.
+    await settle($('#create-home').onclick(), 'home for picture import');
+    const flatCanvas = Object.assign(document.createElement('canvas'), { width: 500, height: 700 });
+    flatCanvas.getContext('2d').fillRect(0, 0, 500, 700);
+    await settle(importCanva(new File([await new Promise(done => flatCanvas.toBlob(done, 'image/png'))], 'Flat.png', { type: 'image/png' })), 'import a picture');
+    const flat = board.getObjects()[0];
+    step(design.page === 'photo-5x7' && flat.kbLocked && Math.abs(flat.getScaledWidth() - 480) < 0.5 && $('#create-import-note').textContent.includes('picture of the design'), () => 'a PNG fills a page of its shape, locked: ' + design.page);
+    $('#import-note-ok').click();
+    await settle($('#create-home').onclick(), 'home for refused import');
+    const pdfInput = $('#import-file');
+    Object.defineProperty(pdfInput, 'files', { configurable: true, value: [new File(['%PDF'], 'Old.pdf', { type: 'application/pdf' })] });
+    pdfInput.onchange({ target: pdfInput });
+    await until(() => $('#home-status').textContent.includes('PDFs can') && $('#home-status').textContent.includes('PowerPoint'), 'a PDF gets a message saying how to download from Canva instead');
+    delete pdfInput.files;
     closeMenus();
     document.body.dataset.testResult = 'PASS';
   } catch (e) { document.body.dataset.testResult = 'FAIL: ' + e.message; }
@@ -1636,7 +1738,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

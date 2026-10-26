@@ -5,6 +5,7 @@
 mod creations;
 mod desktop;
 mod photocraft;
+mod pptx;
 mod retouch;
 
 use rawler::formats::tiff::reader::TiffReader;
@@ -740,6 +741,16 @@ fn header(request: &tauri::ipc::Request<'_>, key: &str) -> Result<String, String
     percent_decode(value).ok_or(format!("bad {key}"))
 }
 
+/// Unpack a PowerPoint file (the body) for Create's Canva import.
+#[tauri::command]
+async fn read_pptx(request: tauri::ipc::Request<'_>) -> Result<pptx::Package, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("read_pptx needs the file as its body".into());
+    };
+    let bytes = bytes.clone();
+    tauri::async_runtime::spawn_blocking(move || pptx::read(&bytes)).await.map_err(|e| e.to_string())?
+}
+
 /// Saved colours and favourite fonts: one small file in the app's settings folder.
 #[tauri::command]
 fn load_create_settings(app: AppHandle) -> Result<Value, String> {
@@ -901,7 +912,8 @@ fn main() {
             delete_creation,
             save_output,
             load_create_settings,
-            save_create_settings
+            save_create_settings,
+            read_pptx
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shoot Studio");
