@@ -34,7 +34,8 @@ let designClipboard = null;
 const historyImages = new Map(), imageIds = new Map();
 let nextImageId = 0, pageGuides = [];
 let board = null;                                      // the Fabric canvas
-let cropSession = null, guidelines, transforming = false, openPop = null, fitted = true;
+let cropSession = null, guidelines, transforming = false, openPop = null, fitted = true, boardPan = null, spacePan = false, hovered = null;
+const PASTEBOARD = '#3a3c44';
 let design = null;                                     // { title, page, tile, copies }
 let settings = { colours: [], fonts: [], seen: 0 };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
@@ -76,20 +77,52 @@ $('#photos-home').onclick = () => setMode('home');
 // ---- The page ----
 function startBoard() {
   if (board) return;
-  board = new fabric.Canvas($('#create-canvas'), { backgroundColor: '#ffffff', preserveObjectStacking: true, selection: true, fireRightClick: true, stopContextMenu: true });
+  board = new fabric.Canvas($('#create-canvas'), { backgroundColor: '#ffffff', preserveObjectStacking: true, selection: true, fireRightClick: true, fireMiddleClick: true, stopContextMenu: true, controlsAboveOverlay: true });
+  // The canvas fills the stage and the page sits on a grey pasteboard, so things can hang off the edge
+  // like in Canva. backgroundColor stays the page colour (saved and exported as before); only here is it
+  // drawn as the page instead of the whole canvas. Whatever is off the page is faded by the overlay.
+  board._renderBackground = ctx => {
+    ctx.fillStyle = PASTEBOARD; ctx.fillRect(0, 0, board.width, board.height);
+    if (!design) return;
+    const [w, h] = pagePx();
+    ctx.save(); ctx.transform(...board.viewportTransform);
+    ctx.shadowColor = '#0009'; ctx.shadowBlur = 16; ctx.fillStyle = board.backgroundColor || '#ffffff'; ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  };
+  board._renderOverlay = ctx => {
+    if (!design) return;
+    const [w, h] = pagePx();
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, board.width, board.height);
+    ctx.transform(...board.viewportTransform); ctx.rect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(58, 60, 68, 0.72)'; ctx.fill('evenodd'); ctx.restore();
+  };
   for (const e of ['object:modified', 'text:editing:exited']) board.on(e, commitDesign);
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
-  addEventListener('resize', () => { if (mode === 'create') fitBoard(); });
+  // The stage changes size with the window and when a drawer opens or closes.
+  new ResizeObserver(() => { if (mode === 'create' && !cropSession && layoutBoard()) { if (fitted) fitBoard(); else clampView(); } }).observe($('#create-stage'));
   guidelines = new fabricExtensions.AligningGuidelines(board);
   board.on('object:moving', snapPage);
   board.on('after:render', drawPageOverlay);
-  board.on('mouse:up', () => { pageGuides = []; transforming = false; board.requestRenderAll(); });
+  board.on('mouse:up', () => { pageGuides = []; transforming = false; boardPan = null; $('#create-readout').hidden = true; board.requestRenderAll(); });
+  board.on('mouse:move', ({ e }) => {
+    if (!boardPan) return;
+    panBy(e.clientX - boardPan.x, e.clientY - boardPan.y); boardPan = { x: e.clientX, y: e.clientY };
+  });
+  board.on('object:scaling', ({ target, e }) => readout(`${(target.getScaledWidth() / PX).toFixed(2)} × ${(target.getScaledHeight() / PX).toFixed(2)} in`, e));
+  // Rotation snaps to 45° when close, or to every 15° while Shift is held.
+  board.on('object:rotating', ({ target, e }) => {
+    target.set(e.shiftKey ? { snapAngle: 15, snapThreshold: undefined } : { snapAngle: 45, snapThreshold: 4 });
+    readout(`${Math.round(((target.angle % 360) + 360) % 360)}°`, e);
+  });
+  board.on('mouse:over', ({ target }) => { hovered = target; board.requestRenderAll(); });
+  board.on('mouse:out', () => { hovered = null; board.requestRenderAll(); });
   for (const e of ['object:moving', 'object:scaling', 'object:rotating']) board.on(e, () => { transforming = true; });
   board.on('after:render', paintFloat);
   board.on('mouse:down', ({ e, target }) => {
     closeMenus();
+    if (e.button === 1 || (spacePan && e.button === 0)) { boardPan = { x: e.clientX, y: e.clientY }; return; }
     if (e.button !== 2) return;
     // Right-click picks what is under the pointer, unless it is already part of the selection.
     if (!target) board.discardActiveObject();
@@ -100,16 +133,25 @@ function startBoard() {
   board.on('path:created', e => { e.path.kbName = 'Drawing'; commitDesign(); });
   board.freeDrawingBrush = new fabric.PencilBrush(board);
   board.freeDrawingBrush.color = '#444444'; board.freeDrawingBrush.width = 3;
+  // Ctrl+wheel zooms at the pointer; the wheel alone moves around (Shift for sideways).
   board.on('mouse:wheel', ({ e }) => {
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault(); e.stopPropagation(); zoomBoard(board.getZoom() * Math.exp(-e.deltaY * 0.002));
+    e.preventDefault(); e.stopPropagation();
+    if (e.ctrlKey || e.metaKey) zoomBoard(board.getZoom() * Math.exp(-e.deltaY * 0.002), board.getViewportPoint(e));
+    else if (e.shiftKey) panBy(-(e.deltaX || e.deltaY), 0);
+    else panBy(-e.deltaX, -e.deltaY);
   });
   const stage = $('#create-stage');
   stage.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
-  stage.onscroll = () => { closeMenus(); paintFloat(); };
   // Right-clicks on the grey around the page; the page itself is handled by Fabric above.
   stage.oncontextmenu = e => { e.preventDefault(); if ($('#create').inert || cropSession) return; board.discardActiveObject(); board.requestRenderAll(); paintPanel(); openMenu(e.clientX, e.clientY); };
-  stage.ondrop = e => { e.preventDefault(); if ($('#create').inert || cropSession) return; importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))); };
+  // Things dragged from a drawer, or picture files, land where they are dropped.
+  stage.ondrop = e => {
+    e.preventDefault();
+    if ($('#create').inert || cropSession) return;
+    const at = board.getScenePoint(e), item = e.dataTransfer.getData(DRAG_TYPE);
+    if (item) dropItem(JSON.parse(item), at);
+    else importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/')), at);
+  };
   paintCreateTools();
 }
 function snapPage({ target: o }) {
@@ -133,27 +175,64 @@ function drawPageOverlay() {
     ctx.strokeStyle = '#777777'; ctx.setLineDash([4 / board.getZoom(), 4 / board.getZoom()]);
     ctx.strokeRect(PX / 4, PX / 4, w - PX / 2, h - PX / 2);
   }
-  ctx.setLineDash([]); ctx.strokeStyle = '#d22';
+  ctx.setLineDash([]);
+  // A thin outline under the pointer shows what a click would pick, as in Canva.
+  if (hovered && !transforming && !board.getActiveObjects().includes(hovered) && hovered.visible !== false && board.getObjects().includes(hovered)) {
+    ctx.strokeStyle = '#8ab4ff'; ctx.lineWidth = 2 / board.getZoom(); ctx.beginPath();
+    hovered.getCoords().forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+    ctx.lineWidth = 1 / board.getZoom();
+  }
+  ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
 }
-function zoomBoard(zoom) {
+// The view is Fabric's viewport transform: zoom, plus where the page sits on the stage.
+function layoutBoard() {
+  const r = $('#create-stage').getBoundingClientRect(), width = Math.floor(r.width), height = Math.floor(r.height);
+  if (!board || width < 2 || height < 2) return false;
+  if (width !== board.width || height !== board.height) board.setDimensions({ width, height });
+  return true;
+}
+// Keep at least a corner of the page in view, so it can't be lost off the side.
+function clampView() {
   if (!board || !design) return;
-  const [w, h] = pagePx(); zoom = Math.min(4, Math.max(0.1, zoom));
-  fitted = false; board.setZoom(zoom); board.setDimensions({ width: Math.round(w * zoom), height: Math.round(h * zoom) });
-  $('#create-zoom').textContent = Math.round(zoom * 100) + '%'; board.requestRenderAll();
+  const v = [...board.viewportTransform], [w, h] = pagePx(), keep = 80;
+  v[4] = Math.min(board.width - keep, Math.max(keep - w * v[0], v[4]));
+  v[5] = Math.min(board.height - keep, Math.max(keep - h * v[3], v[5]));
+  board.setViewportTransform(v);
+  $('#create-zoom').textContent = Math.round(board.getZoom() * 100) + '%';
+}
+function zoomBoard(zoom, at) {
+  if (!board || !design) return;
+  fitted = false;
+  board.zoomToPoint(at || new fabric.Point(board.width / 2, board.height / 2), Math.min(4, Math.max(0.1, zoom)));
+  clampView();
+}
+function panBy(dx, dy) {
+  if (!board || !design || (!dx && !dy)) return;
+  fitted = false; board.relativePan(new fabric.Point(dx, dy)); clampView(); closeMenus();
+}
+function setSpacePan(on) {
+  if (spacePan === on || !board) return;
+  spacePan = on; board.skipTargetFind = on; board.selection = on ? false : !cropSession;
+  board.defaultCursor = on ? 'grab' : 'default'; board.setCursor(board.defaultCursor);
+}
+function readout(text, e) {
+  const tag = $('#create-readout'), host = $('#create').getBoundingClientRect();
+  tag.textContent = text; tag.hidden = false;
+  tag.style.left = e.clientX - host.left + 18 + 'px'; tag.style.top = e.clientY - host.top + 18 + 'px';
 }
 $('#create-zoom-in').onclick = () => zoomBoard(board.getZoom() * 1.25);
 $('#create-zoom-out').onclick = () => zoomBoard(board.getZoom() / 1.25);
 $('#create-fit').onclick = fitBoard;
 $('#create-margin').onchange = () => board?.requestRenderAll();
 
-// Show the whole page, as large as fits.
+// Show the whole page, as large as fits, in the middle of the stage.
 function fitBoard() {
-  if (!board || !design) return;
-  const stage = $('#create-stage'), [w, h] = pagePx(), room = stage.getBoundingClientRect();
-  const zoom = Math.max(0.1, Math.min((room.width - 32) / w, (room.height - 32) / h, 1.5));
-  zoomBoard(zoom); fitted = true;
+  if (!board || !design || !layoutBoard()) return;
+  const [w, h] = pagePx(), zoom = Math.max(0.1, Math.min((board.width - 64) / w, (board.height - 64) / h, 1.5));
+  board.setViewportTransform([zoom, 0, 0, zoom, Math.round((board.width - w * zoom) / 2), Math.round((board.height - h * zoom) / 2)]);
+  fitted = true; $('#create-zoom').textContent = Math.round(zoom * 100) + '%';
 }
 const blob = () => ({ format: FORMAT, page: design.page, tile: design.tile, copies: design.copies, canvas: board.toObject(KEEP) });
 
@@ -290,9 +369,10 @@ $('#create-redo').onclick = redoDesign;
 function paintHistory() { $('#create-undo').disabled = here < 1; $('#create-redo').disabled = here >= history.length - 1; }
 
 // ---- Adding things ----
-function place(object) {
-  const [w, h] = pagePx();
-  object.set({ left: Math.round((w - object.getScaledWidth()) / 2), top: Math.round((h - object.getScaledHeight()) / 2) });
+// In the middle of the page, or centred on `at` (a page point) when it was dropped somewhere.
+function place(object, at) {
+  const [w, h] = pagePx(), x = at ? at.x : w / 2, y = at ? at.y : h / 2;
+  object.set({ left: Math.round(x - object.getScaledWidth() / 2), top: Math.round(y - object.getScaledHeight() / 2) });
   board.add(object); board.setActiveObject(object); object.setCoords();
   commitDesign();
   return object;
@@ -304,15 +384,15 @@ const TEXT_PRESETS = {
   subheading: { text: 'Add a subheading', width: 560, fontSize: 40, fontWeight: 'bold', kbName: 'Subheading' },
   body: { text: 'Add a little bit of body text', width: 480, fontSize: 24, kbName: 'Body text' }
 };
-function addText(preset) {
+function addText(preset, at) {
   const { text, ...style } = TEXT_PRESETS[preset] || { text: 'Double-click to edit', width: 420, fontSize: 40, kbName: 'Text' };
   const t = new fabric.Textbox(text, { fontFamily: settings.fonts[0] || FONTS[0], fill: textColour(), textAlign: 'center', ...style });
-  place(t);
+  place(t, at);
   t.enterEditing(); t.selectAll();
   return t;
 }
 const SHAPE = { fill: '#ffd966', stroke: '#444444', strokeWidth: 3 };
-function addShape(kind) {
+function addShape(kind, at) {
   const shapes = {
     rect: () => new fabric.Rect({ width: 260, height: 160, ...SHAPE, kbName: 'Rectangle' }),
     rounded: () => new fabric.Rect({ width: 260, height: 160, rx: 24, ry: 24, ...SHAPE, kbName: 'Rounded rectangle' }),
@@ -327,7 +407,7 @@ function addShape(kind) {
       new fabric.Triangle({ width: 36, height: 36, fill: '#444444', left: 270, top: 18, angle: 90 })
     ], { kbName: 'Arrow' })
   };
-  return place(shapes[kind]());
+  return place(shapes[kind](), at);
 }
 // Pictures are shrunk to 3300 px on the long edge (JPEGs stay JPEG) so a few of them fit in her memory.
 async function shrink(file) {
@@ -340,31 +420,31 @@ async function shrink(file) {
 // Imports still decoding are awaited on close, so their picture lands in the design before it quits.
 const adding = new Set();
 const track = work => { adding.add(work); work.then(() => adding.delete(work), () => adding.delete(work)); return work; };
-const addImageBlob = (file, name) => track(addingImage(file, name));
-async function addingImage(file, name) {
+const addImageBlob = (file, name, at) => track(addingImage(file, name, at));
+async function addingImage(file, name, at) {
   const image = await fabric.FabricImage.fromURL(await shrink(file));
   const [w, h] = pagePx(), k = Math.min(1, (w * 0.8) / image.width, (h * 0.8) / image.height);
   image.set({ scaleX: k, scaleY: k, kbName: name ? 'Photo ' + name : 'Picture' });
-  return place(image);
+  return place(image, at);
 }
 // The whole batch is one tracked job, so closing mid-import still waits for the files not started yet.
-const importFiles = files => track((async () => {
-  for (const file of files) await addImageBlob(file, file.name.replace(/\.[^.]*$/, '')).catch(e => { $('#create-saved').textContent = `Could not add ${file.name}: ${e}`; });
+const importFiles = (files, at) => track((async () => {
+  for (const [i, file] of files.entries()) await addImageBlob(file, file.name.replace(/\.[^.]*$/, ''), at && new fabric.Point(at.x + i * 24, at.y + i * 24)).catch(e => { $('#create-saved').textContent = `Could not add ${file.name}: ${e}`; });
 })());
 $('#create-file').onchange = async event => {
   await importFiles([...event.target.files]);
   event.target.value = '';
 };
 // Clip art is an SVG copied onto a canvas, so the design keeps its own picture.
-const addEmoji = code => track(addingEmoji(code));
-async function addingEmoji(code) {
+const addEmoji = (code, at) => track(addingEmoji(code, at));
+async function addingEmoji(code, at) {
   await emojiReady;
   const img = await new Promise((done, fail) => Object.assign(new Image(), { onload() { done(this); }, onerror: () => fail('clip art missing'), src: `emoji/${code}.svg` }));
   const out = Object.assign(document.createElement('canvas'), { width: 512, height: 512 });
   out.getContext('2d').drawImage(img, 0, 0, 512, 512);
   const image = await fabric.FabricImage.fromURL(out.toDataURL('image/png'));
   image.set({ scaleX: 150 / 512, scaleY: 150 / 512, kbName: emojiEntries.find(e => e.code === code)?.name || 'Clip art' });
-  return place(image);
+  return place(image, at);
 }
 
 // Previews for the Elements drawer, drawn in a 40 x 32 box.
@@ -379,6 +459,17 @@ const SHAPE_TILES = [
   ['arrow', 'Arrow', '<path d="M4 16h30M26 9l8 7-8 7" style="fill:none;stroke-width:3"/>'],
   ['handwriting', 'Handwriting lines', '<path d="M4 9h32M4 23h32" style="fill:none"/><path d="M4 16h32" style="fill:none;stroke-dasharray:3 2"/>']
 ];
+// Drawer items can be dragged onto the page as well as clicked.
+const DRAG_TYPE = 'application/x-kb-studio-item';
+function draggable(el, item) {
+  el.draggable = true;
+  el.ondragstart = e => { e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(item)); e.dataTransfer.effectAllowed = 'copy'; };
+}
+function dropItem([kind, value], at) {
+  if (kind === 'shape' && SHAPE_TILES.some(([k]) => k === value)) addShape(value, at);
+  else if (kind === 'text') { const t = addText(value || undefined, at); t.exitEditing?.(); board.setActiveObject(t); }
+  else if (kind === 'emoji') addEmoji(value, at).catch(e => { $('#create-saved').textContent = String(e); });
+}
 function toggleDraw(on = !board.isDrawingMode) {
   board.isDrawingMode = on; $('#create-draw').classList.toggle('on', on);
   if (on) board.discardActiveObject();
@@ -386,12 +477,12 @@ function toggleDraw(on = !board.isDrawingMode) {
 }
 function paintCreateTools() {
   $('#create-tools').replaceChildren(...SHAPE_TILES.map(([kind, label, svg]) => {
-    const b = button('', () => addShape(kind)); b.id = 'add-' + kind; b.title = label;
+    const b = button('', () => addShape(kind)); b.id = 'add-' + kind; b.title = label; draggable(b, ['shape', kind]);
     b.innerHTML = `<svg viewBox="0 0 40 32">${svg}</svg>`; b.append(label);
     return b;
   }));
-  $('#add-text').onclick = () => addText();
-  for (const preset of Object.keys(TEXT_PRESETS)) $('#add-' + preset).onclick = () => addText(preset);
+  $('#add-text').onclick = () => addText(); draggable($('#add-text'), ['text', '']);
+  for (const preset of Object.keys(TEXT_PRESETS)) { $('#add-' + preset).onclick = () => addText(preset); draggable($('#add-' + preset), ['text', preset]); }
   $('#add-image').onclick = () => $('#create-file').click();
   $('#create-draw').onclick = () => toggleDraw();
   $('#draw-colour').oninput = e => { board.freeDrawingBrush.color = e.target.value; };
@@ -418,7 +509,7 @@ function paintEmoji() {
   emojiPage = Math.min(emojiPage, pages - 1);
   $('#emoji-list').replaceChildren(...matches.slice(emojiPage * 60, (emojiPage + 1) * 60).map(({ code, name }) => {
     const b = button('', () => addEmoji(code).catch(e => { $('#create-saved').textContent = String(e); }));
-    b.title = name; b.dataset.code = code;
+    b.title = name; b.dataset.code = code; draggable(b, ['emoji', code]);
     const img = new Image(); img.loading = 'lazy'; img.src = `emoji/${code}.svg`; img.alt = name; b.append(img);
     return b;
   }));
@@ -618,7 +709,7 @@ function pictureFrame(image, kind) {
   return kind === 'none' ? null : kind === 'circle' ? new fabric.Circle({ originX: 'center', originY: 'center', radius: Math.min(image.width, image.height) / 2 }) : new fabric.Rect({ ...options, rx: kind === 'rounded' ? image.width / 8 : 0, ry: kind === 'rounded' ? image.height / 8 : 0 });
 }
 $('#prop-frame').onchange = e => change(o => o.type === 'image' ? { clipPath: pictureFrame(o, e.target.value) } : {});
-// Fabric owns the crop controls and panning; this session only handles Apply/Cancel.
+// Fabric owns the crop controls and boardPan; this session only handles Apply/Cancel.
 async function startPictureCrop() {
   const image = board.getActiveObject();
   if (cropSession || image?.type !== 'image' || image.kbLocked) return;
@@ -627,19 +718,19 @@ async function startPictureCrop() {
   if (mode !== 'create' || cropSession || $('#create').inert || !board.getObjects().includes(image) || image.kbLocked) return;
   const stage = $('#create-stage'), dialog = $('#create-crop-dialog');
   const original = Object.fromEntries(['left', 'top', 'width', 'height', 'cropX', 'cropY', 'scaleX', 'scaleY', 'flipX', 'flipY', 'angle', 'skewX', 'skewY'].map(k => [k, image[k]]));
-  cropSession = { image, original, zoom: board.getZoom(), scrollLeft: stage.scrollLeft, scrollTop: stage.scrollTop, parent: stage.parentNode, next: stage.nextSibling, selection: board.selection, drawing: board.isDrawingMode,
+  cropSession = { image, original, view: [...board.viewportTransform], wasFitted: fitted, parent: stage.parentNode, next: stage.nextSibling, selection: board.selection, drawing: board.isDrawingMode,
     targets: board.getObjects().filter(o => o !== image).map(o => [o, o.selectable, o.evented]) };
   for (const [o] of cropSession.targets) o.set({ selectable: false, evented: false });
   board.selection = board.isDrawingMode = false; board.setActiveObject(image);
   guidelines.dispose(); pageGuides = [];
   fabricExtensions.enterCropMode({ target: image });
   image.on('mousedblclick', cropDoubleClick);
-  dialog.append(stage); dialog.showModal(); fitBoard(); board.calcOffset();
+  dialog.append(stage); dialog.showModal(); fitBoard(); board.calcOffset(); board.requestRenderAll();
 }
 function cropDoubleClick() { finishCrop(true, true); }
 function finishCrop(apply, exited = false) {
   if (!cropSession) return;
-  const { image, original, parent, next, selection, drawing, targets, zoom, scrollLeft, scrollTop } = cropSession;
+  const { image, original, parent, next, selection, drawing, targets, view, wasFitted } = cropSession;
   image.off('mousedblclick', cropDoubleClick);
   if (!exited) image.fire('mousedblclick'); // Fabric's exit restores its controls and removes ghost/pan handlers.
   image.off('mousedblclick'); // The demo API rearms itself with once(); pictures have no other double-click handlers.
@@ -650,8 +741,7 @@ function finishCrop(apply, exited = false) {
   parent.insertBefore($('#create-stage'), next); $('#create-crop-dialog').close();
   cropSession = null; guidelines = new fabricExtensions.AligningGuidelines(board);
   board.off('object:moving', snapPage); board.on('object:moving', snapPage); // Page snapping still runs after object guides.
-  image.setCoords(); zoomBoard(zoom);
-  $('#create-stage').scrollLeft = scrollLeft; $('#create-stage').scrollTop = scrollTop; board.calcOffset();
+  layoutBoard(); board.setViewportTransform(view); fitted = wasFitted; image.setCoords(); board.calcOffset();
   if (apply) commitDesign();
 }
 $('#prop-crop').onclick = () => startPictureCrop().catch(error => { $('#create-saved').textContent = 'Could not crop: ' + error; });
@@ -805,7 +895,6 @@ function paintDrawer() {
   $('#create-drawer').hidden = !drawer;
   if (board?.isDrawingMode && drawer !== 'draw') toggleDraw(false);
   if (drawer === 'templates') paintTemplates();
-  if (fitted) fitBoard();
 }
 for (const b of document.querySelectorAll('#create-rail [data-drawer]')) b.onclick = () => showDrawer(b.dataset.drawer);
 paintDrawer();
@@ -857,7 +946,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 1;
+const WHATS_NEW = 2;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -975,6 +1064,7 @@ document.addEventListener('keydown', event => {
     if (run) { event.preventDefault(); run(); }
   } else if (key === '+' || key === '=' || key === '-') { event.preventDefault(); zoomBoard(board.getZoom() * (key === '-' ? 0.8 : 1.25)); }
   else if (key === '0') { event.preventDefault(); fitBoard(); }
+  else if (key === ' ') { event.preventDefault(); setSpacePan(true); }
   else if (key === 'delete' || key === 'backspace') { event.preventDefault(); removeSelected(); }
   else if (key === 'escape') board.discardActiveObject().requestRenderAll();
   else if (key.startsWith('arrow') && active && !board.getActiveObjects().some(o => o.kbLocked)) {
@@ -984,6 +1074,9 @@ document.addEventListener('keydown', event => {
     active.setCoords(); board.requestRenderAll(); commitDesign();
   }
 });
+
+document.addEventListener('keyup', event => { if (event.key === ' ') setSpacePan(false); });
+addEventListener('blur', () => setSpacePan(false));
 
 // ---- Starter templates: placeholder words only. Each fills the canvas it is given (the page, or a thumbnail) ----
 const T = (text, left, top, o = {}) => new fabric.Textbox(text, { left, top, width: 300, fontSize: 28, fontFamily: 'Lexend', fill: '#222222', kbName: 'Text', ...o });

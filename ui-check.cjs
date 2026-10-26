@@ -725,7 +725,7 @@ const test = `<script>
     $('#home-create').click();
     await until(() => mode === 'create' && board && design && $('#create-title').value === 'Untitled', 'Create opens a new design');
     step(design.page === 'letter' && pagePx().join() === '816,1056' && board.getObjects().length === 0 && board.backgroundColor === '#ffffff', 'it is a blank Letter page');
-    step(board.getWidth() <= 816 && board.getWidth() / board.getHeight() > 0.76 && board.getWidth() / board.getHeight() < 0.78, 'the page fits the window in the right shape');
+    step(816 * board.getZoom() <= board.getWidth() && 1056 * board.getZoom() <= board.getHeight() && Math.abs(2 * board.viewportTransform[4] + 816 * board.getZoom() - board.getWidth()) < 2 && board.getWidth() === Math.floor($('#create-stage').getBoundingClientRect().width), 'the canvas fills the stage and the whole page fits, centred');
     const types = () => board.getObjects().map(o => o.kbName).join();
     $('#add-text').click(); board.getActiveObject().exitEditing?.();
     $('#add-rect').click(); $('#add-circle').click(); $('#add-line').click(); $('#add-arrow').click();
@@ -955,9 +955,9 @@ const test = `<script>
       const ctx = source.getContext('2d'); ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, 80, 120); ctx.fillStyle = '#0000ff'; ctx.fillRect(80, 0, 80, 120);
       const image = await fabric.FabricImage.fromURL(source.toDataURL()); image.set({ left: 120, top: 100, scaleX: 2, scaleY: 2 }); place(image);
       const original = JSON.stringify(image.toObject(KEEP)), initialHistory = here;
-      zoomBoard(2); const stage = $('#create-stage'); stage.scrollLeft = 70; stage.scrollTop = 90;
-      const view = [board.getZoom(), stage.scrollLeft, stage.scrollTop];
-      const sameView = () => JSON.stringify([board.getZoom(), stage.scrollLeft, stage.scrollTop]) === JSON.stringify(view);
+      zoomBoard(2); panBy(-70, -90);
+      const view = JSON.stringify(board.viewportTransform);
+      const sameView = () => JSON.stringify(board.viewportTransform) === view;
       await startPictureCrop();
       step($('#create-crop-dialog').open && image.controls.mlc && !dirty, 'Crop opens with Fabric crop controls and saves earlier edits');
       const dragLeft = () => {
@@ -979,9 +979,9 @@ const test = `<script>
       step(image.cropX < cropBeforePan && image.left === leftBeforePan && image.top === topBeforePan, 'Dragging pans source pixels within a fixed crop');
       $('#crop-cancel').click();
       step(JSON.stringify(image.toObject(KEEP)) === original && here === initialHistory && !dirty, 'Cancel restores the complete image without an undo edit');
-      step(sameView(), 'Cancel restores zoom and stage scrolling');
+      step(sameView(), 'Cancel restores the zoom and view');
       await startPictureCrop(); dragLeft(); $('#crop-apply').click();
-      step(sameView(), 'Apply restores zoom and stage scrolling');
+      step(sameView(), 'Apply restores the zoom and view');
       step(here === initialHistory + 1 && dirty && !cropSession && !$('#create-crop-dialog').open, 'Apply creates one undoable crop');
       const cropped = JSON.stringify(image.toObject(KEEP));
       await undoDesign(); step(JSON.stringify(board.getObjects()[0].toObject(KEEP)) === original, 'Undo restores the uncropped image');
@@ -1069,7 +1069,7 @@ const test = `<script>
     await settle(pasteSelected(), 'locked paste');
     step(board.getActiveObject().kbLocked && board.getActiveObject().lockMovementX && !board.getActiveObject().hasControls, 'paste reapplies saved locks');
     const zoomBefore = board.getZoom(); $('#create-zoom-in').click();
-    step(board.getZoom() > zoomBefore && board.getWidth() === Math.round(816 * board.getZoom()), 'zoom resizes the scrollable page');
+    step(board.getZoom() > zoomBefore && $('#create-zoom').textContent === Math.round(board.getZoom() * 100) + '%', 'zoom in makes the page bigger');
     const wheel = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, cancelable: true }); board.fire('mouse:wheel', { e: wheel });
     step(wheel.defaultPrevented && board.getZoom() > zoomBefore * 1.25, 'Ctrl wheel zoom prevents the browser zoom'); $('#create-fit').click();
     step(board.getZoom() < 1, 'Fit restores the whole page');
@@ -1229,10 +1229,46 @@ const test = `<script>
     step(refusal?.includes('newer KB Studio') && design.title !== 'From the future' && !$('#create').inert, () => 'a newer design format is refused: ' + refusal);
     delete disk['c:designs:From the future'];
     // What's new shows once.
-    settings.seen = 0; paintWhatsNew();
+    settings.seen = 1; paintWhatsNew();
+    step(!$('#create-whatsnew').hidden, 'someone who saw the 0.11 card sees it again for 0.12');
     step(!$('#create-whatsnew').hidden, "What's new shows in Create until it is dismissed");
     $('#whatsnew-ok').click();
-    await until(() => $('#create-whatsnew').hidden && JSON.parse(disk.createSettings).seen === 1, "Got it hides What's new for good");
+    await until(() => $('#create-whatsnew').hidden && JSON.parse(disk.createSettings).seen === WHATS_NEW, "Got it hides What's new for good");
+    // The 0.12 view: a pasteboard around the page, panning, drops where things land, transform readouts.
+    await settle(newDesign(), 'view design');
+    fitBoard(); board.renderAll();
+    const pixelAt = (x, y) => [...board.contextContainer.getImageData(Math.round(x), Math.round(y), 1, 1).data.slice(0, 3)].join();
+    const v0 = board.viewportTransform, z0 = board.getZoom();
+    step(pixelAt(3, 3).split(',').every((v, i) => Math.abs(v - [58, 60, 68][i]) <= 2) && pixelAt(v0[4] + 408 * z0, v0[5] + 528 * z0) === '255,255,255', () => 'the page is drawn white on a grey pasteboard: ' + pixelAt(3, 3) + ' / ' + pixelAt(v0[4] + 408 * z0, v0[5] + 528 * z0));
+    addShape('rect'); const hanging = board.getActiveObject(); hanging.set({ left: -120, top: 40 }); hanging.setCoords(); commitDesign(); board.renderAll();
+    step(board.getObjects().includes(hanging) && JSON.parse(JSON.stringify(blob())).canvas.objects[0].left === -120, 'an object can hang off the page and is saved where it is');
+    const before = [...board.viewportTransform];
+    board.fire('mouse:wheel', { e: new WheelEvent('wheel', { deltaY: 120, cancelable: true }) });
+    step(board.viewportTransform[5] === before[5] - 120 && board.getZoom() === before[0], 'the wheel moves the view without zooming');
+    panBy(-100000, -100000);
+    const vp = board.viewportTransform;
+    step(vp[4] === 80 - 816 * vp[0] && vp[5] === 80 - 1056 * vp[3], 'the page cannot be panned out of sight');
+    fitBoard();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    step(spacePan && board.skipTargetFind && !board.selection, 'holding Space switches to moving the view');
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+    step(!spacePan && !board.skipTargetFind && board.selection, 'letting go of Space switches back');
+    const items = new DataTransfer(); items.setData(DRAG_TYPE, JSON.stringify(['shape', 'star']));
+    const canvasBox = board.upperCanvasEl.getBoundingClientRect(), vf = board.viewportTransform, zf = board.getZoom();
+    $('#create-stage').dispatchEvent(new DragEvent('drop', { dataTransfer: items, clientX: canvasBox.left + vf[4] + 200 * zf, clientY: canvasBox.top + vf[5] + 300 * zf, bubbles: true, cancelable: true }));
+    const dropped = board.getObjects().at(-1), dc = dropped.getCenterPoint();
+    step(dropped.kbName === 'Star' && Math.abs(dc.x - 200) < 2 && Math.abs(dc.y - 300) < 2, () => 'a shape dragged from the drawer lands where it is dropped: ' + dropped.kbName + ' ' + Math.round(dc.x) + ',' + Math.round(dc.y));
+    step($('#add-star').draggable && $('#add-heading').draggable && $('#emoji-list button').draggable, 'shapes, text and graphics can be dragged from the drawers');
+    board.fire('object:scaling', { target: dropped, transform: { action: 'scale', target: dropped }, e: new MouseEvent('mousemove', { clientX: 300, clientY: 300 }) });
+    step(!$('#create-readout').hidden && $('#create-readout').textContent.endsWith(' in'), () => 'resizing shows the size in inches: ' + $('#create-readout').textContent);
+    board.fire('object:rotating', { target: dropped, transform: { action: 'rotate', target: dropped }, e: new MouseEvent('mousemove', { clientX: 300, clientY: 300, shiftKey: true }) });
+    step(dropped.snapAngle === 15 && $('#create-readout').textContent.endsWith('°'), 'rotating shows the angle and Shift snaps to 15°');
+    board.fire('object:rotating', { target: dropped, transform: { action: 'rotate', target: dropped }, e: new MouseEvent('mousemove', { clientX: 300, clientY: 300 }) });
+    step(dropped.snapAngle === 45 && dropped.snapThreshold === 4, 'without Shift rotation snaps near 45°');
+    board.fire('mouse:up', { e: new MouseEvent('mouseup') });
+    step($('#create-readout').hidden, 'the readout goes away when the mouse is let go');
+    const exported = await createImageBitmap(new Blob([toBytes(await render(1, 'png'))], { type: 'image/png' }));
+    step(exported.width === 816 && exported.height === 1056, 'export is still exactly the page'); exported.close();
     }
     // Photos sends a developed photo to Create.
     await settle($('#create-home').onclick(), 'Start saves and leaves');

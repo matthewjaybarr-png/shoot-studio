@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0
+
+- Create shows grey space around the page. Things can hang off the edge, faded outside the page, and anything outside is left out of exports and prints.
+- Scroll moves around the page and Shift+scroll moves sideways; Ctrl+scroll zooms where the pointer is. Hold Space or the middle mouse button and drag to pan. The page can't be scrolled out of sight, and Fit, or 0, shows it all again.
+- Drag shapes, text and graphics from the drawers onto the page and they land where they're dropped. Dropped pictures land where they're dropped too.
+- Resizing shows the size in inches and rotating shows the angle. Rotation snaps near 45°; hold Shift to snap in 15° steps. Hovering outlines what will be selected.
+- The What's new card appears once more with the new tips.
+
 ## 0.11.0
 
 - Create has a Canva-style layout. Icon buttons down the left open drawers for Templates, Elements, Text, Uploads, Draw and Layers; the toolbar along the top shows only the options for what is selected; Download & print and Resize sit in the top bar. A one-time card explains the new layout.

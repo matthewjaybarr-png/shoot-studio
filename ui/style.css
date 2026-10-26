@@ -149,8 +149,8 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 #layers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 #layers li{display:flex;gap:2px;align-items:center}#layers li.active{outline:2px solid var(--accent);border-radius:6px}#layers li.off .layer-name{opacity:.45}
 #layers .layer-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}#layers li button:not(.layer-name){padding:6px 7px}
-#create-stage{position:relative;flex:1;min-width:0;overflow:auto;background:#3a3c44}
-#create-stage .canvas-container{margin:24px auto;box-shadow:0 2px 14px #0008}
+#create-stage{position:relative;flex:1;min-width:0;overflow:hidden;background:#3a3c44}
+#create-readout{position:absolute;z-index:16;padding:3px 8px;border-radius:6px;background:#000c;color:#fff;font-size:12px;font-variant-numeric:tabular-nums;pointer-events:none}
 #create-stage.bw{filter:grayscale(1)}
 .pop{position:absolute;z-index:20;min-width:220px;max-width:320px;padding:10px 12px;background:var(--panel);border:1px solid var(--edge);border-radius:10px;box-shadow:0 8px 28px #000a}
 .pop h4{margin:10px 0 6px;font-size:12px;font-weight:600;color:var(--muted)}.pop h4:first-child{margin-top:0}
