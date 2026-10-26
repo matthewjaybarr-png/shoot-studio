@@ -13,6 +13,7 @@ const emojiReady = fetch('emoji-index.json').then(r => { if (!r.ok) throw Error(
 emojiReady.catch(error => { $('#create-saved').textContent = 'Could not load clip art: ' + error; });
 const IMAGE_EDGE = 3300;                               // imported pictures are shrunk to this many pixels on the long edge
 const MAX_HISTORY = 50, MAX_HISTORY_BYTES = 250e6;
+const FORMAT = 1;                                      // the design file format this version writes and reads
 const KEEP = ['kbName', 'kbLocked'];                   // our own fields, saved with every object
 const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
 
@@ -33,9 +34,9 @@ let designClipboard = null;
 const historyImages = new Map(), imageIds = new Map();
 let nextImageId = 0, pageGuides = [];
 let board = null;                                      // the Fabric canvas
-let cropSession = null, guidelines;
+let cropSession = null, guidelines, transforming = false, openPop = null, fitted = true;
 let design = null;                                     // { title, page, tile, copies }
-let settings = { colours: [], fonts: [] };
+let settings = { colours: [], fonts: [], seen: 0 };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => sizeIn(design.page).map(v => Math.round(v * PX));
@@ -46,6 +47,7 @@ function setMode(next) {
   $('#home').hidden = next !== 'home';
   $('#create').hidden = next !== 'create';
   document.body.classList.toggle('away', next !== 'photos');
+  closeMenus(); paintFloat(); paintWhatsNew();
   if (next === 'home') paintHome();
   if (next === 'create') fitBoard();
 }
@@ -54,9 +56,11 @@ function setMode(next) {
 async function paintHome() {
   const recent = $('#home-recent'), starters = $('#home-templates');
   const [designs, mine] = await Promise.all([invoke('list_creations', { kind: 'designs' }).catch(() => []), invoke('list_creations', { kind: 'templates' }).catch(() => [])]);
-  recent.replaceChildren(...designs.map(d => button(d.name, () => openDesign(d.name), new Date(d.modified * 1000).toLocaleDateString())));
+  const status = $('#home-status'), tell = name => error => { status.textContent = `Could not open “${name}”: ${error.message || error}`; };
+  status.textContent = '';
+  recent.replaceChildren(...designs.map(d => button(d.name, () => openDesign(d.name).catch(tell(d.name)), new Date(d.modified * 1000).toLocaleDateString())));
   recent.previousElementSibling.hidden = !designs.length;
-  starters.replaceChildren(...Object.keys(STARTERS).map(n => button(n, () => newDesign(n, 'starter'))), ...mine.map(t => button(t.name, () => newDesign(t.name, 'mine'))));
+  starters.replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, () => newDesign(n, 'starter').catch(tell(n)))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, () => newDesign(t.name, 'mine').catch(tell(t.name)))));
 }
 function button(text, onclick, small) {
   const b = document.createElement('button');
@@ -72,7 +76,7 @@ $('#photos-home').onclick = () => setMode('home');
 // ---- The page ----
 function startBoard() {
   if (board) return;
-  board = new fabric.Canvas($('#create-canvas'), { backgroundColor: '#ffffff', preserveObjectStacking: true, selection: true });
+  board = new fabric.Canvas($('#create-canvas'), { backgroundColor: '#ffffff', preserveObjectStacking: true, selection: true, fireRightClick: true, stopContextMenu: true });
   for (const e of ['object:modified', 'text:editing:exited']) board.on(e, commitDesign);
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
@@ -81,7 +85,18 @@ function startBoard() {
   guidelines = new fabricExtensions.AligningGuidelines(board);
   board.on('object:moving', snapPage);
   board.on('after:render', drawPageOverlay);
-  board.on('mouse:up', () => { pageGuides = []; board.requestRenderAll(); });
+  board.on('mouse:up', () => { pageGuides = []; transforming = false; board.requestRenderAll(); });
+  for (const e of ['object:moving', 'object:scaling', 'object:rotating']) board.on(e, () => { transforming = true; });
+  board.on('after:render', paintFloat);
+  board.on('mouse:down', ({ e, target }) => {
+    closeMenus();
+    if (e.button !== 2) return;
+    // Right-click picks what is under the pointer, unless it is already part of the selection.
+    if (!target) board.discardActiveObject();
+    else if (!board.getActiveObjects().includes(target)) board.setActiveObject(target);
+    board.requestRenderAll(); paintPanel();
+    openMenu(e.clientX, e.clientY);
+  });
   board.on('path:created', e => { e.path.kbName = 'Drawing'; commitDesign(); });
   board.freeDrawingBrush = new fabric.PencilBrush(board);
   board.freeDrawingBrush.color = '#444444'; board.freeDrawingBrush.width = 3;
@@ -91,6 +106,9 @@ function startBoard() {
   });
   const stage = $('#create-stage');
   stage.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+  stage.onscroll = () => { closeMenus(); paintFloat(); };
+  // Right-clicks on the grey around the page; the page itself is handled by Fabric above.
+  stage.oncontextmenu = e => { e.preventDefault(); if ($('#create').inert || cropSession) return; board.discardActiveObject(); board.requestRenderAll(); paintPanel(); openMenu(e.clientX, e.clientY); };
   stage.ondrop = e => { e.preventDefault(); if ($('#create').inert || cropSession) return; importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))); };
   paintCreateTools();
 }
@@ -122,7 +140,7 @@ function drawPageOverlay() {
 function zoomBoard(zoom) {
   if (!board || !design) return;
   const [w, h] = pagePx(); zoom = Math.min(4, Math.max(0.1, zoom));
-  board.setZoom(zoom); board.setDimensions({ width: Math.round(w * zoom), height: Math.round(h * zoom) });
+  fitted = false; board.setZoom(zoom); board.setDimensions({ width: Math.round(w * zoom), height: Math.round(h * zoom) });
   $('#create-zoom').textContent = Math.round(zoom * 100) + '%'; board.requestRenderAll();
 }
 $('#create-zoom-in').onclick = () => zoomBoard(board.getZoom() * 1.25);
@@ -135,9 +153,9 @@ function fitBoard() {
   if (!board || !design) return;
   const stage = $('#create-stage'), [w, h] = pagePx(), room = stage.getBoundingClientRect();
   const zoom = Math.max(0.1, Math.min((room.width - 32) / w, (room.height - 32) / h, 1.5));
-  zoomBoard(zoom);
+  zoomBoard(zoom); fitted = true;
 }
-const blob = () => ({ format: 1, page: design.page, tile: design.tile, copies: design.copies, canvas: board.toObject(KEEP) });
+const blob = () => ({ format: FORMAT, page: design.page, tile: design.tile, copies: design.copies, canvas: board.toObject(KEEP) });
 
 async function fonts() {
   const loads = await Promise.allSettled(FONTS.flatMap(f => ['400', '700'].map(w => document.fonts.load(`${w} 16px "${f}"`))));
@@ -146,6 +164,7 @@ async function fonts() {
 }
 
 async function open(doc, title, name) {
+  if ((doc.format ?? 1) > FORMAT) throw Error('it was made by a newer KB Studio; update KB Studio to open it');
   startBoard();
   await fonts().catch(() => {}); // Editing can use fallback fonts; output remains strict.
   restoring = true;
@@ -194,7 +213,7 @@ function newDesign(template, source) {
     if (template && source === 'mine') doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name: template }));
     const title = await uniqueTitle(template ? `My ${template}` : 'Untitled');
     await open(doc, title, null);
-    if (template && source === 'starter') { await STARTERS[template](); remember(); }
+    if (template && source === 'starter') { await STARTERS[template](board); remember(); }
     schedule();
   });
 }
@@ -279,8 +298,15 @@ function place(object) {
   return object;
 }
 const textColour = () => '#222222';
-function addText() {
-  const t = new fabric.Textbox('Double-click to edit', { width: 420, fontSize: 40, fontFamily: settings.fonts[0] || FONTS[0], fill: textColour(), textAlign: 'center', kbName: 'Text' });
+// Canva-style starting points; a plain text box is the fallback.
+const TEXT_PRESETS = {
+  heading: { text: 'Add a heading', width: 640, fontSize: 64, fontWeight: 'bold', kbName: 'Heading' },
+  subheading: { text: 'Add a subheading', width: 560, fontSize: 40, fontWeight: 'bold', kbName: 'Subheading' },
+  body: { text: 'Add a little bit of body text', width: 480, fontSize: 24, kbName: 'Body text' }
+};
+function addText(preset) {
+  const { text, ...style } = TEXT_PRESETS[preset] || { text: 'Double-click to edit', width: 420, fontSize: 40, kbName: 'Text' };
+  const t = new fabric.Textbox(text, { fontFamily: settings.fonts[0] || FONTS[0], fill: textColour(), textAlign: 'center', ...style });
   place(t);
   t.enterEditing(); t.selectAll();
   return t;
@@ -341,18 +367,35 @@ async function addingEmoji(code) {
   return place(image);
 }
 
+// Previews for the Elements drawer, drawn in a 40 x 32 box.
+const SHAPE_TILES = [
+  ['rect', 'Rectangle', '<rect x="4" y="6" width="32" height="20"/>'],
+  ['rounded', 'Rounded', '<rect x="4" y="6" width="32" height="20" rx="6"/>'],
+  ['circle', 'Circle', '<circle cx="20" cy="16" r="12"/>'],
+  ['triangle', 'Triangle', '<path d="M20 4 34 28H6z"/>'],
+  ['star', 'Star', '<path d="M20 3l3.5 7.6 8.3.9-6.2 5.6 1.8 8.2L20 21l-7.4 4.3 1.8-8.2-6.2-5.6 8.3-.9z"/>'],
+  ['bubble', 'Speech bubble', '<path d="M7 4h26a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H16l-6 6 1-6H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z"/>'],
+  ['line', 'Line', '<path d="M4 16h32" style="stroke-width:3"/>'],
+  ['arrow', 'Arrow', '<path d="M4 16h30M26 9l8 7-8 7" style="fill:none;stroke-width:3"/>'],
+  ['handwriting', 'Handwriting lines', '<path d="M4 9h32M4 23h32" style="fill:none"/><path d="M4 16h32" style="fill:none;stroke-dasharray:3 2"/>']
+];
+function toggleDraw(on = !board.isDrawingMode) {
+  board.isDrawingMode = on; $('#create-draw').classList.toggle('on', on);
+  if (on) board.discardActiveObject();
+  board.requestRenderAll(); paintFloat();
+}
 function paintCreateTools() {
-  const bar = $('#create-tools');
-  const add = (id, label, run) => { const b = button(label, run); b.id = id; bar.append(b); };
-  add('add-text', 'Text', addText);
-  add('add-image', 'Picture…', () => $('#create-file').click());
-  add('add-rect', 'Rectangle', () => addShape('rect'));
-  add('add-circle', 'Circle', () => addShape('circle'));
-  add('add-line', 'Line', () => addShape('line'));
-  add('add-arrow', 'Arrow', () => addShape('arrow'));
-  for (const [kind, label] of [['triangle', 'Triangle'], ['star', 'Star'], ['rounded', 'Rounded rectangle'], ['bubble', 'Speech bubble']]) add('add-' + kind, label, () => addShape(kind));
-  add('create-draw', 'Draw', () => { board.isDrawingMode = !board.isDrawingMode; $('#create-draw').classList.toggle('on', board.isDrawingMode); board.discardActiveObject(); board.requestRenderAll(); });
-  add('add-handwriting', 'Handwriting lines', () => addShape('handwriting'));
+  $('#create-tools').replaceChildren(...SHAPE_TILES.map(([kind, label, svg]) => {
+    const b = button('', () => addShape(kind)); b.id = 'add-' + kind; b.title = label;
+    b.innerHTML = `<svg viewBox="0 0 40 32">${svg}</svg>`; b.append(label);
+    return b;
+  }));
+  $('#add-text').onclick = () => addText();
+  for (const preset of Object.keys(TEXT_PRESETS)) $('#add-' + preset).onclick = () => addText(preset);
+  $('#add-image').onclick = () => $('#create-file').click();
+  $('#create-draw').onclick = () => toggleDraw();
+  $('#draw-colour').oninput = e => { board.freeDrawingBrush.color = e.target.value; };
+  $('#draw-width').oninput = e => { board.freeDrawingBrush.width = +e.target.value; };
   emojiReady.then(() => {
     $('#emoji-category').replaceChildren(Object.assign(document.createElement('option'), { value: '', textContent: 'All categories' }), ...[...new Set(emojiEntries.map(e => e.group))].map(group => Object.assign(document.createElement('option'), { value: group, textContent: group })));
     paintEmoji();
@@ -389,9 +432,9 @@ $('#emoji-next').onclick = () => { emojiPage++; paintEmoji(); };
 function handwritingLines(width) {
   return new fabric.Group([0, 24, 48].map((y, i) => new fabric.Line([0, y, width, y], { stroke: '#777777', strokeWidth: 1, strokeDashArray: i === 1 ? [6, 4] : null })), { kbName: 'Handwriting lines' });
 }
-function tableCells(rows, cols, top = 180, height = Math.min(rows * 72, pagePx()[1] - top - 48), text = 'Text') {
+function tableCells(rows, cols, top = 180, height = Math.min(rows * 72, pagePx()[1] - top - 48), text = 'Text', pageWidth = pagePx()[0]) {
   if (![rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 20)) throw Error('Use 1 to 20 rows and columns');
-  const width = (pagePx()[0] - 96) / cols, cellHeight = height / rows, cells = [];
+  const width = (pageWidth - 96) / cols, cellHeight = height / rows, cells = [];
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const left = 48 + c * width, y = top + r * cellHeight;
     cells.push(R(left, y, width, cellHeight, { kbName: 'Table cell' }), T(width < 72 ? '' : text, left + 6, y + 6, { width: width - 12, minWidth: 1, fontSize: Math.min(24, cellHeight / 3), kbName: 'Cell text' }));
@@ -502,11 +545,22 @@ function paintLayers() {
   }).reverse());
   list.dataset.count = objects.length;
 }
+// What the selection is, as the words used in the toolbar's data-for attributes.
+function tagsOf(o) {
+  if (!o) return ['none'];
+  const objects = o.type === 'activeselection' ? o.getObjects() : [o];
+  if (objects.some(x => x.kbLocked)) return ['locked'];
+  if (o.type === 'activeselection') return ['object', 'multi'];
+  const kind = { textbox: 'text', image: 'image', group: 'group', line: 'line' }[o.type] || (o.type === 'path' && !o.fill ? 'line' : 'shape');
+  return ['object', kind, ...(o.type === 'rect' ? ['rect'] : [])];
+}
+// The toolbar along the top shows only what fits the selection, like Canva's.
 function paintPanel() {
-  const o = board?.getActiveObject(), text = o?.type === 'textbox';
+  const o = board?.getActiveObject(), text = o?.type === 'textbox', tags = tagsOf(o);
+  for (const el of document.querySelectorAll('#create [data-for]')) el.hidden = !el.dataset.for.split(' ').some(t => tags.includes(t));
   $('#prop-crop').disabled = o?.type !== 'image' || !!o.kbLocked;
-  $('#props').classList.toggle('none', !o);
-  for (const el of document.querySelectorAll('#props .text-only')) el.hidden = !text;
+  if (openPop && openPop.anchor.hidden) closeMenus();
+  paintFloat();
   if (o) {
     $('#prop-fill').value = hex(o.fill) || '#000000';
     $('#prop-stroke').value = hex(o.stroke) || '#000000';
@@ -568,6 +622,7 @@ $('#prop-frame').onchange = e => change(o => o.type === 'image' ? { clipPath: pi
 async function startPictureCrop() {
   const image = board.getActiveObject();
   if (cropSession || image?.type !== 'image' || image.kbLocked) return;
+  closeMenus();
   await Promise.allSettled([...adding]); await flush();
   if (mode !== 'create' || cropSession || $('#create').inert || !board.getObjects().includes(image) || image.kbLocked) return;
   const stage = $('#create-stage'), dialog = $('#create-crop-dialog');
@@ -603,9 +658,6 @@ $('#prop-crop').onclick = () => startPictureCrop().catch(error => { $('#create-s
 $('#crop-apply').onclick = () => finishCrop(true);
 $('#crop-cancel').onclick = () => finishCrop(false);
 $('#create-crop-dialog').oncancel = event => { event.preventDefault(); finishCrop(false); };
-$('#prop-cut').onclick = () => copySelected(true);
-$('#prop-clipboard-copy').onclick = () => copySelected();
-$('#prop-paste').onclick = () => pasteSelected();
 function copySelected(cut = false) {
   const objects = board.getActiveObjects(); if (!objects.length) return;
   board.discardActiveObject(); designClipboard = objects.map(o => o.toObject(KEEP)); selectObjects(objects);
@@ -640,6 +692,175 @@ function duplicateSelected() {
   return pasteSelected(source);
 }
 
+const selectAll = () => selectObjects(board.getObjects().filter(o => o.visible !== false && !o.kbLocked));
+// Front and back move the whole selection past everything else, keeping its own order.
+function arrangeSelected(where) {
+  const objects = board.getActiveObjects().sort((a, b) => board.getObjects().indexOf(a) - board.getObjects().indexOf(b));
+  if (!objects.length || objects.some(o => o.kbLocked)) return;
+  if (where === 'front') for (const o of objects) board.moveObjectTo(o, board.getObjects().length - 1);
+  else for (const o of objects.reverse()) board.moveObjectTo(o, 0);
+  board.requestRenderAll(); commitDesign();
+}
+// If anything selected is locked, this unlocks the lot; otherwise it locks them.
+function toggleLock() {
+  const objects = board.getActiveObjects();
+  if (!objects.length) return;
+  const lock = !objects.some(o => o.kbLocked);
+  for (const o of objects) { o.kbLocked = lock; applyLock(o); }
+  selectObjects(objects); commitDesign();
+}
+function centreOnPage() {
+  const active = board.getActiveObject();
+  if (!active || board.getActiveObjects().some(o => o.kbLocked)) return;
+  const [w, h] = pagePx(), r = active.getBoundingRect();
+  active.set({ left: active.left + w / 2 - (r.left + r.width / 2), top: active.top + h / 2 - (r.top + r.height / 2) });
+  active.setCoords(); board.requestRenderAll(); commitDesign();
+}
+const stepSize = by => change(o => {
+  if (o.type !== 'textbox') return {};
+  const now = Math.round(o.fontSize * (o.scaleY || 1)), step = now < 24 ? 1 : now < 72 ? 2 : 4;
+  return { fontSize: Math.min(400, Math.max(6, now + by * step)), scaleX: 1, scaleY: 1 };
+});
+$('#prop-size-down').onclick = () => stepSize(-1);
+$('#prop-size-up').onclick = () => stepSize(1);
+$('#prop-front').onclick = () => arrangeSelected('front');
+$('#prop-back').onclick = () => arrangeSelected('back');
+$('#prop-forward').onclick = () => reorderSelected(1);
+$('#prop-backward').onclick = () => reorderSelected(-1);
+for (const b of document.querySelectorAll('#create [data-act=lock]')) b.onclick = toggleLock;
+
+// ---- Pop-up panels, the right-click menu and the toolbar that floats above the selection ----
+// Plain positioned elements inside #create, so the update and close freezes cover them too.
+function closeMenus() {
+  const was = !!openPop || !$('#create-menu').hidden;
+  if (openPop) { openPop.el.hidden = true; openPop.anchor.classList.remove('open'); openPop = null; }
+  $('#create-menu').hidden = true;
+  return was;
+}
+function togglePop(anchor) {
+  const el = $('#' + anchor.dataset.pop), same = openPop?.el === el;
+  closeMenus();
+  if (same) return;
+  el.hidden = false; anchor.classList.add('open'); openPop = { el, anchor };
+  const a = anchor.getBoundingClientRect(), host = $('#create').getBoundingClientRect();
+  el.style.left = Math.max(8, Math.min(a.left - host.left, host.width - el.offsetWidth - 8)) + 'px';
+  el.style.top = a.bottom - host.top + 6 + 'px';
+}
+for (const b of document.querySelectorAll('#create [data-pop]')) b.onclick = () => togglePop(b);
+document.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const menu = $('#create-menu');
+  if (openPop && !openPop.el.contains(e.target) && !openPop.anchor.contains(e.target)) closeMenus();
+  if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true;
+});
+addEventListener('resize', closeMenus);
+function openMenu(x, y) {
+  if (mode !== 'create' || $('#create').inert || cropSession) return;
+  closeMenus();
+  const objects = board.getActiveObjects(), active = board.getActiveObject(), locked = objects.some(o => o.kbLocked);
+  const item = (label, keys, run, disabled = false) => {
+    const b = button(label, () => { closeMenus(); run(); }); b.setAttribute('role', 'menuitem'); b.disabled = disabled;
+    if (keys) b.append(Object.assign(document.createElement('kbd'), { textContent: keys }));
+    return b;
+  };
+  const line = () => document.createElement('hr');
+  const menu = $('#create-menu');
+  menu.replaceChildren(...(objects.length ? [
+    item('Copy', 'Ctrl+C', () => copySelected()), item('Paste', 'Ctrl+V', () => pasteSelected(), !designClipboard),
+    item('Duplicate', 'Ctrl+D', duplicateSelected, locked), item('Delete', 'Delete', removeSelected, locked), line(),
+    item('Bring to front', 'Ctrl+Shift+]', () => arrangeSelected('front'), locked), item('Bring forward', 'Ctrl+]', () => reorderSelected(1), locked),
+    item('Send backward', 'Ctrl+[', () => reorderSelected(-1), locked), item('Send to back', 'Ctrl+Shift+[', () => arrangeSelected('back'), locked), line(),
+    item(locked ? 'Unlock' : 'Lock', '', toggleLock),
+    ...(objects.length > 1 ? [item('Group', 'Ctrl+G', () => groupSelected(), locked)] : active.type === 'group' ? [item('Ungroup', 'Ctrl+Shift+G', () => groupSelected(true), locked)] : []),
+    item('Centre on the page', '', centreOnPage, locked)
+  ] : [item('Paste', 'Ctrl+V', () => pasteSelected(), !designClipboard), item('Select all', 'Ctrl+A', selectAll, !board.getObjects().length)]));
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px';
+  menu.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + 'px';
+}
+$('#float-more').onclick = () => { const r = $('#float-more').getBoundingClientRect(); openMenu(r.left, r.bottom + 4); };
+// Above the selection, or below it when there is no room; hidden while dragging, drawing or cropping.
+function paintFloat() {
+  const bar = $('#create-float'), o = board?.getActiveObject();
+  bar.hidden = !o || mode !== 'create' || transforming || !!cropSession || board.isDrawingMode;
+  if (bar.hidden) return;
+  const locked = board.getActiveObjects().some(x => x.kbLocked), lock = $('#float-lock');
+  lock.classList.toggle('locked', locked); lock.title = locked ? 'Unlock' : 'Lock'; lock.setAttribute('aria-label', lock.title);
+  $('#prop-copy').hidden = $('#prop-delete').hidden = locked;
+  const r = o.getBoundingRect(), v = board.viewportTransform, canvas = board.upperCanvasEl.getBoundingClientRect();
+  const host = $('#create').getBoundingClientRect(), stage = $('#create-stage').getBoundingClientRect();
+  const x = canvas.left + (r.left + r.width / 2) * v[0] + v[4], top = canvas.top + r.top * v[3] + v[5], bottom = canvas.top + (r.top + r.height) * v[3] + v[5];
+  const y = top - 46 >= stage.top + 4 ? top - 46 : Math.min(bottom + 10, stage.bottom - 44);
+  bar.style.left = Math.min(Math.max(x, stage.left + 90), stage.right - 90) - host.left + 'px';
+  bar.style.top = y - host.top + 'px';
+}
+
+// ---- The rail and its drawers ----
+let drawer = 'elements';
+function showDrawer(name) { drawer = drawer === name ? null : name; paintDrawer(); if (drawer === 'draw' && board) toggleDraw(true); }
+function paintDrawer() {
+  for (const b of document.querySelectorAll('#create-rail [data-drawer]')) { b.classList.toggle('on', b.dataset.drawer === drawer); b.setAttribute('aria-pressed', b.dataset.drawer === drawer); }
+  for (const p of document.querySelectorAll('#create-drawer [data-panel]')) p.hidden = p.dataset.panel !== drawer;
+  $('#create-drawer').hidden = !drawer;
+  if (board?.isDrawingMode && drawer !== 'draw') toggleDraw(false);
+  if (drawer === 'templates') paintTemplates();
+  if (fitted) fitBoard();
+}
+for (const b of document.querySelectorAll('#create-rail [data-drawer]')) b.onclick = () => showDrawer(b.dataset.drawer);
+paintDrawer();
+
+// ---- Template pictures, drawn from the templates themselves ----
+const templateThumbs = new Map();
+const cached = (key, make) => { if (!templateThumbs.has(key)) templateThumbs.set(key, make().catch(error => { templateThumbs.delete(key); throw error; })); return templateThumbs.get(key); };
+async function drawThumb(size, build) {
+  await fonts().catch(() => {});
+  const [w, h] = size.map(v => Math.round(v * PX)), sc = new fabric.StaticCanvas(document.createElement('canvas'), { width: w, height: h, backgroundColor: '#ffffff' });
+  try { await build(sc); sc.renderAll(); return sc.toDataURL({ format: 'png', multiplier: 280 / w }); } finally { sc.dispose(); }
+}
+function templateThumb(name, source, modified) {
+  if (source === 'starter') return cached('starter:' + name, () => drawThumb(sizeIn('letter'), page => STARTERS[name](page)));
+  return cached(`mine:${name}:${modified}`, async () => {
+    const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
+    return drawThumb(sizeIn(doc.page), c => c.loadFromJSON(doc.canvas || { objects: [] }));
+  });
+}
+function templateButton(name, source, modified, onclick) {
+  const b = button(name, onclick), img = new Image();
+  b.classList.add('template'); img.alt = ''; b.prepend(img);
+  templateThumb(name, source, modified).then(url => { img.src = url; }, () => {});
+  return b;
+}
+async function paintTemplates() {
+  const mine = await invoke('list_creations', { kind: 'templates' }).catch(() => []);
+  const pick = (name, source) => () => useTemplate(name, source).catch(error => { $('#create-saved').textContent = 'Could not use the template: ' + (error.message || error); });
+  $('#drawer-templates').replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, pick(n, 'starter'))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, pick(t.name, 'mine'))));
+}
+// A blank page takes the template in place, like Canva; a page with work on it keeps it and opens a new design.
+async function useTemplate(name, source) {
+  if ($('#create').inert || cropSession) return;
+  if (board.getObjects().length) return newDesign(name, source);
+  if (source === 'starter') await STARTERS[name](board);
+  else {
+    const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
+    if ((doc.format ?? 1) > FORMAT) throw Error('it was made by a newer KB Studio; update KB Studio to use it');
+    restoring = true;
+    try {
+      await board.loadFromJSON(doc.canvas || { objects: [] });
+      for (const o of board.getObjects()) applyLock(o);
+      if (PAGES[doc.page]) design.page = doc.page;
+      design.tile = doc.tile === 'sheet' && TILES[design.page] ? 'sheet' : 'single';
+    } finally { restoring = false; }
+  }
+  if (/^Untitled( \d+)?$/.test(design.title)) design.title = await uniqueTitle(`My ${name}`);
+  commitDesign(); paintAll();
+}
+
+// ---- What's new, shown once ----
+const WHATS_NEW = 1;
+function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
+$('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
+
 // ---- Page, background, saved colours and fonts ----
 function paintAll() {
   $('#create-title').value = design.title;
@@ -661,7 +882,8 @@ function paintBw() { $('#create-stage').classList.toggle('bw', $('#create-bw').c
 
 async function loadSettings() {
   const s = await invoke('load_create_settings').catch(() => null);
-  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [] };
+  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0 };
+  paintWhatsNew();
 }
 const saveSettings = () => invoke('save_create_settings', { settings }).catch(() => {});
 function paintFonts() {
@@ -737,6 +959,7 @@ function reorderSelected(by) {
 
 // ---- Keys ----
 document.addEventListener('keydown', event => {
+  if (mode === 'create' && event.key === 'Escape' && closeMenus()) { event.preventDefault(); return; }
   if (mode !== 'create' || !board || cropSession || $('#create').inert || event.target.matches?.('input, select, textarea')) return;
   const active = board.getActiveObject();
   if (active?.isEditing) return;
@@ -745,8 +968,9 @@ document.addEventListener('keydown', event => {
     const run = {
       z: () => stepHistory(event.shiftKey ? 1 : -1), y: () => stepHistory(1), d: duplicateSelected,
       g: () => groupSelected(event.shiftKey), c: () => copySelected(), x: () => copySelected(true),
-      a: () => selectObjects(board.getObjects().filter(o => o.visible !== false && !o.kbLocked)),
-      '[': () => reorderSelected(-1), ']': () => reorderSelected(1)
+      a: selectAll,
+      '[': () => reorderSelected(-1), ']': () => reorderSelected(1),
+      '{': () => arrangeSelected('back'), '}': () => arrangeSelected('front') // Shift+[ and Shift+]
     }[key];
     if (run) { event.preventDefault(); run(); }
   } else if (key === '+' || key === '=' || key === '-') { event.preventDefault(); zoomBoard(board.getZoom() * (key === '-' ? 0.8 : 1.25)); }
@@ -761,41 +985,41 @@ document.addEventListener('keydown', event => {
   }
 });
 
-// ---- Starter templates: placeholder words only ----
+// ---- Starter templates: placeholder words only. Each fills the canvas it is given (the page, or a thumbnail) ----
 const T = (text, left, top, o = {}) => new fabric.Textbox(text, { left, top, width: 300, fontSize: 28, fontFamily: 'Lexend', fill: '#222222', kbName: 'Text', ...o });
 const R = (left, top, width, height, o = {}) => new fabric.Rect({ left, top, width, height, fill: 'transparent', stroke: '#444444', strokeWidth: 2, kbName: 'Box', ...o });
 const STARTERS = {
-  'Behaviour chart': async () => {
+  'Behaviour chart': async page => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], x0 = 40, y0 = 190, cw = 100, rh = 100, label = 276;
-    board.add(T('Behaviour Chart', 48, 40, { width: 720, fontSize: 60, textAlign: 'center', fontWeight: 'bold', kbName: 'Title' }), T('Name: ________________', 48, 125, { width: 720, fontSize: 30 }));
-    board.add(R(x0, y0, label, 60, { fill: '#fff2cc' }));
-    days.forEach((d, i) => board.add(R(x0 + label + i * cw, y0, cw, 60, { fill: '#fff2cc' }), T(d, x0 + label + i * cw, y0 + 14, { width: cw, textAlign: 'center', fontSize: 26 })));
+    page.add(T('Behaviour Chart', 48, 40, { width: 720, fontSize: 60, textAlign: 'center', fontWeight: 'bold', kbName: 'Title' }), T('Name: ________________', 48, 125, { width: 720, fontSize: 30 }));
+    page.add(R(x0, y0, label, 60, { fill: '#fff2cc' }));
+    days.forEach((d, i) => page.add(R(x0 + label + i * cw, y0, cw, 60, { fill: '#fff2cc' }), T(d, x0 + label + i * cw, y0 + 14, { width: cw, textAlign: 'center', fontSize: 26 })));
     for (let r = 0; r < 8; r++) {
-      board.add(R(x0, y0 + 60 + r * rh * 0.9, label, rh * 0.9), T('Goal ' + (r + 1), x0 + 12, y0 + 60 + r * rh * 0.9 + 28, { width: label - 24, fontSize: 26 }));
-      for (let c = 0; c < 5; c++) board.add(R(x0 + label + c * cw, y0 + 60 + r * rh * 0.9, cw, rh * 0.9));
+      page.add(R(x0, y0 + 60 + r * rh * 0.9, label, rh * 0.9), T('Goal ' + (r + 1), x0 + 12, y0 + 60 + r * rh * 0.9 + 28, { width: label - 24, fontSize: 26 }));
+      for (let c = 0; c < 5; c++) page.add(R(x0 + label + c * cw, y0 + 60 + r * rh * 0.9, cw, rh * 0.9));
     }
   },
-  'Labels': async () => {
+  'Labels': async page => {
     for (let r = 0; r < 5; r++) for (let c = 0; c < 2; c++) {
       const x = 16 + c * 392, y = 48 + r * 192;
-      board.add(R(x, y, 384, 192, { stroke: '#bbbbbb', strokeDashArray: [6, 6] }), T('Name', x + 20, y + 70, { width: 344, fontSize: 48, textAlign: 'center', fontWeight: 'bold' }));
+      page.add(R(x, y, 384, 192, { stroke: '#bbbbbb', strokeDashArray: [6, 6] }), T('Name', x + 20, y + 70, { width: 344, fontSize: 48, textAlign: 'center', fontWeight: 'bold' }));
     }
   },
-  'Word wall': async () => {
-    board.add(T('Word Wall', 48, 28, { width: 720, fontSize: 64, textAlign: 'center', fontWeight: 'bold', kbName: 'Title' }));
+  'Word wall': async page => {
+    page.add(T('Word Wall', 48, 28, { width: 720, fontSize: 64, textAlign: 'center', fontWeight: 'bold', kbName: 'Title' }));
     const w = 176, h = 124;
     for (let i = 0; i < 26; i++) {
       const x = 40 + (i % 4) * (w + 8), y = 130 + Math.floor(i / 4) * (h + 8);
-      board.add(R(x, y, w, h, { fill: i % 2 ? '#dae8fc' : '#ffe6cc' }), T(String.fromCharCode(65 + i), x + 10, y + 6, { width: 60, fontSize: 40, fontWeight: 'bold' }), T('word', x + 14, y + 66, { width: w - 28, fontSize: 24 }));
+      page.add(R(x, y, w, h, { fill: i % 2 ? '#dae8fc' : '#ffe6cc' }), T(String.fromCharCode(65 + i), x + 10, y + 6, { width: 60, fontSize: 40, fontWeight: 'bold' }), T('word', x + 14, y + 66, { width: w - 28, fontSize: 24 }));
     }
   },
-  'Newsletter': async () => {
-    board.add(R(0, 0, 816, 170, { fill: '#6aa84f', stroke: '#6aa84f' }), T('Our Class Newsletter', 40, 30, { width: 736, fontSize: 60, fill: '#ffffff', fontWeight: 'bold', textAlign: 'center', kbName: 'Title' }), T('Month Year', 40, 112, { width: 736, fontSize: 28, fill: '#ffffff', textAlign: 'center' }));
+  'Newsletter': async page => {
+    page.add(R(0, 0, 816, 170, { fill: '#6aa84f', stroke: '#6aa84f' }), T('Our Class Newsletter', 40, 30, { width: 736, fontSize: 60, fill: '#ffffff', fontWeight: 'bold', textAlign: 'center', kbName: 'Title' }), T('Month Year', 40, 112, { width: 736, fontSize: 28, fill: '#ffffff', textAlign: 'center' }));
     const body = 'Write your news here. Tell families what the class has been learning and what is coming up.';
-    [['This week', 40, 200], ['Coming up', 428, 200], ['Reminders', 40, 600], ['Thank you', 428, 600]].forEach(([h, x, y]) => board.add(T(h, x, y, { width: 348, fontSize: 34, fontWeight: 'bold', fill: '#38761d' }), T(body, x, y + 56, { width: 348, fontSize: 24 })));
+    [['This week', 40, 200], ['Coming up', 428, 200], ['Reminders', 40, 600], ['Thank you', 428, 600]].forEach(([h, x, y]) => page.add(T(h, x, y, { width: 348, fontSize: 34, fontWeight: 'bold', fill: '#38761d' }), T(body, x, y + 56, { width: 348, fontSize: 24 })));
   },
-  'Certificate': async () => {
-    board.add(R(32, 32, 752, 992, { stroke: '#b08a32', strokeWidth: 6 }), R(48, 48, 720, 960),
+  'Certificate': async page => {
+    page.add(R(32, 32, 752, 992, { stroke: '#b08a32', strokeWidth: 6 }), R(48, 48, 720, 960),
       T('Certificate', 80, 120, { width: 656, fontSize: 72, textAlign: 'center', fontFamily: 'Lora' }),
       T('of Achievement', 80, 220, { width: 656, fontSize: 40, textAlign: 'center' }),
       T('Presented to', 80, 360, { width: 656, textAlign: 'center' }),
@@ -803,26 +1027,26 @@ const STARTERS = {
       T('For your wonderful work', 80, 570, { width: 656, textAlign: 'center' }),
       T('Date: __________', 90, 820), T('Signed: __________', 430, 820));
   },
-  'Name tags': async () => {
+  'Name tags': async page => {
     for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) {
       const x = 32 + c * 384, y = 48 + r * 240;
-      board.add(R(x, y, 368, 216, { rx: 16, ry: 16, fill: '#e6f1ff' }), T('Hello, my name is', x + 16, y + 24, { width: 336, textAlign: 'center', fontSize: 26 }), T('Name', x + 16, y + 92, { width: 336, textAlign: 'center', fontSize: 54, fontFamily: 'Balsamiq Sans' }));
+      page.add(R(x, y, 368, 216, { rx: 16, ry: 16, fill: '#e6f1ff' }), T('Hello, my name is', x + 16, y + 24, { width: 336, textAlign: 'center', fontSize: 26 }), T('Name', x + 16, y + 92, { width: 336, textAlign: 'center', fontSize: 54, fontFamily: 'Balsamiq Sans' }));
     }
   },
-  'Flash cards': async () => {
+  'Flash cards': async page => {
     for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) {
       const x = 32 + c * 384, y = 48 + r * 320;
-      board.add(R(x, y, 368, 304, { strokeDashArray: [6, 6] }), T('Word', x + 20, y + 80, { width: 328, fontSize: 52, textAlign: 'center' }), T('Meaning or picture', x + 20, y + 200, { width: 328, fontSize: 24, textAlign: 'center' }));
+      page.add(R(x, y, 368, 304, { strokeDashArray: [6, 6] }), T('Word', x + 20, y + 80, { width: 328, fontSize: 52, textAlign: 'center' }), T('Meaning or picture', x + 20, y + 200, { width: 328, fontSize: 24, textAlign: 'center' }));
     }
   },
-  'Calendar': async () => {
-    board.add(T('Month Year', 48, 48, { width: 720, fontSize: 56, textAlign: 'center', kbName: 'Title' }));
-    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((day, c) => board.add(T(day, 48 + c * 720 / 7, 162, { width: 720 / 7, fontSize: 24, textAlign: 'center' })));
-    board.add(...tableCells(6, 7, 210, 780, 'Date'));
+  'Calendar': async page => {
+    page.add(T('Month Year', 48, 48, { width: 720, fontSize: 56, textAlign: 'center', kbName: 'Title' }));
+    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((day, c) => page.add(T(day, 48 + c * 720 / 7, 162, { width: 720 / 7, fontSize: 24, textAlign: 'center' })));
+    page.add(...tableCells(6, 7, 210, 780, 'Date', 816));
   },
-  'Handwriting worksheet': async () => {
-    board.add(T('Handwriting Practice', 48, 40, { width: 720, fontSize: 48 }), T('Name: __________   Date: __________', 48, 120, { width: 720, fontSize: 26 }));
-    for (let r = 0; r < 8; r++) board.add(handwritingLines(720).set({ left: 48, top: 230 + r * 96 }), T(r === 0 ? 'Trace your words here' : ' ', 52, 216 + r * 96, { width: 700, fontSize: 42, fontFamily: 'Patrick Hand', fill: '#aaaaaa' }));
+  'Handwriting worksheet': async page => {
+    page.add(T('Handwriting Practice', 48, 40, { width: 720, fontSize: 48 }), T('Name: __________   Date: __________', 48, 120, { width: 720, fontSize: 26 }));
+    for (let r = 0; r < 8; r++) page.add(handwritingLines(720).set({ left: 48, top: 230 + r * 96 }), T(r === 0 ? 'Trace your words here' : ' ', 52, 216 + r * 96, { width: 700, fontSize: 42, fontFamily: 'Patrick Hand', fill: '#aaaaaa' }));
   },
 };
 

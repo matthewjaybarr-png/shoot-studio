@@ -37,16 +37,7 @@ Copy and paste: Ctrl+C copies a photo's settings and Ctrl+V pastes them, onto th
 1. Download `KB.Studio_<version>_amd64.AppImage` from the [latest release](https://github.com/matthewjaybarr-png/shoot-studio/releases/latest).
 2. Move it to `~/Applications/ShootStudio.AppImage` and make it executable: right-click → Properties → Permissions → "Allow executing file as program", or `chmod +x ~/Applications/ShootStudio.AppImage`.
 3. AppImages need FUSE 2. If the app doesn't start, install it: `sudo apt install libfuse2` on Zorin 17 / Ubuntu 22.04, or `sudo apt install libfuse2t64` on Ubuntu 24.04 and later.
-4. To add it to the app menu, save this as `~/.local/share/applications/shoot-studio.desktop`, replacing `USER` with your user name:
-
-   ```ini
-   [Desktop Entry]
-   Type=Application
-   Name=KB Studio
-   Exec=/home/USER/Applications/ShootStudio.AppImage
-   Terminal=false
-   Categories=Graphics;Photography;
-   ```
+4. Start it once by double-clicking. KB Studio then adds itself to the app menu with its icon, and on Zorin OS and other GNOME desktops pins itself to the taskbar. It pins itself only once: if you unpin it, it stays unpinned. Each update refreshes the menu entry and icon, and if you move the AppImage, the next launch points the entry at the new place.
 
 The AppImage file must belong to the user who runs it, so the app can replace it when it updates.
 
@@ -81,9 +72,11 @@ CI builds the AppImage, signs it, and publishes a release with `latest.json`, wh
 
 The start screen offers Create next to Photos: a small Canva-style maker for posters, labels, charts and cards. It is offline too; everything it uses is bundled.
 
-- Pick a page (Letter, landscape Letter, half sheet, quarter sheet), then add text, pictures, shapes, arrows and clip art from the left. Click a thing to change its font, size, colour or outline on the right; the Layers list reorders, hides and locks. Delete removes, Ctrl+Z / Ctrl+Y undo and redo, arrow keys nudge.
-- Group/ungroup with Ctrl+G / Ctrl+Shift+G, align or distribute selected objects, and copy/paste between designs. Paste or drop pictures; use Ctrl+wheel or the zoom buttons to zoom and Fit to show the page.
-- Select a picture and choose Crop picture. Drag edges to crop or drag inside to reposition the source, then Apply crop; Cancel or Esc discards it. Frames resize with the crop.
+- The buttons down the left open drawers: **Templates** (pictures of each one; on a blank page a template fills it, otherwise it opens as a new design), **Elements** (shapes, graphics, tables, QR codes), **Text** (heading, subheading, body), **Uploads**, **Draw** (picks up the pen while it's open) and **Layers** (reorder, hide, lock).
+- Click something on the page and its options appear along the top: font, size − / +, colour, bold, alignment, spacing, border, corners, crop, frame, flip, effects, transparency and Position (arrange, align, equal gaps). With nothing selected it offers the background colour. A small toolbar above the selection duplicates, locks and deletes; ⋯ or a right-click opens a menu with copy, paste, layer order, lock, group and centre on the page.
+- **Resize** changes the page size (Letter, landscape Letter, half sheet, quarter sheet). **Download & print** holds PDF, PNG, JPEG, Print, tiling, copies, the print-safe margin, the black-and-white preview and Save as template.
+- Delete removes, Ctrl+Z / Ctrl+Y undo and redo, arrow keys nudge, Ctrl+] / Ctrl+[ move forward and back, Ctrl+Shift+] / Ctrl+Shift+[ to the front and back. Group/ungroup with Ctrl+G / Ctrl+Shift+G, and copy/paste between designs. Paste or drop pictures; use Ctrl+wheel or the zoom buttons to zoom and Fit to show the page.
+- Select a picture and choose Crop. Drag edges to crop or drag inside to reposition the source, then Apply crop; Cancel or Esc discards it. Frames resize with the crop.
 - Search clip art by name or category. Add editable tables, handwriting lines or a QR code containing a link or text. Eleven bundled fonts and nine starter templates cover charts, cards, certificates, calendars and worksheets.
 - Designs save themselves as one `.json` file each (pictures included) in `~/Documents/KB Studio/`, and your own templates in its `Templates` folder. Saved fonts and colours live in the app's settings.
 - PDF, PNG and JPEG export are at 300 dpi and go to the `Exports` folder there. Print makes the PDF and opens it in your PDF viewer, which prints it. Tile mode puts two half sheets or four quarter sheets on one Letter page with cut marks. "Preview in B&W" shows a greyscale preview only; the file is still in colour.

@@ -3,6 +3,7 @@
 // The one network call is the update check, made here in Rust; the webview stays offline.
 #[allow(dead_code)] // copied whole; not every function is used yet
 mod creations;
+mod desktop;
 mod photocraft;
 mod retouch;
 
@@ -862,6 +863,13 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate::default())
         .manage(Retouching::default())
+        .setup(|app| {
+            // As an AppImage: the app menu entry and icon follow each update, and the dock pin happens once.
+            if let Ok(config) = app.path().app_config_dir() {
+                std::thread::spawn(move || desktop::run(config));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_version,
             check_update,

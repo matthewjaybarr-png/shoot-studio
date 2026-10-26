@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- KB Studio: a camera whose lens holds an apple, with a gold star. Photography and teaching. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#ffc24b"/><stop offset="0.55" stop-color="#ff7a59"/><stop offset="1" stop-color="#d9487a"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.38" cy="0.32" r="0.8">
+      <stop offset="0" stop-color="#5b7fd6"/><stop offset="0.6" stop-color="#253a7a"/><stop offset="1" stop-color="#141c3d"/>
+    </radialGradient>
+    <linearGradient id="apple" x1="0" y1="0" x2="0.3" y2="1"><stop offset="0" stop-color="#ff5a4e"/><stop offset="1" stop-color="#c81f33"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)"/>
+  <rect x="164" y="112" width="132" height="70" rx="22" fill="#fff6ec"/>
+  <rect x="70" y="150" width="372" height="266" rx="56" fill="#fff6ec"/>
+  <rect x="70" y="214" width="372" height="40" fill="#f3e2cf"/>
+  <rect x="356" y="126" width="54" height="30" rx="10" fill="#4a4e69"/>
+  <circle cx="256" cy="290" r="112" fill="#2b2d42"/>
+  <circle cx="256" cy="290" r="92" fill="#4a4e69"/>
+  <circle cx="256" cy="290" r="78" fill="url(#glass)"/>
+  <path d="M256 262 C 238 246, 206 250, 204 286 C 202 322, 228 350, 248 347 C 252 346, 254 344, 256 344 C 258 344, 260 346, 264 347 C 284 350, 310 322, 308 286 C 306 250, 274 246, 256 262 Z" fill="url(#apple)"/>
+  <path d="M256 262 C 256 250, 259 241, 266 233" fill="none" stroke="#6b3e1f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M265 246 C 272 228, 292 222, 306 226 C 300 242, 282 250, 265 246 Z" fill="#4caf50"/>
+  <ellipse cx="228" cy="280" rx="9" ry="16" transform="rotate(25 228 280)" fill="#ffffff" opacity="0.55"/>
+  <path d="M120 106 l13 27 30 4 -22 21 6 30 -27 -15 -27 15 6 -30 -22 -21 30 -4 z" fill="#ffd23f" stroke="#fff6ec" stroke-width="6" stroke-linejoin="round" transform="rotate(-12 120 140)"/>
+</svg>

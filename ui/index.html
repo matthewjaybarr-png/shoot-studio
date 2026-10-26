@@ -13,7 +13,8 @@
     <button id="deliver-open" type="button" title="Ctrl+E" disabled>Deliver…</button>
   </header>
   <section id="home" aria-label="Start">
-    <h1>KB Studio</h1>
+    <h1><img src="icon.svg" alt="" class="logo">KB Studio</h1>
+    <p id="home-status" role="status"></p>
     <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button></div>
     <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
     <h2 hidden>Recent designs</h2><div id="home-recent" class="home-list"></div>
@@ -22,49 +23,125 @@
     <div class="create-bar">
       <button id="create-home" type="button">⌂ Start</button>
       <input id="create-title" type="text" aria-label="Design name" spellcheck="false">
-      <button id="create-undo" type="button" title="Ctrl+Z">Undo</button><button id="create-redo" type="button" title="Ctrl+Y">Redo</button>
-      <label>Page <select id="create-page"></select></label>
-      <label>Print <select id="create-tile"><option value="single">One per sheet</option><option value="sheet">Tiled on Letter, with cut marks</option></select></label>
-      <label>Copies <input id="create-copies" type="number" min="1" max="20" value="1"></label>
-      <label>Background <input id="create-bg" type="color" value="#ffffff"></label>
-      <button id="create-zoom-out" type="button" aria-label="Zoom out">−</button><output id="create-zoom">100%</output><button id="create-zoom-in" type="button" aria-label="Zoom in">+</button><button id="create-fit" type="button">Fit</button>
-      <label><input id="create-margin" type="checkbox" checked> Print-safe margin</label>
-      <label><input id="create-bw" type="checkbox"> Preview in B&amp;W</label>
+      <button id="create-undo" type="button" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button><button id="create-redo" type="button" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+      <button type="button" data-pop="pop-resize">Resize</button>
       <span id="create-saved" role="status"></span>
-      <button id="create-save-template" type="button">Save as template</button>
-      <button id="create-png" type="button">PNG</button><button id="create-jpeg" type="button">JPEG</button><button id="create-pdf" type="button">PDF</button><button id="create-print" type="button">Print</button>
+      <span class="zoom"><button id="create-zoom-out" type="button" aria-label="Zoom out">−</button><output id="create-zoom">100%</output><button id="create-zoom-in" type="button" aria-label="Zoom in">+</button><button id="create-fit" type="button">Fit</button></span>
+      <button type="button" class="primary" data-pop="pop-share">Download &amp; print</button>
+    </div>
+    <div id="create-context" role="toolbar" aria-label="Change the selection">
+      <span data-for="none" class="ctx-hint">Click something on the page to change it.</span>
+      <label data-for="none" title="Background colour"><input id="create-bg" type="color" value="#ffffff"> Background</label>
+      <span data-for="locked" class="ctx-hint">This is locked.</span>
+      <button data-for="locked" type="button" data-act="lock">Unlock</button>
+      <span data-for="text"><select id="prop-font" aria-label="Font"></select><button id="prop-fav" type="button" title="Favourite font" aria-label="Favourite font">★</button></span>
+      <span data-for="text" class="stepper"><button id="prop-size-down" type="button" aria-label="Smaller text">−</button><input id="prop-size" type="number" min="6" max="400" aria-label="Text size"><button id="prop-size-up" type="button" aria-label="Larger text">+</button></span>
+      <label data-for="text shape line multi" class="swatch-input" title="Colour"><input id="prop-fill" type="color" aria-label="Colour"></label>
+      <button data-for="none text shape line multi" type="button" data-pop="pop-colours" title="Saved colours" aria-label="Saved colours">▾</button>
+      <span data-for="text"><button id="prop-bold" type="button" title="Bold" aria-label="Bold"><b>B</b></button><button id="prop-italic" type="button" title="Italic" aria-label="Italic"><i>I</i></button><button id="prop-underline" type="button" title="Underline" aria-label="Underline"><u>U</u></button></span>
+      <span data-for="text"><button type="button" data-text-align="left" title="Align left" aria-label="Align left">⇤</button><button type="button" data-text-align="center" title="Centre" aria-label="Centre">↔</button><button type="button" data-text-align="right" title="Align right" aria-label="Align right">⇥</button></span>
+      <button data-for="text" type="button" data-pop="pop-spacing">Spacing</button>
+      <button data-for="shape image line multi" type="button" data-pop="pop-outline">Border</button>
+      <label data-for="rect">Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
+      <button data-for="image" id="prop-crop" type="button">Crop</button>
+      <label data-for="image">Frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option></select></label>
+      <button data-for="shape image group multi" type="button" data-pop="pop-flip">Flip</button>
+      <button data-for="object" type="button" data-pop="pop-effects">Effects</button>
+      <button data-for="object" type="button" data-pop="pop-transparency">Transparency</button>
+      <button data-for="object" type="button" data-pop="pop-position">Position</button>
+      <button data-for="multi" id="prop-group" type="button">Group</button><button data-for="group" id="prop-ungroup" type="button">Ungroup</button>
     </div>
     <p id="create-font-warning" role="status" hidden>Some fonts could not load. Fallback fonts may change text layout. Export and Print are unavailable. Save your work and restart KB Studio; if this keeps happening, reinstall it.</p>
     <div class="create-body">
-      <div class="create-side"><div id="create-tools"></div><input id="create-file" type="file" accept="image/*" multiple hidden><details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details><details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details><details><summary>Clip art</summary><input id="emoji-search" type="search" placeholder="Search clip art" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p></details></div>
+      <nav id="create-rail" aria-label="Add to the design">
+        <button type="button" data-drawer="templates"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>Templates</button>
+        <button type="button" data-drawer="elements"><svg viewBox="0 0 24 24"><circle cx="7.5" cy="7.5" r="4.5"/><rect x="13" y="3" width="8" height="8" rx="1"/><path d="M7.5 13 12 21H3z"/><path d="M17 13l1.2 2.6 2.8.3-2.1 1.9.6 2.8-2.5-1.5-2.5 1.5.6-2.8-2.1-1.9 2.8-.3z"/></svg>Elements</button>
+        <button type="button" data-drawer="text"><svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>Text</button>
+        <button type="button" data-drawer="uploads"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>Uploads</button>
+        <button type="button" data-drawer="draw"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8l-3-3L5 16zM14 7l3 3"/></svg>Draw</button>
+        <button type="button" data-drawer="layers"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>Layers</button>
+      </nav>
+      <aside id="create-drawer" hidden>
+        <section data-panel="templates" hidden><h3>Templates</h3><p class="hint">On a blank page a template fills it; otherwise it opens as a new design.</p><div id="drawer-templates" class="template-grid"></div></section>
+        <section data-panel="elements" hidden>
+          <h3>Shapes</h3><div id="create-tools" class="shape-grid"></div>
+          <h3>Graphics</h3><input id="emoji-search" type="search" placeholder="Search graphics" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p>
+          <details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details>
+          <details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details>
+        </section>
+        <section data-panel="text" hidden>
+          <h3>Text</h3>
+          <button id="add-heading" type="button" class="text-preset heading">Add a heading</button>
+          <button id="add-subheading" type="button" class="text-preset subheading">Add a subheading</button>
+          <button id="add-body" type="button" class="text-preset body">Add a little bit of body text</button>
+          <button id="add-text" type="button">Add a text box</button>
+        </section>
+        <section data-panel="uploads" hidden>
+          <h3>Uploads</h3>
+          <button id="add-image" type="button" class="primary wide">Upload pictures</button><input id="create-file" type="file" accept="image/*" multiple hidden>
+          <p class="hint">Or drag pictures from your files onto the page, or paste one with Ctrl+V. In Photos, “Use in a design” sends a developed photo here.</p>
+        </section>
+        <section data-panel="draw" hidden>
+          <h3>Draw</h3>
+          <button id="create-draw" type="button" class="wide">Pen</button>
+          <label>Colour <input id="draw-colour" type="color" value="#444444"></label>
+          <label>Thickness <input id="draw-width" type="range" min="1" max="40" value="3"></label>
+          <p class="hint">Draw on the page with the mouse. Each stroke is its own item you can move, recolour or delete.</p>
+        </section>
+        <section data-panel="layers" hidden><h3>Layers</h3><p class="hint">Top of the list is in front.</p><ul id="layers"></ul></section>
+      </aside>
       <div id="create-stage"><canvas id="create-canvas"></canvas></div>
-      <div class="create-side">
-        <div id="props" class="none">
-          <div class="text-only"><select id="prop-font" aria-label="Font"></select> <button id="prop-fav" type="button" title="Favourite font">★</button> <input id="prop-size" type="number" min="6" max="400" aria-label="Size"> <button id="prop-bold" type="button"><b>B</b></button> <button type="button" data-text-align="left">⇤</button><button type="button" data-text-align="center">↔</button><button type="button" data-text-align="right">⇥</button></div>
-          <label>Colour <input id="prop-fill" type="color"></label> <label>Outline <input id="prop-stroke" type="color"></label>
-          <label>Opacity <input id="prop-opacity" type="number" min="0" max="100" value="100"></label>
-          <label>Outline width <input id="prop-width" type="number" min="0" max="100" value="3"></label>
-          <label>Outline style <select id="prop-dash"><option value="solid">Solid</option><option value="dash">Dashed</option><option value="dot">Dotted</option></select></label>
-          <label>Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
-          <label><input id="prop-shadow" type="checkbox"> Shadow</label>
-          <button id="prop-flip-x" type="button">Flip horizontal</button><button id="prop-flip-y" type="button">Flip vertical</button>
-          <div class="text-only">
-            <button id="prop-italic" type="button"><i>Italic</i></button><button id="prop-underline" type="button"><u>Underline</u></button>
-            <label>Letter spacing <input id="prop-spacing" type="number" min="-100" max="1000" value="0"></label>
-            <label>Line height <input id="prop-line-height" type="number" min="0.5" max="5" step="0.1" value="1.16"></label>
-            <label><input id="prop-highlight-on" type="checkbox"> Highlight</label><input id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
-          </div>
-          <button id="prop-crop" type="button">Crop picture</button>
-          <label>Picture frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option></select></label>
-          <div id="align-tools"></div>
-          <button id="prop-distribute-x" type="button">Equal horizontal gaps</button><button id="prop-distribute-y" type="button">Equal vertical gaps</button>
-          <button id="prop-group" type="button">Group</button><button id="prop-ungroup" type="button">Ungroup</button>
-          <button id="prop-cut" type="button">Cut</button><button id="prop-clipboard-copy" type="button">Copy</button><button id="prop-paste" type="button">Paste</button>
-          <button id="prop-copy" type="button">Duplicate</button> <button id="prop-delete" type="button">Delete</button>
-        </div>
-        <div><button id="colour-save" type="button">Save this colour</button><div id="colours"></div></div>
-        <h3>Layers</h3><ul id="layers"></ul>
-      </div>
+    </div>
+    <div id="pop-resize" class="pop" hidden><label>Page size <select id="create-page"></select></label></div>
+    <div id="pop-share" class="pop" hidden>
+      <h4>Download</h4>
+      <div class="row"><button id="create-pdf" type="button">PDF</button><button id="create-png" type="button">PNG</button><button id="create-jpeg" type="button">JPEG</button></div>
+      <button id="create-print" type="button" class="primary wide">Print</button>
+      <h4>Printing</h4>
+      <label>Print <select id="create-tile"><option value="single">One per sheet</option><option value="sheet">Tiled on Letter, with cut marks</option></select></label>
+      <label>Copies <input id="create-copies" type="number" min="1" max="20" value="1"></label>
+      <label class="check"><input id="create-margin" type="checkbox" checked> Show the print-safe margin</label>
+      <label class="check"><input id="create-bw" type="checkbox"> Preview in black &amp; white</label>
+      <h4>Templates</h4>
+      <button id="create-save-template" type="button" class="wide">Save as template</button>
+    </div>
+    <div id="pop-colours" class="pop" hidden><div id="colours"></div><button id="colour-save" type="button" class="wide">Save this colour</button><p class="hint">Right-click a saved colour to remove it.</p></div>
+    <div id="pop-spacing" class="pop" hidden>
+      <label>Letter spacing <input id="prop-spacing" type="number" min="-100" max="1000" value="0"></label>
+      <label>Line height <input id="prop-line-height" type="number" min="0.5" max="5" step="0.1" value="1.16"></label>
+    </div>
+    <div id="pop-outline" class="pop" hidden>
+      <label data-for="shape image multi">Colour <input id="prop-stroke" type="color"></label>
+      <label>Thickness <input id="prop-width" type="number" min="0" max="100" value="3"></label>
+      <label>Style <select id="prop-dash"><option value="solid">Solid</option><option value="dash">Dashed</option><option value="dot">Dotted</option></select></label>
+    </div>
+    <div id="pop-flip" class="pop" hidden><button id="prop-flip-x" type="button" class="wide">Flip horizontal</button><button id="prop-flip-y" type="button" class="wide">Flip vertical</button></div>
+    <div id="pop-effects" class="pop" hidden>
+      <label class="check"><input id="prop-shadow" type="checkbox"> Shadow</label>
+      <label data-for="text" class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input data-for="text" id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
+    </div>
+    <div id="pop-transparency" class="pop" hidden><label>Transparency <input id="prop-opacity" type="range" min="0" max="100" value="100"></label></div>
+    <div id="pop-position" class="pop" hidden>
+      <h4>Arrange</h4>
+      <div class="grid2"><button id="prop-front" type="button">To front</button><button id="prop-forward" type="button">Forward</button><button id="prop-back" type="button">To back</button><button id="prop-backward" type="button">Backward</button></div>
+      <h4>Align</h4><div id="align-tools" class="grid3"></div>
+      <div data-for="multi"><h4>Spacing</h4><div class="grid2"><button id="prop-distribute-x" type="button">Equal gaps across</button><button id="prop-distribute-y" type="button">Equal gaps down</button></div></div>
+    </div>
+    <div id="create-float" role="toolbar" aria-label="Selection" hidden>
+      <button id="prop-copy" type="button" title="Duplicate (Ctrl+D)" aria-label="Duplicate"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
+      <button id="float-lock" type="button" data-act="lock" title="Lock" aria-label="Lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+      <button id="prop-delete" type="button" title="Delete" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+      <button id="float-more" type="button" title="More" aria-label="More">⋯</button>
+    </div>
+    <div id="create-menu" role="menu" hidden></div>
+    <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
+      <h3 id="whatsnew-title">Create has a new look</h3>
+      <ul>
+        <li>Add things from the buttons on the left: Templates, Elements, Text, Uploads, Draw and Layers.</li>
+        <li>Click something on the page and its options appear along the top.</li>
+        <li>Right-click for copy, paste, layers and lock. Download and Print are at the top right.</li>
+      </ul>
+      <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
   </section>
   <main id="grid" class="grid" tabindex="-1"></main>

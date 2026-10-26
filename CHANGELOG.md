@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+
+- Create has a Canva-style layout. Icon buttons down the left open drawers for Templates, Elements, Text, Uploads, Draw and Layers; the toolbar along the top shows only the options for what is selected; Download & print and Resize sit in the top bar. A one-time card explains the new layout.
+- A floating toolbar above the selection duplicates, locks and deletes. Right-click, or ⋯, opens a menu with copy, paste, duplicate, delete, bring to front, forward, backward, send to back, lock, group and centre on the page.
+- Templates show a picture of themselves on the start screen and in the drawer. On a blank page a template fills it in place; otherwise it opens as a new design.
+- Heading, subheading and body text presets; − and + buttons for text size; To front and To back (Ctrl+Shift+] and Ctrl+Shift+[); pen colour and thickness in Draw.
+- Designs made by a newer KB Studio are refused with a message instead of opening incorrectly.
+- A new icon: a camera with an apple in its lens and a gold star.
+- KB Studio adds itself to the app menu at launch, replacing a hand-made menu entry, and on GNOME (Zorin OS) pins itself to the taskbar once. Updates refresh the entry and icon.
+
 ## 0.10.0
 
 - Retouch brushes: Blur (L), Dodge (O) and Burn (I). Dodge and burn start at 25% strength. Recipes move to version 6; older KB Studio can't open them.

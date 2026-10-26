@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "KB Studio",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "identifier": "dev.matt.shoot-studio",
   "build": { "frontendDist": "../ui" },
   "app": {
@@ -9,7 +9,7 @@
     "windows": [{ "title": "KB Studio", "width": 1300, "height": 850, "minWidth": 560, "minHeight": 460, "dragDropEnabled": false }],
     "security": { "csp": "default-src 'self'; img-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'" }
   },
-  "bundle": { "active": true, "targets": ["deb", "appimage"], "createUpdaterArtifacts": true, "icon": ["icons/32x32.png"] },
+  "bundle": { "active": true, "targets": ["deb", "appimage"], "createUpdaterArtifacts": true, "icon": ["icons/icon.png", "icons/128x128@2x.png", "icons/128x128.png", "icons/32x32.png"] },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEQ0QxNkE5ODk1MUM0NkQKUldSdHhGR0pxUmJOTGRWdjJYUVBXY3RBTFh6YXhjNTJyRXZ2bDVRV2doQWhheDlhWjVzcW5yTmsK",

@@ -1,9 +1,12 @@
 # Push a tag like v0.1.1 to build, sign and publish a release. The installed app finds it through
 # releases/latest/download/latest.json, so releases must be published (not drafts or prereleases).
+# Run it by hand (workflow_dispatch) for a test build: the same signed AppImage, kept as a workflow
+# artifact and never published, so installed copies don't see it.
 name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -13,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Tag matches the app version
+        if: github.ref_type == 'tag'
         run: |
           version=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
           test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME but tauri.conf.json says $version"; exit 1; }
@@ -36,6 +40,7 @@ jobs:
         env:
           CHROMIUM: google-chrome
       - uses: tauri-apps/tauri-action@v0
+        if: github.ref_type == 'tag'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -49,3 +54,19 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+      - name: Test build
+        if: github.event_name == 'workflow_dispatch'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: npx --yes @tauri-apps/cli@2
+          args: --bundles appimage
+      - name: Keep the test build
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-build
+          path: src-tauri/target/release/bundle/appimage/*.AppImage*
+          retention-days: 7

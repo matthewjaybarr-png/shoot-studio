@@ -815,7 +815,7 @@ const test = `<script>
     step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet', () => 'nine starter templates: ' + names);
     for (const name of names) {
       await settle(Promise.resolve($('#home-templates').children[names.indexOf(name)].click()));
-      await until(() => mode === 'create' && design.title === 'My ' + name && board.getObjects().length > 5, 'the ' + name + ' template opens');
+      await until(() => !navigating && mode === 'create' && design.title === 'My ' + name && board.getObjects().length > 5, 'the ' + name + ' template opens');
       step(board.getObjects().some(o => o.type === 'textbox' && o.text) && board.getObjects().every(o => !o.text || o.text.length < 120), 'the ' + name + ' has placeholder text');
       step(history.length === 2, 'the ' + name + ' template is one undo step');
       await settle($('#create-home').onclick(), 'Start saves and leaves');
@@ -1169,6 +1169,70 @@ const test = `<script>
     step(board.getObjects().length === 6 && board.getObjects().every(o => o.getSrc() === sharedImage.getSrc()), 'interned image sources restore through undo and redo');
     await settle(flush(), 'interned design save');
     step(JSON.parse(disk['c:designs:' + design.title]).canvas.objects.every(o => typeof o.src === 'string' && o.src.startsWith('data:')), 'disk format retains real image sources, no history tokens');
+    // The 0.11 layout: rail and drawers, the selection toolbar, pop-ups, floating toolbar, right-click menu, templates in place.
+    await settle(newDesign(), 'layout design');
+    const shown = sel => !$(sel).closest('[hidden]');
+    step(!$('#create-drawer').hidden && shown('[data-panel=elements]') && !shown('[data-panel=text]'), 'Create opens with the Elements drawer');
+    document.querySelector('[data-drawer=text]').click();
+    step(shown('[data-panel=text]') && !shown('[data-panel=elements]') && document.querySelector('[data-drawer=text]').classList.contains('on'), 'the rail switches drawers');
+    document.querySelector('[data-drawer=text]').click();
+    step($('#create-drawer').hidden, 'clicking the open tab closes the drawer');
+    document.querySelector('[data-drawer=draw]').click();
+    step(board.isDrawingMode && $('#create-float').hidden, 'the Draw tab picks up the pen');
+    document.querySelector('[data-drawer=elements]').click();
+    step(!board.isDrawingMode, 'leaving Draw puts the pen down');
+    step(shown('#create-bg') && !shown('#prop-font') && !shown('#prop-crop') && $('#create-float').hidden, 'with nothing selected the toolbar offers the background');
+    $('#add-heading').click(); const heading = board.getActiveObject(); heading.exitEditing?.();
+    step(heading.kbName === 'Heading' && heading.fontSize === 64 && heading.fontWeight === 'bold', 'Add a heading makes a big bold heading');
+    step(shown('#prop-font') && shown('#prop-bold') && !shown('#prop-crop') && !shown('#create-bg') && !shown('#prop-corners'), 'a text selection shows text tools only');
+    $('#prop-size-up').click(); step(heading.fontSize === 66, () => 'the size + button steps the text size: ' + heading.fontSize);
+    $('#prop-size-down').click(); step(heading.fontSize === 64, 'the size − button steps it back');
+    step(!$('#create-float').hidden && $('#create').contains($('#create-float')), 'the floating toolbar shows for the selection, inside Create');
+    $('#add-rect').click(); const box = board.getActiveObject();
+    step(shown('#prop-corners') && shown('#prop-fill') && !shown('#prop-font'), 'a rectangle shows shape tools and corners');
+    document.querySelector('[data-pop=pop-outline]').click();
+    step(!$('#pop-outline').hidden && shown('#prop-stroke') && $('#create').contains($('#pop-outline')), 'Border opens its panel');
+    selectObjects([heading]);
+    step($('#pop-outline').hidden, 'a pop-up closes when its button goes away');
+    $('#prop-front').click(); step(board.getObjects().at(-1) === heading, 'To front puts the selection on top');
+    $('#prop-back').click(); step(board.getObjects()[0] === heading, 'To back puts it underneath');
+    $('#float-lock').click();
+    step(heading.kbLocked && heading.lockMovementX && shown('#create-context [data-act=lock]') && !shown('#prop-font') && $('#prop-delete').hidden, 'Lock in the floating toolbar locks it and hides its tools');
+    $('#create-context [data-act=lock]').click();
+    step(!heading.kbLocked && shown('#prop-font') && !$('#prop-delete').hidden, 'Unlock in the toolbar unlocks it');
+    selectObjects([box]); centreOnPage();
+    step(Math.abs(box.getBoundingRect().left + box.getBoundingRect().width / 2 - 408) < 1 && Math.abs(box.getBoundingRect().top + box.getBoundingRect().height / 2 - 528) < 1, 'Centre on the page centres it both ways');
+    openMenu(100, 100);
+    const menuItems = () => [...$('#create-menu').querySelectorAll('button')].map(b => b.firstChild.textContent);
+    step(!$('#create-menu').hidden && ['Copy', 'Duplicate', 'Bring to front', 'Send to back', 'Lock'].every(i => menuItems().includes(i)), () => 'the right-click menu offers copy, layer and lock actions: ' + menuItems());
+    [...$('#create-menu').querySelectorAll('button')].find(b => b.firstChild.textContent === 'Duplicate').click();
+    await until(() => board.getObjects().length === 3 && $('#create-menu').hidden, 'Duplicate from the menu copies the selection and closes it');
+    openMenu(100, 100); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    step($('#create-menu').hidden && board.getActiveObject(), 'Escape closes the menu before it clears the selection');
+    $('#create-stage').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+    step(!$('#create-menu').hidden && menuItems().join() === 'Paste,Select all' && !board.getActiveObject(), () => 'right-clicking beside the page offers paste and select all: ' + menuItems());
+    closeMenus(); $('#create').inert = true; openMenu(100, 100);
+    step($('#create-menu').hidden, 'the menu stays shut while editing is frozen'); $('#create').inert = false;
+    // Templates fill a blank page in place, and open a new design when the page has work on it.
+    await settle(newDesign(), 'template in place');
+    document.querySelector('[data-drawer=templates]').click();
+    await until(() => $('#drawer-templates img')?.src.startsWith('data:image/png'), 'template pictures are drawn from the templates');
+    await settle(useTemplate('Labels', 'starter'), 'a template fills the blank page');
+    const inPlace = design.title;
+    step(inPlace.startsWith('My Labels') && board.getObjects().length > 5 && history.length === 2, () => 'a template fills a blank page in place as one undo step: ' + inPlace + ' ' + history.length);
+    await settle(useTemplate('Certificate', 'starter'), 'a template on a used page');
+    step(design.title.startsWith('My Certificate') && disk['c:designs:' + inPlace], 'a used page keeps its work and the template opens as a new design');
+    document.querySelector('[data-drawer=elements]').click();
+    // A design from a newer KB Studio is refused instead of opened wrongly.
+    disk['c:designs:From the future'] = JSON.stringify({ format: 2, page: 'letter', pages: [] });
+    const refusal = await openDesign('From the future').then(() => null, e => String(e));
+    step(refusal?.includes('newer KB Studio') && design.title !== 'From the future' && !$('#create').inert, () => 'a newer design format is refused: ' + refusal);
+    delete disk['c:designs:From the future'];
+    // What's new shows once.
+    settings.seen = 0; paintWhatsNew();
+    step(!$('#create-whatsnew').hidden, "What's new shows in Create until it is dismissed");
+    $('#whatsnew-ok').click();
+    await until(() => $('#create-whatsnew').hidden && JSON.parse(disk.createSettings).seen === 1, "Got it hides What's new for good");
     }
     // Photos sends a developed photo to Create.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
