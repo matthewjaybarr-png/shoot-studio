@@ -25,15 +25,23 @@ const emojiReady = fetch('emoji-index.json').then(r => { if (!r.ok) throw Error(
 emojiReady.catch(error => { $('#create-saved').textContent = 'Could not load clip art: ' + error; });
 const IMAGE_EDGE = 3300;                               // imported pictures are shrunk to this many pixels on the long edge
 const MAX_HISTORY = 50, MAX_HISTORY_BYTES = 250e6;
-const FORMAT = 1;                                      // the design file format this version writes and reads
+const FORMAT = 2;                                      // the newest design file format this version reads
+// Format 1 is one page in a named size; format 2 adds `pages` and a custom `size`. A one-page design in a named
+// size is still written as format 1, so older KB Studio keeps opening everything it can show correctly.
+const MAX_SIDE = 36, MAX_PAGES = 30;                   // custom sizes are 1–36 inches a side
+const blankPage = () => ({ objects: [], background: '#ffffff' });
+const validSize = s => Array.isArray(s) && s.length === 2 && s.every(v => Number.isFinite(v) && v >= 1 && v <= MAX_SIDE);
+const docPage = doc => doc.page === 'custom' && validSize(doc.size) ? 'custom' : PAGES[doc.page] ? doc.page : 'letter';
+const docSize = doc => docPage(doc) === 'custom' ? doc.size.map(Number) : sizeIn(docPage(doc));
+const docPages = doc => Array.isArray(doc.pages) && doc.pages.length ? doc.pages.slice(0, MAX_PAGES) : [doc.canvas || blankPage()];
 const KEEP = ['kbName', 'kbLocked', 'kbFrame'];        // our own fields, saved with every object
 const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
 
 const sizeIn = key => PAGES[key] || PAGES.letter;
 
 // Where the cards go on the paper (inches), and the cut marks between them. `tile` is 'single' or 'sheet'.
-function pageLayout(page, tile) {
-  const [w, h] = sizeIn(page), t = TILES[page];
+function pageLayout(page, tile, size = sizeIn(page)) {
+  const [w, h] = size, t = TILES[page];
   if (tile !== 'sheet' || !t) return { sheet: [w, h], tiles: [{ x: 0, y: 0, w, h }], marks: [] };
   const [sw, sh] = sizeIn(t.sheet), tiles = [], marks = [], tick = 0.2;
   for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) tiles.push({ x: c * w, y: r * h, w, h });
@@ -48,11 +56,12 @@ let nextImageId = 0, pageGuides = [];
 let board = null;                                      // the Fabric canvas
 let cropSession = null, guidelines, transforming = false, openPop = null, fitted = true, boardPan = null, spacePan = false, hovered = null;
 const PASTEBOARD = '#3a3c44';
-let design = null;                                     // { title, page, tile, copies }
+let design = null;                                     // { title, page, size (inches), tile, copies }
+let designPages = [], pageAt = 0;                      // every page's canvas JSON; the one being edited lives on the board instead
 let settings = { colours: [], fonts: [], seen: 0 };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
-const pagePx = () => sizeIn(design.page).map(v => Math.round(v * PX));
+const pagePx = () => design.size.map(v => Math.round(v * PX));
 const PAGE_LABEL = key => PAGE_NAMES[key] + (isSocial(key) ? ' (' + sizeIn(key).map(v => Math.round(v * PX * SOCIAL_SCALE)).join(' × ') + ' px)' : key.startsWith('photo-') ? '' : ' (' + sizeIn(key).join(' × ') + ' in)');
 // PNG and JPEG: social posts at their exact pixel size, everything else at 300 dpi.
 const pictureScale = () => isSocial(design.page) ? SOCIAL_SCALE : DPI / PX;
@@ -277,7 +286,12 @@ function fitBoard() {
   board.setViewportTransform([zoom, 0, 0, zoom, Math.round((board.width - w * zoom) / 2), Math.round((board.height - h * zoom) / 2)]);
   fitted = true; $('#create-zoom').textContent = Math.round(zoom * 100) + '%';
 }
-const blob = () => ({ format: FORMAT, page: design.page, tile: design.tile, copies: design.copies, canvas: board.toObject(KEEP) });
+const pageJSON = i => i === pageAt ? board.toObject(KEEP) : designPages[i];
+const allPages = () => designPages.map((_, i) => pageJSON(i));
+function blob() {
+  const list = allPages(), base = { page: design.page, tile: design.tile, copies: design.copies };
+  return list.length === 1 && design.page !== 'custom' ? { format: 1, ...base, canvas: list[0] } : { format: 2, ...base, size: design.page === 'custom' ? design.size : undefined, pages: list };
+}
 
 async function fonts() {
   const loads = await Promise.allSettled(FONTS.flatMap(f => ['400', '700'].map(w => document.fonts.load(`${w} 16px "${f}"`))));
@@ -290,10 +304,10 @@ async function open(doc, title, name) {
   startBoard();
   await fonts().catch(() => {}); // Editing can use fallback fonts; output remains strict.
   restoring = true;
-  design = { title, page: PAGES[doc.page] ? doc.page : 'letter', tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)) };
+  design = { title, page: docPage(doc), size: docSize(doc), tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)) };
   diskName = name; dirty = false;
-  await board.loadFromJSON(doc.canvas || { objects: [] });
-  if (!doc.canvas) board.backgroundColor = '#ffffff';
+  designPages = docPages(doc); pageAt = 0;
+  await board.loadFromJSON(designPages[0]);
   for (const o of board.getObjects()) applyLock(o);
   board.discardActiveObject();
   restoring = false;
@@ -377,7 +391,7 @@ $('#create-save-template').onclick = async () => {
 
 // ---- Undo and redo: whole-design snapshots, at most 50 and about 250 MB ----
 function remember() {
-  const text = JSON.stringify(blob(), (key, value) => {
+  const text = JSON.stringify({ ...blob(), at: pageAt }, (key, value) => {
     if (key !== 'src' || typeof value !== 'string') return value;
     if (!imageIds.has(value)) { const id = ++nextImageId; imageIds.set(value, id); historyImages.set(id, value); }
     return { kbImage: imageIds.get(value) };
@@ -393,14 +407,15 @@ function remember() {
   while (history.length > 1 && (history.length > MAX_HISTORY || historyBytes > MAX_HISTORY_BYTES)) { history.shift(); recount(); }
   here = history.length - 1; paintHistory();
 }
-function commitDesign() { if (restoring || cropSession) return; remember(); paintLayers(); paintPanel(); schedule(); }
+function commitDesign() { if (restoring || cropSession) return; remember(); paintLayers(); paintPanel(); schedule(); paintPagesSoon(); }
 async function stepHistory(by) {
   const to = here + by;
   if (to < 0 || to >= history.length || restoring) return;
   restoring = true;
   const doc = JSON.parse(history[to], (k, v) => k === 'src' && v?.kbImage ? historyImages.get(v.kbImage) : v);
-  design.page = doc.page; design.tile = doc.tile; design.copies = doc.copies;
-  await board.loadFromJSON(doc.canvas);
+  design.page = docPage(doc); design.size = docSize(doc); design.tile = doc.tile; design.copies = doc.copies;
+  designPages = docPages(doc); pageAt = Math.min(doc.at | 0, designPages.length - 1);
+  await board.loadFromJSON(designPages[pageAt]);
   for (const o of board.getObjects()) applyLock(o);
   restoring = false;
   here = to;
@@ -1028,16 +1043,16 @@ paintDrawer();
 // ---- Template pictures, drawn from the templates themselves ----
 const templateThumbs = new Map();
 const cached = (key, make) => { if (!templateThumbs.has(key)) templateThumbs.set(key, make().catch(error => { templateThumbs.delete(key); throw error; })); return templateThumbs.get(key); };
-async function drawThumb(size, build) {
+async function drawThumb(size, build, width = 280) {
   await fonts().catch(() => {});
   const [w, h] = size.map(v => Math.round(v * PX)), sc = new fabric.StaticCanvas(document.createElement('canvas'), { width: w, height: h, backgroundColor: '#ffffff' });
-  try { await build(sc); sc.renderAll(); return sc.toDataURL({ format: 'png', multiplier: 280 / w }); } finally { sc.dispose(); }
+  try { await build(sc); sc.renderAll(); return sc.toDataURL({ format: 'png', multiplier: width / w }); } finally { sc.dispose(); }
 }
 function templateThumb(name, source, modified) {
   if (source === 'starter') return cached('starter:' + name, () => drawThumb(sizeIn(starterPage(name)), page => STARTERS[name](page)));
   return cached(`mine:${name}:${modified}`, async () => {
     const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
-    return drawThumb(sizeIn(doc.page), c => c.loadFromJSON(doc.canvas || { objects: [] }));
+    return drawThumb(docSize(doc), c => c.loadFromJSON(docPages(doc)[0]));
   });
 }
 function templateButton(name, source, modified, onclick) {
@@ -1054,16 +1069,17 @@ async function paintTemplates() {
 // A blank page takes the template in place, like Canva; a page with work on it keeps it and opens a new design.
 async function useTemplate(name, source) {
   if ($('#create').inert || cropSession) return;
-  if (board.getObjects().length) return newDesign(name, source);
-  if (source === 'starter') { design.page = starterPage(name); design.tile = 'single'; await STARTERS[name](board); }
+  if (board.getObjects().length || designPages.length > 1) return newDesign(name, source);
+  if (source === 'starter') { design.page = starterPage(name); design.size = sizeIn(design.page); design.tile = 'single'; await STARTERS[name](board); }
   else {
     const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
     if ((doc.format ?? 1) > FORMAT) throw Error('it was made by a newer KB Studio; update KB Studio to use it');
     restoring = true;
     try {
-      await board.loadFromJSON(doc.canvas || { objects: [] });
+      designPages = docPages(doc); pageAt = 0;
+      await board.loadFromJSON(designPages[0]);
       for (const o of board.getObjects()) applyLock(o);
-      if (PAGES[doc.page]) design.page = doc.page;
+      design.page = docPage(doc); design.size = docSize(doc);
       design.tile = doc.tile === 'sheet' && TILES[design.page] ? 'sheet' : 'single';
     } finally { restoring = false; }
   }
@@ -1072,7 +1088,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 3;
+const WHATS_NEW = 4;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1084,14 +1100,103 @@ function paintAll() {
   $('#create-copies').value = design.copies;
   $('#create-bg').value = hex(board.backgroundColor) || '#ffffff';
   $('#create-tile').disabled = !TILES[design.page];
-  paintFonts(); paintColours(); paintLayers(); paintPanel(); paintHistory(); fitBoard(); paintBw();
+  $('#custom-size').hidden = design.page !== 'custom';
+  [$('#custom-w').value, $('#custom-h').value] = design.size;
+  paintFonts(); paintColours(); paintLayers(); paintPanel(); paintHistory(); fitBoard(); paintBw(); paintPages();
 }
 $('#create-page').replaceChildren(...PAGE_GROUPS.map(([label, keys]) => {
   const group = Object.assign(document.createElement('optgroup'), { label });
   group.append(...keys.map(k => Object.assign(document.createElement('option'), { value: k, textContent: PAGE_LABEL(k) })));
   return group;
-}));
-$('#create-page').onchange = e => { design.page = e.target.value; if (!TILES[design.page]) design.tile = 'single'; commitDesign(); paintAll(); };
+}), Object.assign(document.createElement('option'), { value: 'custom', textContent: 'Custom size…' }));
+$('#create-page').onchange = e => resizeDesign(e.target.value, e.target.value === 'custom' ? design.size : sizeIn(e.target.value));
+for (const id of ['#custom-w', '#custom-h']) $(id).onchange = () => {
+  const side = el => Math.min(MAX_SIDE, Math.max(1, Math.round((el.valueAsNumber || 1) * 100) / 100));
+  resizeDesign('custom', [side($('#custom-w')), side($('#custom-h'))]);
+};
+// Like Canva's Resize: every page is scaled about its middle to fit the new size, unless that is turned off.
+async function resizeDesign(page, size) {
+  if (cropSession || restoring || $('#create').inert) return paintAll();
+  await Promise.allSettled([...adding]);
+  const [ow, oh] = design.size, [nw, nh] = size;
+  let list = allPages();
+  if ($('#resize-scale').checked && (ow !== nw || oh !== nh)) {
+    const k = Math.min(nw / ow, nh / oh), dx = (nw - ow * k) / 2 * PX, dy = (nh - oh * k) / 2 * PX;
+    list = list.map(p => ({ ...p, objects: p.objects.map(o => ({ ...o, left: o.left * k + dx, top: o.top * k + dy, scaleX: (o.scaleX ?? 1) * k, scaleY: (o.scaleY ?? 1) * k })) }));
+  }
+  design.page = page; design.size = [...size];
+  if (!TILES[page]) design.tile = 'single';
+  designPages = list;
+  await loadPage(pageAt);
+  commitDesign(); paintAll();
+}
+
+// ---- Pages: one on the board at a time, the rest kept as JSON; the strip along the bottom switches between them ----
+async function loadPage(i) {
+  restoring = true;
+  try {
+    board.discardActiveObject();
+    await board.loadFromJSON(designPages[i]);
+    for (const o of board.getObjects()) applyLock(o);
+  } finally { restoring = false; }
+  pageAt = i; hovered = null;
+}
+const pageReady = () => !cropSession && !restoring && !$('#create').inert;
+async function showPage(i) {
+  if (i === pageAt || i < 0 || i >= designPages.length || !pageReady()) return;
+  await Promise.allSettled([...adding]);
+  designPages[pageAt] = board.toObject(KEEP);
+  await loadPage(i);
+  paintAll();
+}
+async function addPage(page = blankPage()) {
+  if (designPages.length >= MAX_PAGES || !pageReady()) return;
+  await Promise.allSettled([...adding]);
+  designPages[pageAt] = board.toObject(KEEP);
+  designPages.splice(pageAt + 1, 0, page);
+  await loadPage(pageAt + 1);
+  commitDesign(); paintAll();
+}
+const duplicatePage = () => addPage(JSON.parse(JSON.stringify(board.toObject(KEEP))));
+async function deletePage() {
+  if (designPages.length < 2 || !pageReady()) return;
+  await Promise.allSettled([...adding]);
+  designPages.splice(pageAt, 1);
+  await loadPage(Math.min(pageAt, designPages.length - 1));
+  commitDesign(); paintAll();
+}
+function movePage(by) {
+  const to = pageAt + by;
+  if (to < 0 || to >= designPages.length || !pageReady()) return;
+  designPages[pageAt] = board.toObject(KEEP);
+  [designPages[pageAt], designPages[to]] = [designPages[to], designPages[pageAt]];
+  pageAt = to;
+  commitDesign(); paintPages();
+}
+$('#page-add').onclick = () => addPage();
+$('#page-duplicate').onclick = duplicatePage;
+$('#page-delete').onclick = deletePage;
+$('#page-left').onclick = () => movePage(-1);
+$('#page-right').onclick = () => movePage(1);
+// Small pictures of the pages: the others are drawn once from their JSON, the one being edited shortly after each change.
+const pageThumbs = new WeakMap();
+let liveThumb = null, liveThumbTimer = null;
+const pageThumb = page => { if (!pageThumbs.has(page)) pageThumbs.set(page, drawThumb(design.size, c => c.loadFromJSON(page), 96).catch(() => '')); return pageThumbs.get(page); };
+function paintPagesSoon() { clearTimeout(liveThumbTimer); liveThumbTimer = setTimeout(() => { liveThumb = null; paintPages(); }, 700); }
+function paintPages() {
+  if (!design || !board) return;
+  const n = designPages.length;
+  if (!liveThumb) liveThumb = pageThumb(board.toObject(KEEP));
+  $('#page-list').replaceChildren(...designPages.map((page, i) => {
+    const b = button('', () => showPage(i)), img = new Image();
+    img.alt = ''; b.append(img, String(i + 1)); b.title = 'Page ' + (i + 1); b.classList.toggle('on', i === pageAt);
+    (i === pageAt ? liveThumb : pageThumb(page)).then(url => { if (url) img.src = url; });
+    return b;
+  }));
+  $('#page-count').textContent = `Page ${pageAt + 1} of ${n}`;
+  $('#page-left').disabled = pageAt === 0; $('#page-right').disabled = pageAt === n - 1;
+  $('#page-delete').disabled = n < 2; $('#page-add').disabled = $('#page-duplicate').disabled = n >= MAX_PAGES;
+}
 $('#create-tile').onchange = e => { design.tile = e.target.value; remember(); schedule(); };
 $('#create-copies').onchange = e => { design.copies = Math.min(20, Math.max(1, +e.target.value | 0 || 1)); e.target.value = design.copies; remember(); schedule(); };
 $('#create-bg').oninput = e => { board.backgroundColor = e.target.value; board.requestRenderAll(); };
@@ -1126,39 +1231,45 @@ $('#colour-save').onclick = () => {
 
 // ---- Output: PNG, JPEG and a 300-dpi PDF ----
 // Draw the design on a fresh canvas so the screen's zoom and selection never get in.
-async function render(multiplier, format, quality = 0.92) {
+async function render(multiplier, format, quality = 0.92, page = board.toObject(KEEP)) {
   await fonts();
   const [w, h] = pagePx(), sc = new fabric.StaticCanvas(document.createElement('canvas'), { width: w, height: h });
   try {
-    await sc.loadFromJSON(board.toObject(KEEP));
+    await sc.loadFromJSON(page);
     return sc.toDataURL({ format, quality, multiplier, enableRetinaScaling: false });
   } finally { sc.dispose(); }
 }
 const toBytes = url => Uint8Array.from(atob(url.slice(url.indexOf(',') + 1)), c => c.charCodeAt(0));
 const DPI = 300;
 
-// The PDF: one page per sheet of paper; a card tiled onto a Letter sheet repeats on it, with cut marks.
+// The PDF: one sheet of paper per page, all pages once per copy; a card tiled onto a Letter sheet repeats on it, with cut marks.
 async function makePdf() {
   board.discardActiveObject();
-  const layout = pageLayout(design.page, design.tile), [sw, sh] = layout.sheet;
-  const image = await render(DPI / PX, 'jpeg', 0.92), [pw, ph] = sizeIn(design.page);
+  const layout = pageLayout(design.page, design.tile, design.size), [sw, sh] = layout.sheet, [pw, ph] = design.size;
+  const images = [];
+  for (const page of allPages()) images.push(await render(DPI / PX, 'jpeg', 0.92, page));
   const pdf = new window.jspdf.jsPDF({ unit: 'in', format: [sw, sh], orientation: sw > sh ? 'landscape' : 'portrait', compress: true });
-  for (let page = 0; page < design.copies; page++) {
-    if (page) pdf.addPage([sw, sh], sw > sh ? 'landscape' : 'portrait');
-    for (const t of layout.tiles) pdf.addImage(image, 'JPEG', t.x, t.y, pw, ph, 'design', 'FAST');
+  for (let copy = 0, sheet = 0; copy < design.copies; copy++) images.forEach((image, i) => {
+    if (sheet++) pdf.addPage([sw, sh], sw > sh ? 'landscape' : 'portrait');
+    for (const t of layout.tiles) pdf.addImage(image, 'JPEG', t.x, t.y, pw, ph, 'page' + i, 'FAST');
     pdf.setDrawColor(110); pdf.setLineWidth(0.01);
     for (const [x1, y1, x2, y2] of layout.marks) pdf.line(x1, y1, x2, y2);
-  }
+  });
   return new Uint8Array(pdf.output('arraybuffer'));
 }
 async function output(kind, open = false) {
   const status = $('#create-saved');
   try {
     await flush();
-    status.textContent = 'Making ' + (kind === 'pdf' ? 'the PDF' : 'the picture') + '…';
-    const bytes = kind === 'pdf' ? await makePdf() : toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg'));
-    const file = await invoke('save_output', bytes, { headers: { name: encodeURIComponent(design.title), ext: kind === 'jpeg' ? 'jpg' : kind, open: String(open) } });
-    status.textContent = (open ? 'Opened ' : 'Saved ') + file;
+    const many = kind !== 'pdf' && designPages.length > 1;
+    status.textContent = 'Making ' + (kind === 'pdf' ? 'the PDF' : many ? 'the pictures' : 'the picture') + '…';
+    const save = (bytes, name) => invoke('save_output', bytes, { headers: { name: encodeURIComponent(name), ext: kind === 'jpeg' ? 'jpg' : kind, open: String(open) } });
+    if (kind === 'pdf') { const file = await save(await makePdf(), design.title); status.textContent = (open ? 'Opened ' : 'Saved ') + file; return; }
+    // A picture per page, numbered when there are several (an Instagram carousel, for one).
+    const pages = allPages();
+    let file;
+    for (const [i, page] of pages.entries()) file = await save(toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg', 0.92, page)), many ? `${design.title} page ${i + 1}` : design.title);
+    status.textContent = many ? `Saved ${pages.length} pictures in the Exports folder` : 'Saved ' + file;
   } catch (error) { status.textContent = 'Could not make it: ' + error; }
 }
 $('#create-pdf').onclick = () => output('pdf');

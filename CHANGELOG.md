@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+- Pages. A strip under the page shows them all; click one to edit it, add a blank page, duplicate, delete or move the one you're on. Undo covers page changes. PDF and Print include every page, once per copy; PNG and JPEG save a numbered picture per page.
+- Resize scales everything on every page to fit the new size, kept centred, unless "Scale everything to fit" is unticked. Custom size takes any width and height from 1 to 36 inches.
+- Designs with more than one page or a custom size are saved in format 2, which older KB Studio refuses with a message. One-page designs in a standard size are still saved as before.
+- The What's new card appears once more.
+
 ## 0.13.0
 
 - Photo frames in Elements: square, portrait, landscape, rounded and circle. Drop a photo on a frame, or on any picture, and it fills that spot, cropped from the middle, keeping the place, size, angle and shape. Dragging over one outlines it first. Clicking a photo, or uploading one, with an empty frame selected fills it.

@@ -780,7 +780,7 @@ const test = `<script>
     await until(() => disk['c:designs:Poster'] && !disk['c:designs:Untitled'], 'renaming moves the file');
     // Page sizes and tiling.
     put($('#create-page'), 'quarter', 'change');
-    step(pagePx().join() === '408,528' && !$('#create-tile').disabled, 'quarter sheet is 4.25 x 5.5 in');
+    await until(() => pagePx().join() === '408,528' && !$('#create-tile').disabled, 'quarter sheet is 4.25 x 5.5 in');
     const q = pageLayout('quarter', 'sheet');
     step(q.sheet.join() === '8.5,11' && q.tiles.map(t => t.x + ',' + t.y).join(' ') === '0,0 4.25,0 0,5.5 4.25,5.5' && q.marks.length === 4, 'four quarter cards tile onto a Letter with cut marks');
     const h = pageLayout('half', 'sheet');
@@ -804,6 +804,7 @@ const test = `<script>
     step($('#create-stage').classList.contains('bw'), 'Preview in B&W greys the page');
     $('#create-bw').click();
     put($('#create-page'), 'letter', 'change');
+    await until(() => pagePx().join() === '816,1056', 'back to Letter');
     // Home lists recent designs; opening one brings it back.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
     await until(() => $('#home-recent').children.length === 1 && $('#home-recent').textContent.startsWith('Poster'), 'home lists the recent design');
@@ -1224,7 +1225,7 @@ const test = `<script>
     step(design.title.startsWith('My Certificate') && disk['c:designs:' + inPlace], 'a used page keeps its work and the template opens as a new design');
     document.querySelector('[data-drawer=elements]').click();
     // A design from a newer KB Studio is refused instead of opened wrongly.
-    disk['c:designs:From the future'] = JSON.stringify({ format: 2, page: 'letter', pages: [] });
+    disk['c:designs:From the future'] = JSON.stringify({ format: FORMAT + 1, page: 'letter', pages: [] });
     const refusal = await openDesign('From the future').then(() => null, e => String(e));
     step(refusal?.includes('newer KB Studio') && design.title !== 'From the future' && !$('#create').inert, () => 'a newer design format is refused: ' + refusal);
     delete disk['c:designs:From the future'];
@@ -1475,6 +1476,67 @@ const test = `<script>
     const cardThumb = await templateThumb('Photo card', 'starter', 0);
     const cardImage = await new Promise(done => Object.assign(new Image(), { onload() { done(this); }, src: cardThumb }));
     step(cardImage.width > cardImage.height, 'template pictures have the template page shape');
+    // 0.14: pages, custom size and Resize that scales.
+    await settle(newDesign(), 'pages design');
+    put($('#create-title'), 'Pages test', 'change');
+    step($('#page-list').children.length === 1 && $('#page-delete').disabled && $('#page-count').textContent === 'Page 1 of 1' && blob().format === 1, 'a new design has one page and still saves as format 1');
+    addText('heading'); board.getActiveObject().exitEditing(); commitDesign();
+    $('#page-add').click();
+    await until(() => designPages.length === 2 && pageAt === 1 && board.getObjects().length === 0, 'Add page adds a blank page after this one and shows it');
+    addShape('star');
+    const two = blob();
+    step(two.format === 2 && two.pages.length === 2 && two.pages[0].objects[0].type.toLowerCase() === 'textbox' && two.pages[1].objects[0].kbName === 'Star' && !('canvas' in two), 'two pages save as format 2, each with its own things');
+    $('#page-list').children[0].click();
+    await until(() => pageAt === 0 && board.getObjects()[0]?.type === 'textbox', 'clicking a page in the strip shows it');
+    $('#page-list').children[1].click();
+    await until(() => pageAt === 1 && board.getObjects()[0]?.kbName === 'Star', 'and back');
+    $('#page-duplicate').click();
+    await until(() => designPages.length === 3 && pageAt === 2 && board.getObjects()[0]?.kbName === 'Star' && $('#page-count').textContent === 'Page 3 of 3', 'Duplicate page copies this page after it');
+    board.getObjects()[0].set({ fill: '#123456' }); commitDesign();
+    $('#page-left').click();
+    step(pageAt === 1 && allPages()[1].objects[0].fill === '#123456' && allPages()[2].objects[0].fill !== '#123456', 'moving a page earlier swaps it with the one before');
+    $('#create-undo').click();
+    await until(() => allPages()[2].objects[0].fill === '#123456' && pageAt === 2 && !restoring, 'undo puts the page back');
+    $('#page-delete').click();
+    await until(() => designPages.length === 2 && pageAt === 1, 'Delete page removes it');
+    $('#create-undo').click();
+    await until(() => designPages.length === 3 && !restoring, 'undo brings a deleted page back');
+    await flush();
+    const savedPages = JSON.parse(disk['c:designs:Pages test']);
+    step(savedPages.format === 2 && savedPages.pages.length === 3, 'all pages are saved');
+    for (const name of ['Pages test page 1.png', 'Pages test page 2.png', 'Pages test page 3.png']) delete window.outputs[name];
+    $('#create-png').click();
+    await until(() => window.outputs['Pages test page 3.png'] && window.outputs['Pages test page 1.png'], () => 'a picture is saved per page: ' + $('#create-saved').textContent);
+    step($('#create-saved').textContent === 'Saved 3 pictures in the Exports folder', 'and it says so');
+    put($('#create-copies'), '2', 'change');
+    $('#create-pdf').click();
+    await until(() => window.outputs['Pages test.pdf'], 'multi-page PDF');
+    const pagesPdf = new TextDecoder('latin1').decode(window.outputs['Pages test.pdf'].bytes);
+    step((pagesPdf.match(/\\/Type\\s*\\/Page\\b/g) || []).length === 6, () => 'the PDF has every page once per copy: ' + (pagesPdf.match(/\\/Type\\s*\\/Page\\b/g) || []).length);
+    put($('#create-copies'), '1', 'change');
+    await settle($('#create-home').onclick(), 'leave pages design');
+    await settle(openDesign('Pages test'), 'reopen pages design');
+    step(designPages.length === 3 && pageAt === 0 && board.getObjects()[0]?.type === 'textbox' && $('#page-list').children.length === 3, 'reopening brings every page back, starting on the first');
+    // Resize scales everything about the middle; a custom size is kept with the design.
+    const head = board.getObjects()[0], headBefore = head.getCenterPoint(), beforeWidth = head.getScaledWidth();
+    put($('#create-page'), 'quarter', 'change');
+    await until(() => pagePx().join() === '408,528', 'resized to quarter sheet');
+    const headAfter = board.getObjects()[0];
+    step(Math.abs(headAfter.getScaledWidth() - beforeWidth / 2) < 0.5 && Math.abs(headAfter.getCenterPoint().x - headBefore.x / 2) < 0.5 && Math.abs(headAfter.getCenterPoint().y - headBefore.y / 2) < 0.5 && allPages()[1].objects[0].scaleX === 0.5, 'Resize scales every page to fit, keeping things in place');
+    $('#resize-scale').checked = false;
+    put($('#create-page'), 'custom', 'change');
+    await until(() => !$('#custom-size').hidden && design.page === 'custom', 'Custom size shows width and height');
+    put($('#custom-w'), '10', 'change');
+    await until(() => pagePx().join() === '960,528', 'a custom width');
+    put($('#custom-h'), '99', 'change');
+    await until(() => pagePx().join() === '960,3456' && $('#custom-h').value === '36', 'custom sides stop at 36 inches');
+    step(Math.abs(board.getObjects()[0].getScaledWidth() - beforeWidth / 2) < 0.5, 'with scaling off, Resize leaves things as they are');
+    $('#resize-scale').checked = true;
+    await flush();
+    const custom = JSON.parse(disk['c:designs:Pages test']);
+    step(custom.format === 2 && custom.page === 'custom' && custom.size.join() === '10,36', 'a custom size is saved with the design');
+    await settle(openDesign('Pages test'), 'reopen custom design');
+    step(design.page === 'custom' && pagePx().join() === '960,3456', 'and comes back');
     document.body.dataset.testResult = 'PASS';
   } catch (e) { document.body.dataset.testResult = 'FAIL: ' + e.message; }
 })();

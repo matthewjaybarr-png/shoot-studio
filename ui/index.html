@@ -98,9 +98,26 @@
         </section>
         <section data-panel="layers" hidden><h3>Layers</h3><p class="hint">Top of the list is in front.</p><ul id="layers"></ul></section>
       </aside>
-      <div id="create-stage"><canvas id="create-canvas"></canvas></div>
+      <div id="create-work">
+        <div id="create-stage"><canvas id="create-canvas"></canvas></div>
+        <nav id="create-pages" aria-label="Pages">
+          <div id="page-list"></div>
+          <button id="page-add" type="button" title="Add a blank page after this one">+ Add page</button>
+          <span class="page-tools">
+            <output id="page-count"></output>
+            <button id="page-left" type="button" title="Move this page earlier" aria-label="Move page earlier">◀</button>
+            <button id="page-right" type="button" title="Move this page later" aria-label="Move page later">▶</button>
+            <button id="page-duplicate" type="button">Duplicate page</button>
+            <button id="page-delete" type="button">Delete page</button>
+          </span>
+        </nav>
+      </div>
     </div>
-    <div id="pop-resize" class="pop" hidden><label>Page size <select id="create-page"></select></label></div>
+    <div id="pop-resize" class="pop" hidden>
+      <label>Page size <select id="create-page"></select></label>
+      <div id="custom-size" class="row"><label>Width <input id="custom-w" type="number" min="1" max="36" step="0.25"> in</label><label>Height <input id="custom-h" type="number" min="1" max="36" step="0.25"> in</label></div>
+      <label class="check"><input id="resize-scale" type="checkbox" checked> Scale everything to fit the new size</label>
+    </div>
     <div id="pop-share" class="pop" hidden>
       <h4>Download</h4>
       <div class="row"><button id="create-pdf" type="button">PDF</button><button id="create-png" type="button">PNG</button><button id="create-jpeg" type="button">JPEG</button></div>
@@ -148,8 +165,9 @@
       <ul>
         <li>Add things from the buttons on the left: Templates, Elements, Text, Uploads, Draw and Layers.</li>
         <li>Click something on the page and its options appear along the top.</li>
-        <li>New: <b>This shoot</b> on the left holds the photos you're editing, with your edits. Drop one on a frame (Elements → Frames) or on a picture to fill it.</li>
-        <li>Photo prints, Instagram posts and stories are in Resize, with templates for them.</li>
+        <li>New: <b>pages</b>. Add, duplicate, reorder and delete them in the strip under the page. PDFs hold every page; PNG and JPEG save one picture per page.</li>
+        <li>Resize scales everything to fit the new size, and offers a custom size.</li>
+        <li><b>This shoot</b> on the left holds the photos you're editing, with your edits. Drop one on a frame (Elements → Frames) or on a picture to fill it.</li>
         <li>Drag shapes, text and graphics from the left straight onto the page. Things can hang off the edge.</li>
         <li>Scroll to move around the page, Ctrl+scroll to zoom, or hold Space and drag.</li>
         <li>Right-click for copy, paste, layers and lock. Download and Print are at the top right.</li>

@@ -156,7 +156,18 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 #layers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 #layers li{display:flex;gap:2px;align-items:center}#layers li.active{outline:2px solid var(--accent);border-radius:6px}#layers li.off .layer-name{opacity:.45}
 #layers .layer-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}#layers li button:not(.layer-name){padding:6px 7px}
-#create-stage{position:relative;flex:1;min-width:0;overflow:hidden;background:#3a3c44}
+#create-work{flex:1;min-width:0;display:flex;flex-direction:column}
+#create-stage{position:relative;flex:1;min-width:0;min-height:0;overflow:hidden;background:#3a3c44}
+#create-pages{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--deep);border-top:1px solid var(--edge);overflow-x:auto}
+#page-list{display:flex;gap:8px}
+#page-list button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px !important;font-size:11px;color:var(--muted)}
+#page-list button.on{outline:2px solid var(--accent);color:var(--text)}
+#page-list img{display:block;height:52px;width:auto;max-width:90px;background:#fff;border-radius:2px}
+#create-pages .page-tools{margin-left:auto;display:flex;align-items:center;gap:6px;white-space:nowrap}
+#page-count{font-size:12px;color:var(--muted)}
+#create-pages button{white-space:nowrap}
+#custom-size label{display:flex;align-items:center;gap:4px}
+#custom-size input{width:70px}
 #create-readout{position:absolute;z-index:16;padding:3px 8px;border-radius:6px;background:#000c;color:#fff;font-size:12px;font-variant-numeric:tabular-nums;pointer-events:none}
 #create-stage.bw{filter:grayscale(1)}
 .pop{position:absolute;z-index:20;min-width:220px;max-width:320px;padding:10px 12px;background:var(--panel);border:1px solid var(--edge);border-radius:10px;box-shadow:0 8px 28px #000a}
@@ -196,3 +207,5 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 @font-face{font-family:'Roboto Slab';font-weight:700;src:url(fonts/roboto-slab-latin-700-normal.woff2) format('woff2')}
 
 #create-font-warning{margin:0;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--edge)}
+#pop-resize{min-width:360px}
+#pop-resize > label:first-child{white-space:nowrap;gap:10px}
