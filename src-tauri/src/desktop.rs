@@ -71,6 +71,11 @@ pub fn integrate(data: &Path, appimage: &str) -> std::io::Result<bool> {
         }
     }
     changed |= write_if_changed(&icons.join(format!("512x512/apps/{ICON_NAME}.png")), ICON_PNG)?;
+    if changed {
+        // GNOME Shell notices new icons only when the theme folder itself changes, not a folder inside
+        // it, so without this the taskbar showed a gear until she logged out.
+        fs::File::open(&icons)?.set_modified(std::time::SystemTime::now())?;
+    }
     changed |= write_if_changed(&data.join("applications").join(DESKTOP_ID), entry(appimage).as_bytes())?;
     Ok(changed)
 }
@@ -175,10 +180,14 @@ mod tests {
             fs::create_dir_all(old.parent().unwrap()).unwrap();
             fs::write(old, b"previous icon").unwrap();
         }
+        let long_ago = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        fs::File::open(data.join("icons/hicolor")).unwrap().set_modified(long_ago).unwrap();
         fs::write(data.join("applications").join(DESKTOP_ID), "[Desktop Entry]\nName=KB Studio\nExec=/old\n").unwrap(); // the hand-made README entry
         assert!(integrate(&data, "/apps/KB.AppImage").unwrap());
         assert_eq!(fs::read_to_string(data.join("applications").join(DESKTOP_ID)).unwrap(), entry("/apps/KB.AppImage"));
         assert!(!old_svg.exists() && !old_png.exists(), "icons from earlier artwork must be removed");
+        let touched = fs::metadata(data.join("icons/hicolor")).unwrap().modified().unwrap();
+        assert!(touched.elapsed().unwrap() < std::time::Duration::from_secs(60), "the theme folder is touched so the shell rescans");
         assert_eq!(fs::read(data.join("icons/hicolor/512x512/apps/kb-studio-2.png")).unwrap(), ICON_PNG);
         assert!(entry("/x").contains("\nIcon=kb-studio-2\n"), "the menu entry names the new icon");
         assert!(!integrate(&data, "/apps/KB.AppImage").unwrap());
