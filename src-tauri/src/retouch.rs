@@ -9,6 +9,9 @@ use std::sync::Mutex;
 
 pub const MAX_STROKES: usize = 500;
 pub const MAX_POINTS: usize = 2000;
+/// Dodge stops doubling at 64 (six stops over white) so repeated strokes stay finite; the
+/// half floats sent to the shader overflow to infinity above 65504. Brighter pixels are left as they are.
+const DODGE_CAP: f32 = 64.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -23,6 +26,12 @@ pub enum Tool {
     Soften,
     /// Turn strongly red pixels into a dark pupil; the white catchlight isn't red, so it stays.
     Redeye,
+    /// Blur the area under the brush.
+    Blur,
+    /// Lighten: one stop of exposure under the brush, mixed in by strength.
+    Dodge,
+    /// Darken: minus one stop of exposure under the brush, mixed in by strength.
+    Burn,
 }
 
 /// One brush stroke. Points are 0–1 across the upright image, `size` is the brush radius over
@@ -84,7 +93,7 @@ pub fn validate(strokes: &[Stroke]) -> Result<(), String> {
         let strength_ok = s.strength.is_none_or(|k| (0.0..=1.0).contains(&k));
         match (s.tool, s.offset) {
             (Tool::Soften, None) if s.strength.is_some() && strength_ok => {}
-            (Tool::Redeye, None) if strength_ok => {}
+            (Tool::Redeye | Tool::Blur | Tool::Dodge | Tool::Burn, None) if strength_ok => {}
             (Tool::Spot | Tool::Heal | Tool::Clone, Some(o)) if strength_ok && o.iter().all(|v| (-1.0..=1.0).contains(v)) => {}
             _ => return bad("a bad offset or strength"),
         }
@@ -224,6 +233,19 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
                         out.push((low[i + c] + img[d + c] - fine[i + c]).max(0.0));
                     }
                 }
+            }
+            out
+        }
+        Tool::Blur => {
+            // ponytail: blurs at full size, seconds on a huge stroke; blur a downscaled copy if Deliver is slow
+            let win = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+            local_blur(img, w, h, 3, None, win, (0.25 * radius(stroke, w, h) as f32).max(1.0))
+        }
+        Tool::Dodge | Tool::Burn => {
+            let (gain, cap) = if stroke.tool == Tool::Dodge { (2.0, DODGE_CAP) } else { (0.5, f32::MAX) };
+            let mut out = Vec::with_capacity(rect.w * rect.h * 3);
+            for y in rect.y..rect.y + rect.h {
+                out.extend(img[(y * w + rect.x) * 3..(y * w + rect.x + rect.w) * 3].iter().map(|v| (v * gain).min(v.max(cap))));
             }
             out
         }
@@ -376,7 +398,7 @@ mod tests {
     fn stroke(tool: Tool, size: f64, points: &[[f64; 2]]) -> Stroke {
         let (offset, strength) = match tool {
             Tool::Soften => (None, Some(1.0)),
-            Tool::Redeye => (None, None),
+            Tool::Redeye | Tool::Blur | Tool::Dodge | Tool::Burn => (None, None),
             _ => (Some([0.0, 0.0]), None),
         };
         Stroke { tool, size, points: points.to_vec(), offset, strength, scaled: None }
@@ -472,6 +494,9 @@ mod tests {
             stroke(Tool::Clone, 0.04, &[[0.6, 0.5], [0.62, 0.6], [0.58, 0.7]]),
             stroke(Tool::Heal, 0.02, &[[0.5, 0.5]]),
             stroke(Tool::Soften, 0.05, &[[0.4, 0.6], [0.5, 0.65]]),
+            stroke(Tool::Blur, 0.03, &[[0.2, 0.7], [0.3, 0.75]]),
+            stroke(Tool::Dodge, 0.03, &[[0.7, 0.2], [0.75, 0.25]]),
+            stroke(Tool::Burn, 0.03, &[[0.8, 0.8]]),
         ];
         strokes[0].offset = Some([0.1, 0.0]);
         strokes[1].offset = Some([-0.2, -0.1]);
@@ -530,7 +555,16 @@ mod tests {
         let old: Stroke = serde_json::from_str(old).unwrap();
         assert_eq!(old.scaled, None);
         assert!(!serde_json::to_string(&old).unwrap().contains("scaled"));
-        assert!(serde_json::from_str::<Stroke>(r#"{"tool":"blur","size":0.01,"points":[]}"#).is_err());
+        assert!(serde_json::from_str::<Stroke>(r#"{"tool":"smudge","size":0.01,"points":[]}"#).is_err());
+        for tool in [Tool::Blur, Tool::Dodge, Tool::Burn] {
+            let plain = stroke(tool, 0.01, &[[0.5, 0.5]]);
+            assert!(validate(std::slice::from_ref(&plain)).is_ok());
+            let mut offset = plain.clone();
+            offset.offset = Some([0.0, 0.0]);
+            let mut scaled = plain.clone();
+            scaled.scaled = Some(true);
+            assert!(validate(&[offset]).is_err() && validate(&[scaled]).is_err());
+        }
     }
 
     #[test]
@@ -628,6 +662,47 @@ mod tests {
                 assert_eq!(a, b, "skin at {x},{y} changed");
             }
         }
+    }
+
+    #[test]
+    fn blur_smooths_noise_inside_the_stroke_only() {
+        let (w, h) = (200, 100);
+        let noisy: Vec<f32> = (0..w * h).flat_map(|i| [if ((i % w) + (i / w)) % 2 == 0 { 0.6 } else { 0.2 }; 3]).collect();
+        let mut img = noisy.clone();
+        let rect = apply(&mut img, w, h, &stroke(Tool::Blur, 0.05, &[[0.5, 0.5]]));
+        let at = |p: &[f32], x: usize, y: usize| p[(y * w + x) * 3];
+        let spread = |p: &[f32]| (at(p, 100, 50) - at(p, 101, 50)).abs();
+        assert!(spread(&img) < 0.3 * spread(&noisy), "{} -> {}", spread(&noisy), spread(&img));
+        for y in 0..h {
+            for x in 0..w {
+                if x < rect.x || y < rect.y || x >= rect.x + rect.w || y >= rect.y + rect.h {
+                    assert_eq!(at(&img, x, y), at(&noisy, x, y), "changed outside at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dodge_doubles_and_burn_halves_at_the_centre() {
+        let (w, h) = (100, 100);
+        for (tool, gain) in [(Tool::Dodge, 2.0), (Tool::Burn, 0.5)] {
+            let mut img = vec![0.3f32; w * h * 3];
+            apply(&mut img, w, h, &stroke(tool, 0.05, &[[0.5, 0.5]]));
+            assert!((img[(50 * w + 50) * 3] - 0.3 * gain).abs() < 1e-6, "{tool:?}");
+            assert_eq!(img[0], 0.3, "far corner untouched");
+        }
+    }
+
+    #[test]
+    fn repeated_dodge_stays_finite_in_replay_and_transport() {
+        let (w, h) = (40, 40);
+        let strokes = vec![stroke(Tool::Dodge, 0.05, &[[0.5, 0.5]]); 200];
+        let mut s = Session::new("d".into(), "p".into(), w, h, vec![1.0; w * h * 3], Vec::new());
+        s.update(strokes);
+        assert!(s.current.iter().all(|v| v.is_finite() && *v <= DODGE_CAP));
+        let b = s.region(Rect { x: 0, y: 0, w, h });
+        assert!(b[16..].chunks(2).all(|c| half::f16::from_le_bytes([c[0], c[1]]).is_finite()));
+        assert_eq!(s.current[(20 * w + 20) * 3], DODGE_CAP);
     }
 
     #[test]

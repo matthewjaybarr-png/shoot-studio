@@ -17,6 +17,7 @@ Retouch, in Develop: pick a brush, then paint over what you want gone. Strokes a
 - **B soften skin**: paint over skin to even out blotchy colour while keeping pores and fine detail. Strength sets how much.
 - [ and ] change the brush size. Heal and clone show source pixels inside the brush. With Aligned on (the default), the source offset carries between strokes; turn it off to restart each stroke from the chosen source. Strength controls every brush.
 - **E red eye**: click a red pupil, or drag out a circle over the eye. Only strongly red pixels are darkened, so the white catchlight stays.
+- **L blur**, **O dodge**, **I burn**: paint to blur a busy background, lighten (dodge) or darken (burn) by one stop. Dodge and burn start at 25% strength; build them up in light strokes.
 
 Looks, in Develop: pick one from the Look list (black & white, toned such as sepia, or a colour look), then set its strength from 0 to 100%. Every slider still works on top of it. Split toning tints shadows and highlights separately; Finishing adds a vignette (darker or lighter corners), film grain and a faded, matte black.
 

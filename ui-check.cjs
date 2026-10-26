@@ -341,7 +341,7 @@ const test = `<script>
     await until(() => editing?.ready && !sliders.disabled, 'D develops the photo');
     step(!develop.classList.contains('hidden') && grid.classList.contains('hidden') && calls.at(-1).command === 'develop_source' && calls.at(-1).args.name === 'IMG_0001.CR2', 'a RAW+JPEG pair develops from its RAW');
     slide('exposure', 1);
-    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 5, 'a slider change saves the recipe');
+    await until(() => savedRecipe('IMG_0001')?.exposure === 1 && savedRecipe('IMG_0001').version === 6, 'a slider change saves the recipe');
     step($('#develop-caption').textContent.includes('Edited') && sliders.querySelector('[data-key="exposure"]').previousElementSibling.textContent === '+1.00', 'caption says Edited; the slider shows its value');
     ctrl('z');
     await until(() => !savedRecipe('IMG_0001') && sliders.querySelector('[data-key="exposure"]').value === '0', 'Ctrl+Z undoes back to the camera file');
@@ -383,7 +383,7 @@ const test = `<script>
     const strength = sliders.querySelector('[data-key="lookAmount"]');
     step(strength.disabled && $('#look').querySelectorAll('optgroup').length === 3 && $('#look').options.length === LOOKS.length + 1, 'every look is in the list; strength is off without one');
     choose('#look', 'sepia');
-    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 5, 'choosing a look saves it');
+    await until(() => savedRecipe('IMG_0001')?.look === 'sepia' && savedRecipe('IMG_0001').version === 6, 'choosing a look saves it');
     step(!strength.disabled && strength.previousElementSibling.textContent === '100%', 'its strength slider turns on at 100%');
     slide('lookAmount', 40); slide('grain', 20);
     await until(() => savedRecipe('IMG_0001')?.lookAmount === 40 && savedRecipe('IMG_0001').grain === 20, 'strength and grain save on top of the look');
@@ -442,7 +442,7 @@ const test = `<script>
     step(saved.tool === 'spot' && nearAll(saved.points, spotPath.map(p => fitted(...p))) && saved.size === 0.01 && near(saved.offset, [0.05, 0]) && saved.strength === undefined, 'at fit, the stroke is saved at the photo points it covered, with the source Rust picked (' + JSON.stringify(saved) + ')');
     step(calls.some(c => c.command === 'spot_source' && c.args.name === 'IMG_0013.CR2' && near(c.args.stroke.points[0], saved.points[0])), 'spot heal asks Rust for its source');
     await until(() => calls.some(c => c.command === 'retouch' && c.args.strokes.length === 1 && c.args.name === 'IMG_0013.CR2'), 'and Rust applies the stroke');
-    step(savedRecipe('IMG_0013').version === 5 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
+    step(savedRecipe('IMG_0013').version === 6 && $('#develop-caption').textContent.includes('Edited'), 'a retouch alone makes the photo Edited');
 
     press(']');
     step(Math.abs(brush.size - 0.0125) < 1e-9 && sliders.querySelector('[data-brush="size"]').previousElementSibling.textContent === '20 px', '] makes the brush bigger');
@@ -561,6 +561,19 @@ const test = `<script>
     await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.at(-1)?.tool === 'redeye', 'Rust applies it');
     ctrl('z');
     await until(() => strokes().length === 2, 'and it undoes');
+    const spotCalls = calls.filter(c => c.command === 'spot_source').length;
+    for (const [key, name, start] of [['l', 'blur', 100], ['o', 'dodge', 25], ['i', 'burn', 25]]) {
+      press(key);
+      step(tool === name && sliders.querySelector('[data-brush="strength"]').value === String(start), key.toUpperCase() + ' picks ' + name + ' at ' + start + '%');
+      drag([[cx, cy], [cx + 10, cy]]);
+      await until(() => strokes().length === 3, 'a ' + name + ' stroke');
+      saved = strokes()[2];
+      step(saved.tool === name && !('offset' in saved) && !('scaled' in saved) && (start === 100 ? !('strength' in saved) : saved.strength === 0.25), name + ' saves with no source (' + JSON.stringify(saved) + ')');
+      await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.at(-1)?.tool === name, 'Rust applies ' + name);
+      ctrl('z');
+      await until(() => strokes().length === 2, name + ' undoes');
+    }
+    step(calls.filter(c => c.command === 'spot_source').length === spotCalls, 'blur, dodge and burn never ask for a heal source');
     press('Escape');
     step(tool === null && !develop.classList.contains('hidden') && !$('.stage').classList.contains('brush'), 'Esc drops the tool and stays in Develop');
 
@@ -595,7 +608,7 @@ const test = `<script>
     const applied = cropping.crop;
     press('Enter');
     await until(() => sameCrop(crop(), applied), 'Enter applies the crop and saves it');
-    step(!cropping && developer.view.zoom === null && sameCrop(developer.crop, applied) && savedRecipe('IMG_0013').version === 5 && strokes().length === 2, 'the view shows the cropped picture; the strokes are kept');
+    step(!cropping && developer.view.zoom === null && sameCrop(developer.crop, applied) && savedRecipe('IMG_0013').version === 6 && strokes().length === 2, 'the view shows the cropped picture; the strokes are kept');
     const [px0, py0] = developer.fromImage([0.6, 0.4]);
     step(close(developer.toImage(box.left + px0, box.top + py0), [0.6, 0.4], 1e-6), 'screen and photo points still match through the crop');
     ctrl('z');

@@ -26,7 +26,7 @@ const SLIDERS = [
   { key: 'grain', label: 'Grain', min: 0, max: 100, step: 1 },
   { key: 'fade', label: 'Fade', min: 0, max: 100, step: 1 }
 ];
-const RECIPE_VERSION = 5;
+const RECIPE_VERSION = 6;
 const DETAIL_EDGE = 3072; // main.rs DEVELOP_EDGE: Develop's source is averaged down by the whole factor ceil(long side / this), which is also Detail's scale at full size
 const SETTINGS = [...SLIDERS.map(s => s.key), 'look']; // everything but retouch and crop: what copy, paste and presets carry
 
@@ -61,14 +61,15 @@ const lookOf = id => LOOKS.find(l => l.id === id);
 
 // Retouch strokes, as retouch.rs checks them: points 0–1 across the upright photo, size the brush radius
 // over the long edge, offset (source minus destination) for the copying tools, strength (0–1, left out for all of it; soften always has one), and for soften `scaled` (its bands follow the brush; older strokes lack it).
-const TOOLS = { spot: 'Spot heal', heal: 'Heal', clone: 'Clone', soften: 'Soften skin', redeye: 'Red eye' };
+const TOOLS = { spot: 'Spot heal', heal: 'Heal', clone: 'Clone', soften: 'Soften skin', redeye: 'Red eye', blur: 'Blur', dodge: 'Dodge', burn: 'Burn' };
 const STROKE_LIMITS = { strokes: 500, points: 2000, minSize: 0.001, maxSize: 0.1 };
 const unit = v => Number.isFinite(v) && v >= 0 && v <= 1;
+const NO_SOURCE = { redeye: true, blur: true, dodge: true, burn: true }; // tools that copy nothing, so carry no offset
 const validStroke = s => !!s && TOOLS[s.tool] && Number.isFinite(s.size) && s.size >= STROKE_LIMITS.minSize && s.size <= STROKE_LIMITS.maxSize
   && Array.isArray(s.points) && s.points.length >= 1 && s.points.length <= STROKE_LIMITS.points && s.points.every(p => Array.isArray(p) && p.length === 2 && p.every(unit))
   && (s.strength === undefined ? s.tool !== 'soften' : unit(s.strength))
   && (s.tool === 'soften' ? s.offset === undefined && (s.scaled === undefined || typeof s.scaled === 'boolean')
-    : s.scaled === undefined && (s.tool === 'redeye' ? s.offset === undefined : Array.isArray(s.offset) && s.offset.length === 2 && s.offset.every(v => Number.isFinite(v) && Math.abs(v) <= 1)));
+    : s.scaled === undefined && (NO_SOURCE[s.tool] ? s.offset === undefined : Array.isArray(s.offset) && s.offset.length === 2 && s.offset.every(v => Number.isFinite(v) && Math.abs(v) <= 1)));
 
 // Crop: a rectangle (x, y, w, h, 0–1) of the straightened photo, which is the upright photo turned
 // `angle` degrees clockwise about its centre (keeping its size), then cropped. Copied rather than shared

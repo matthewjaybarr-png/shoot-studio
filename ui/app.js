@@ -17,7 +17,7 @@ const KEYS = {
   grid: `←→↑↓ move · Enter loupe · D develop · C compare · ${CULL_KEYS} · Ctrl/Shift+click select · Ctrl+A select all · ${COPY_KEYS} (onto the selection)`,
   loupe: `←→ move · Enter or Esc grid · D develop · C compare · ${CULL_KEYS} · ${COPY_KEYS}`,
   compare: `←→ change the right photo · C one photo · Esc grid · ${CULL_KEYS}`,
-  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · [ ] brush size · Ctrl+click heal/clone source · R crop · wheel or + - zoom · 0 fit · 1 100% · Z toggle zoom · Space+drag pan · Esc drop tool, then grid`
+  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · L blur · O dodge · I burn · [ ] brush size · Ctrl+click heal/clone source · R crop · wheel or + - zoom · 0 fit · 1 100% · Z toggle zoom · Space+drag pan · Esc drop tool, then grid`
 };
 
 const fileOf = photo => photo.jpg || photo.raw;
@@ -184,9 +184,9 @@ let retouching = Promise.resolve();
 const queue = step => { const run = retouching.then(step); retouching = run.catch(() => {}); return run; };
 
 // Retouch brushes. Size is the brush radius over the photo's long edge, on a log slider.
-let tool = null, brush = { size: 0.01 }, strengths = { soften: 0.5 }, aligned = true, stroke = null, panning = null, spaceHeld = false, pointer = null;
+let tool = null, brush = { size: 0.01 }, strengths = { soften: 0.5, dodge: 0.25, burn: 0.25 }, aligned = true, stroke = null, panning = null, spaceHeld = false, pointer = null;
 const COPIES = { heal: true, clone: true }; // tools that copy from a source you Alt+click or Ctrl+click
-const strengthOf = t => strengths[t] ?? 1; // soften starts at half; the rest at all of it
+const strengthOf = t => strengths[t] ?? 1; // soften starts at half, dodge and burn at a quarter; the rest at all of it
 const sizeToSlider = size => Math.round(100 * Math.log(size / STROKE_LIMITS.minSize) / Math.log(100));
 const sliderToSize = v => STROKE_LIMITS.minSize * 100 ** (v / 100);
 const round = v => Math.round(v * 1e5) / 1e5;
@@ -219,7 +219,7 @@ sliders.insertAdjacentHTML('beforeend', `<h3>Crop</h3><div class="crop"><button 
   <label><span>Straighten</span><output></output><input type="range" min="${-MAX_ANGLE}" max="${MAX_ANGLE}" step="0.1" value="0" data-crop="angle"></label>
   <p id="crop-hint"></p><button id="crop-reset" type="button">Reset crop</button>`);
 sliders.insertAdjacentHTML('beforeend', `<h3>Retouch</h3><div class="tools">${Object.entries(TOOLS).map(([key, label]) =>
-  `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E' }[key]}</kbd></button>`).join('')}</div>
+  `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E', blur: 'L', dodge: 'O', burn: 'I' }[key]}</kbd></button>`).join('')}</div>
   <label><span>Brush size</span><output></output><input type="range" min="0" max="100" step="1" data-brush="size"></label>
   <label id="strength"><span>Strength</span><output></output><input type="range" min="0" max="100" step="1" data-brush="strength"></label>
   <label id="aligned"><span>Aligned (keep the source distance)</span><input type="checkbox" checked></label>
@@ -231,7 +231,10 @@ const HINTS = {
   heal: 'Alt+click (or Ctrl+click) a clean area, then paint. The circle shows what is copied. Its texture is blended into the colour around the stroke.',
   clone: 'Alt+click (or Ctrl+click) a source, then paint. Exact copy, no blending. For skin, use Heal.',
   soften: 'Paint over skin to smooth blotches while keeping pores and fine detail. A small brush reaches wrinkles; 40-60% softens them.',
-  redeye: 'Click a red pupil, or drag out a circle over the eye. Only strongly red pixels darken; the white catchlight stays.'
+  redeye: 'Click a red pupil, or drag out a circle over the eye. Only strongly red pixels darken; the white catchlight stays.',
+  blur: 'Paint to blur the area, such as a busy background. Strength mixes the blur in; a bigger brush blurs more.',
+  dodge: 'Paint to lighten, like holding back light in the darkroom. Build it up in light strokes at 25%.',
+  burn: 'Paint to darken, like adding light in the darkroom. Build it up in light strokes at 25%.'
 };
 function paintTools() {
   for (const button of sliders.querySelectorAll('[data-tool]')) { button.classList.toggle('active', button.dataset.tool === tool); button.disabled = !!cropping; }
@@ -795,7 +798,7 @@ async function finishStroke() {
   else if (s.strength < 1) done.strength = round(s.strength);
   if (s.tool === 'redeye') { brush.size = s.size; paintTools(); }
   else if (COPIES[s.tool]) { done.offset = e.offset; if (!aligned) e.offset = null; } // not aligned: the next stroke starts from the clicked source again
-  else if (s.tool !== 'soften') {
+  else if (s.tool === 'spot') {
     // Spot heal: Rust picks the best nearby source before the stroke is saved, so it replays the same way.
     try {
       done.offset = await queue(() => developer.owner === e ? invoke('spot_source', { dir: e.shoot, name: e.source, stroke: { ...done, offset: [0, 0] } }) : null);
@@ -1084,7 +1087,7 @@ document.addEventListener('keydown', event => {
     d: () => { view = 'develop'; showViewer(); },
     '\\': () => { if (view === 'develop' && !before) { before = true; draw(); } },
     ...view === 'develop' && {
-      r: toggleCrop, j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'),
+      r: toggleCrop, j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'), l: () => pickTool('blur'), o: () => pickTool('dodge'), i: () => pickTool('burn'),
       '[': () => resize(1 / 1.25), ']': () => resize(1.25),
       z: () => { const box = canvas.getBoundingClientRect(); developer?.toggleZoom(pointer?.clientX ?? box.left + box.width / 2, pointer?.clientY ?? box.top + box.height / 2); draw(); }
     },

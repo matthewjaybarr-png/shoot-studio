@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0
+
+- Retouch brushes: Blur (L), Dodge (O) and Burn (I). Dodge and burn start at 25% strength. Recipes move to version 6; older KB Studio can't open them.
+
 ## 0.9.0
 
 - Create editing: smart guides and page snapping; group and ungroup; align selected objects and distribute equal gaps; cut, copy, paste and duplicate selections across designs; paste or drop pictures; zoom and Fit.
