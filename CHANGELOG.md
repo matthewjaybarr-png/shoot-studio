@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.0
+
+- Colours, next to the colour box: the colours already used in this design (every page), saved colours and a default palette. With nothing selected it colours the background.
+- Text effects under Effects: Shadow, Lift, Hollow, Outline and Neon, shown as previews. Recolouring hollow or neon text recolours its outline or glow. Effects are kept with the design.
+- Drag layers in the Layers list to reorder them.
+- The start screen shows a picture of each recent design's first page.
+
 ## 0.14.0
 
 - Pages. A strip under the page shows them all; click one to edit it, add a blank page, duplicate, delete or move the one you're on. Undo covers page changes. PDF and Print include every page, once per copy; PNG and JPEG save a numbered picture per page.

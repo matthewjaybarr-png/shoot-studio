@@ -37,7 +37,7 @@
       <span data-for="text"><select id="prop-font" aria-label="Font"></select><button id="prop-fav" type="button" title="Favourite font" aria-label="Favourite font">★</button></span>
       <span data-for="text" class="stepper"><button id="prop-size-down" type="button" aria-label="Smaller text">−</button><input id="prop-size" type="number" min="6" max="400" aria-label="Text size"><button id="prop-size-up" type="button" aria-label="Larger text">+</button></span>
       <label data-for="text shape line multi" class="swatch-input" title="Colour"><input id="prop-fill" type="color" aria-label="Colour"></label>
-      <button data-for="none text shape line multi" type="button" data-pop="pop-colours" title="Saved colours" aria-label="Saved colours">▾</button>
+      <button data-for="none text shape line multi" type="button" data-pop="pop-colours" id="colours-open" title="Colours: this design's, saved and default" aria-label="Colours">Colours ▾</button>
       <span data-for="text"><button id="prop-bold" type="button" title="Bold" aria-label="Bold"><b>B</b></button><button id="prop-italic" type="button" title="Italic" aria-label="Italic"><i>I</i></button><button id="prop-underline" type="button" title="Underline" aria-label="Underline"><u>U</u></button></span>
       <span data-for="text"><button type="button" data-text-align="left" title="Align left" aria-label="Align left">⇤</button><button type="button" data-text-align="center" title="Centre" aria-label="Centre">↔</button><button type="button" data-text-align="right" title="Align right" aria-label="Align right">⇥</button></span>
       <button data-for="text" type="button" data-pop="pop-spacing">Spacing</button>
@@ -130,7 +130,12 @@
       <h4>Templates</h4>
       <button id="create-save-template" type="button" class="wide">Save as template</button>
     </div>
-    <div id="pop-colours" class="pop" hidden><div id="colours"></div><button id="colour-save" type="button" class="wide">Save this colour</button><p class="hint">Right-click a saved colour to remove it.</p></div>
+    <div id="pop-colours" class="pop" hidden>
+      <h4>In this design</h4><div id="colours-document" class="swatches"></div>
+      <h4>Saved</h4><div id="colours" class="swatches"></div>
+      <button id="colour-save" type="button" class="wide">Save this colour</button><p class="hint">Right-click a saved colour to remove it.</p>
+      <h4>Default colours</h4><div id="colours-default" class="swatches"></div>
+    </div>
     <div id="pop-spacing" class="pop" hidden>
       <label>Letter spacing <input id="prop-spacing" type="number" min="-100" max="1000" value="0"></label>
       <label>Line height <input id="prop-line-height" type="number" min="0.5" max="5" step="0.1" value="1.16"></label>
@@ -142,7 +147,8 @@
     </div>
     <div id="pop-flip" class="pop" hidden><button id="prop-flip-x" type="button" class="wide">Flip horizontal</button><button id="prop-flip-y" type="button" class="wide">Flip vertical</button></div>
     <div id="pop-effects" class="pop" hidden>
-      <label class="check"><input id="prop-shadow" type="checkbox"> Shadow</label>
+      <div data-for="text" id="text-effects" class="effect-grid"></div>
+      <label data-for="shape image line group multi" class="check"><input id="prop-shadow" type="checkbox"> Shadow</label>
       <label data-for="text" class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input data-for="text" id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
     </div>
     <div id="pop-transparency" class="pop" hidden><label>Transparency <input id="prop-opacity" type="range" min="0" max="100" value="100"></label></div>

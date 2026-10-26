@@ -34,7 +34,7 @@ const validSize = s => Array.isArray(s) && s.length === 2 && s.every(v => Number
 const docPage = doc => doc.page === 'custom' && validSize(doc.size) ? 'custom' : PAGES[doc.page] ? doc.page : 'letter';
 const docSize = doc => docPage(doc) === 'custom' ? doc.size.map(Number) : sizeIn(docPage(doc));
 const docPages = doc => Array.isArray(doc.pages) && doc.pages.length ? doc.pages.slice(0, MAX_PAGES) : [doc.canvas || blankPage()];
-const KEEP = ['kbName', 'kbLocked', 'kbFrame'];        // our own fields, saved with every object
+const KEEP = ['kbName', 'kbLocked', 'kbFrame', 'kbEffect']; // our own fields, saved with every object
 const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
 
 const sizeIn = key => PAGES[key] || PAGES.letter;
@@ -82,7 +82,18 @@ async function paintHome() {
   const [designs, mine] = await Promise.all([invoke('list_creations', { kind: 'designs' }).catch(() => []), invoke('list_creations', { kind: 'templates' }).catch(() => [])]);
   const status = $('#home-status'), tell = name => error => { status.textContent = `Could not open “${name}”: ${error.message || error}`; };
   status.textContent = '';
-  recent.replaceChildren(...designs.map(d => button(d.name, () => openDesign(d.name).catch(tell(d.name)), new Date(d.modified * 1000).toLocaleDateString())));
+  recent.replaceChildren(...designs.map((d, i) => {
+    const b = button(d.name, () => openDesign(d.name).catch(tell(d.name)), new Date(d.modified * 1000).toLocaleDateString());
+    // The newest designs show their first page, drawn once per saved version.
+    if (i < 24) {
+      const img = new Image(); img.alt = ''; b.prepend(img); b.classList.add('template');
+      cached(`design:${d.name}:${d.modified}`, async () => {
+        const doc = JSON.parse(await invoke('load_creation', { kind: 'designs', name: d.name }));
+        return drawThumb(docSize(doc), c => c.loadFromJSON(docPages(doc)[0]), 200);
+      }).then(url => { img.src = url; }, () => img.remove());
+    }
+    return b;
+  }));
   recent.previousElementSibling.hidden = !designs.length;
   starters.replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, () => newDesign(n, 'starter').catch(tell(n)))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, () => newDesign(t.name, 'mine').catch(tell(t.name)))));
 }
@@ -756,6 +767,15 @@ function applyLock(o) {
   const locked = !!o.kbLocked;
   o.set({ lockMovementX: locked, lockMovementY: locked, lockRotation: locked, lockScalingX: locked, lockScalingY: locked, hasControls: !locked, editable: !locked });
 }
+// Move the object at stack index `from` next to the one at `to`: in front of it when dropped above its row (the list is front-first).
+function moveLayer(from, to, above) {
+  const objects = board.getObjects(), o = objects[from];
+  if (!o || from === to) return;
+  let at = above ? to + 1 : to;
+  if (from < at) at--;
+  board.moveObjectTo(o, Math.max(0, Math.min(objects.length - 1, at)));
+  board.requestRenderAll(); commitDesign();
+}
 function paintLayers() {
   const list = $('#layers'), objects = board.getObjects(), active = board.getActiveObject();
   list.replaceChildren(...objects.map((o, i) => {
@@ -765,6 +785,21 @@ function paintLayers() {
     const name = button(o.type === 'textbox' && o.text ? `Text: ${o.text.slice(0, 18)}` : kindOf(o), () => { if (o.visible !== false) board.setActiveObject(o); board.requestRenderAll(); paintPanel(); });
     name.className = 'layer-name';
     const act = (label, title, run) => { const b = button(label, () => { run(); }); b.title = title; return b; };
+    // Rows drag to reorder, like Canva's layers: drop above a row to put it in front of that one.
+    row.draggable = true; row.dataset.index = i;
+    row.ondragstart = e => { e.dataTransfer.setData('application/x-kb-layer', String(i)); e.dataTransfer.effectAllowed = 'move'; };
+    row.ondragover = e => {
+      if (!e.dataTransfer.types.includes('application/x-kb-layer')) return;
+      e.preventDefault(); const above = e.offsetY < row.offsetHeight / 2;
+      row.classList.toggle('drop-above', above); row.classList.toggle('drop-below', !above);
+    };
+    row.ondragleave = () => row.classList.remove('drop-above', 'drop-below');
+    row.ondrop = e => {
+      const from = +e.dataTransfer.getData('application/x-kb-layer'), above = row.classList.contains('drop-above');
+      row.classList.remove('drop-above', 'drop-below');
+      if (!e.dataTransfer.types.includes('application/x-kb-layer')) return;
+      e.preventDefault(); moveLayer(from, i, above);
+    };
     row.append(
       name,
       act('↑', 'Bring forward', () => { board.moveObjectTo(o, Math.min(objects.length - 1, i + 1)); commitDesign(); }),
@@ -793,7 +828,7 @@ function paintPanel() {
   if (openPop && openPop.anchor.hidden) closeMenus();
   paintFloat();
   if (o) {
-    $('#prop-fill').value = hex(o.fill) || '#000000';
+    $('#prop-fill').value = hex(o.kbEffect === 'hollow' ? o.stroke : o.fill) || '#000000';
     $('#prop-stroke').value = hex(o.stroke) || '#000000';
     if (text) { $('#prop-font').value = o.fontFamily; $('#prop-size').value = Math.round(o.fontSize * (o.scaleY || 1)); $('#prop-bold').classList.toggle('on', o.fontWeight === 'bold' || o.fontWeight === 700); }
     $('#prop-opacity').value = Math.round(o.opacity * 100); $('#prop-width').value = o.strokeWidth;
@@ -805,6 +840,7 @@ function paintPanel() {
       $('#prop-italic').classList.toggle('on', o.fontStyle === 'italic'); $('#prop-underline').classList.toggle('on', !!o.underline);
       $('#prop-spacing').value = o.charSpacing; $('#prop-line-height').value = o.lineHeight;
       $('#prop-highlight-on').checked = !!o.textBackgroundColor; $('#prop-highlight').value = hex(o.textBackgroundColor) || '#fff2cc';
+      for (const b of $('#text-effects').children) b.classList.toggle('on', b.dataset.effect === (o.kbEffect || 'none'));
     }
     $('#prop-fav').classList.toggle('on', text && settings.fonts.includes(o.fontFamily));
   }
@@ -817,7 +853,7 @@ function change(props) {
   for (const o of targets) { o.set(typeof props === 'function' ? props(o) : props); o.setCoords(); }
   board.requestRenderAll(); commitDesign();
 }
-$('#prop-fill').oninput = e => change(o => o.type === 'line' ? { stroke: e.target.value } : { fill: e.target.value });
+$('#prop-fill').oninput = e => change(o => o.type === 'line' || o.kbEffect === 'hollow' ? { stroke: e.target.value } : o.kbEffect === 'neon' ? { fill: e.target.value, shadow: new fabric.Shadow({ ...o.shadow, color: e.target.value }) } : { fill: e.target.value });
 $('#prop-stroke').oninput = e => change({ stroke: e.target.value, paintFirst: 'stroke' });
 $('#prop-fill').onchange = $('#prop-stroke').onchange = () => paintPanel();
 $('#prop-font').onchange = e => change(o => o.type === 'textbox' ? { fontFamily: e.target.value } : {});
@@ -843,6 +879,25 @@ $('#prop-underline').onclick = () => change(o => o.type === 'textbox' ? { underl
 $('#prop-spacing').onchange = e => change(o => o.type === 'textbox' ? { charSpacing: bounded(e, -100, 1000) } : {});
 $('#prop-line-height').onchange = e => change(o => o.type === 'textbox' ? { lineHeight: bounded(e, 0.5, 5, 1.16) } : {});
 const highlight = () => change(o => o.type === 'textbox' ? { textBackgroundColor: $('#prop-highlight-on').checked ? $('#prop-highlight').value : '' } : {});
+// Canva-style text effects. Each starts from plain text in the text's own colour (a hollow text's colour is its outline).
+const TEXT_EFFECTS = [['none', 'None'], ['shadow', 'Shadow'], ['lift', 'Lift'], ['hollow', 'Hollow'], ['outline', 'Outline'], ['neon', 'Neon']];
+function textEffect(o, kind) {
+  const colour = (o.kbEffect === 'hollow' ? o.stroke : o.fill) || '#222222', size = o.fontSize || 40;
+  const plain = { kbEffect: kind === 'none' ? undefined : kind, fill: colour, stroke: null, strokeWidth: 1, paintFirst: 'fill', shadow: null };
+  return {
+    none: plain,
+    shadow: { ...plain, shadow: new fabric.Shadow({ color: '#00000066', blur: size / 10, offsetX: size / 14, offsetY: size / 14 }) },
+    lift: { ...plain, shadow: new fabric.Shadow({ color: '#00000059', blur: size / 3, offsetX: 0, offsetY: size / 8 }) },
+    hollow: { ...plain, fill: 'transparent', stroke: colour, strokeWidth: Math.max(1, size / 22) },
+    outline: { ...plain, stroke: hex(colour) && parseInt(hex(colour).slice(1), 16) < 0x808080 ? '#ffffff' : '#222222', strokeWidth: Math.max(2, size / 9), paintFirst: 'stroke' },
+    neon: { ...plain, shadow: new fabric.Shadow({ color: colour, blur: size / 2.5, offsetX: 0, offsetY: 0 }) }
+  }[kind] || plain;
+}
+$('#text-effects').replaceChildren(...TEXT_EFFECTS.map(([kind, label]) => {
+  const b = button('', () => { change(o => o.type === 'textbox' ? textEffect(o, kind) : {}); paintPanel(); });
+  b.dataset.effect = kind; b.innerHTML = `<span class="effect-${kind}">Ag</span>`; b.append(label);
+  return b;
+}));
 $('#prop-highlight-on').onchange = $('#prop-highlight').oninput = highlight;
 function pictureFrame(image, kind) {
   const options = { width: image.width, height: image.height, originX: 'center', originY: 'center' };
@@ -1214,15 +1269,36 @@ function paintFonts() {
   const sorted = [...settings.fonts, ...FONTS.filter(f => !settings.fonts.includes(f))];
   $('#prop-font').replaceChildren(...sorted.map(f => Object.assign(document.createElement('option'), { value: f, textContent: (settings.fonts.includes(f) ? '★ ' : '') + f })));
 }
+// One colour for the selection, or the background when nothing is selected. Lines and hollow text take it as their outline.
+function applyColour(c) {
+  if (board.getActiveObject()) change(o => o.type === 'line' || o.kbEffect === 'hollow' ? { stroke: c } : { fill: c });
+  else { board.backgroundColor = c; board.requestRenderAll(); $('#create-bg').value = c; commitDesign(); }
+  paintPanel();
+}
+const DEFAULT_COLOURS = ['#000000', '#545454', '#a6a6a6', '#ffffff', '#ff3131', '#ff5757', '#ff66c4', '#cb6ce6', '#8c52ff', '#5e17eb', '#0097b2', '#0cc0df',
+  '#5ce1e6', '#38b6ff', '#004aad', '#00bf63', '#7ed957', '#c1ff72', '#ffde59', '#ffbd59', '#ff914d', '#b08a32', '#7a4f2a', '#f4e1c1'];
+function swatch(c) {
+  const b = button('', () => applyColour(c));
+  b.style.background = c; b.title = c; b.className = 'swatch'; b.dataset.colour = c;
+  return b;
+}
+// The colours already in this design, from every page, most used first, as Canva's "Document colours".
+function documentColours() {
+  const counts = new Map(), add = c => { const h = hex(c); if (h) counts.set(h.toLowerCase(), (counts.get(h.toLowerCase()) || 0) + 1); };
+  const walk = o => { add(o.fill); add(o.stroke); (o.objects || []).forEach(walk); };
+  for (const page of allPages()) { add(page.background); (page.objects || []).forEach(walk); }
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 18);
+}
 function paintColours() {
-  const row = $('#colours');
-  row.replaceChildren(...settings.colours.map(c => {
-    const b = button('', () => { if (board.getActiveObject()) change(o => o.type === 'line' ? { stroke: c } : { fill: c }); else { board.backgroundColor = c; board.requestRenderAll(); $('#create-bg').value = c; commitDesign(); } });
-    b.style.background = c; b.title = c; b.className = 'swatch'; b.dataset.colour = c;
+  $('#colours').replaceChildren(...settings.colours.map(c => {
+    const b = swatch(c);
     b.oncontextmenu = e => { e.preventDefault(); settings.colours = settings.colours.filter(x => x !== c); saveSettings(); paintColours(); };
     return b;
   }));
+  if (!$('#colours-default').children.length) $('#colours-default').replaceChildren(...DEFAULT_COLOURS.map(swatch));
+  if (design && board) $('#colours-document').replaceChildren(...documentColours().map(swatch));
 }
+$('#colours-open').addEventListener('click', paintColours);
 $('#colour-save').onclick = () => {
   const c = $('#prop-fill').value;
   if (!settings.colours.includes(c)) settings.colours = [c, ...settings.colours].slice(0, 12);
