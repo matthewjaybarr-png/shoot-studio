@@ -34,7 +34,7 @@ const validSize = s => Array.isArray(s) && s.length === 2 && s.every(v => Number
 const docPage = doc => doc.page === 'custom' && validSize(doc.size) ? 'custom' : PAGES[doc.page] ? doc.page : 'letter';
 const docSize = doc => docPage(doc) === 'custom' ? doc.size.map(Number) : sizeIn(docPage(doc));
 const docPages = doc => Array.isArray(doc.pages) && doc.pages.length ? doc.pages.slice(0, MAX_PAGES) : [doc.canvas || blankPage()];
-const KEEP = ['kbName', 'kbLocked', 'kbFrame', 'kbEffect']; // our own fields, saved with every object
+const KEEP = ['kbName', 'kbLocked', 'kbFrame', 'kbEffect', 'kbOriginal', 'kbFilter']; // our own fields, saved with every object
 const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
 
 const sizeIn = key => PAGES[key] || PAGES.letter;
@@ -403,14 +403,14 @@ $('#create-save-template').onclick = async () => {
 // ---- Undo and redo: whole-design snapshots, at most 50 and about 250 MB ----
 function remember() {
   const text = JSON.stringify({ ...blob(), at: pageAt }, (key, value) => {
-    if (key !== 'src' || typeof value !== 'string') return value;
+    if ((key !== 'src' && key !== 'kbOriginal') || typeof value !== 'string') return value; // pictures and their unfiltered originals are shared
     if (!imageIds.has(value)) { const id = ++nextImageId; imageIds.set(value, id); historyImages.set(id, value); }
     return { kbImage: imageIds.get(value) };
   });
   history = history.slice(0, here + 1); history.push(text);
   const recount = () => {
     const used = new Set();
-    for (const snapshot of history) JSON.parse(snapshot, (k, v) => { if (k === 'src' && v?.kbImage) used.add(v.kbImage); return v; });
+    for (const snapshot of history) JSON.parse(snapshot, (k, v) => { if ((k === 'src' || k === 'kbOriginal') && v?.kbImage) used.add(v.kbImage); return v; });
     for (const [id, src] of historyImages) if (!used.has(id)) { historyImages.delete(id); imageIds.delete(src); }
     historyBytes = 2 * (history.reduce((n, v) => n + v.length, 0) + [...historyImages.values()].reduce((n, v) => n + v.length, 0));
   };
@@ -423,7 +423,7 @@ async function stepHistory(by) {
   const to = here + by;
   if (to < 0 || to >= history.length || restoring) return;
   restoring = true;
-  const doc = JSON.parse(history[to], (k, v) => k === 'src' && v?.kbImage ? historyImages.get(v.kbImage) : v);
+  const doc = JSON.parse(history[to], (k, v) => (k === 'src' || k === 'kbOriginal') && v?.kbImage ? historyImages.get(v.kbImage) : v);
   design.page = docPage(doc); design.size = docSize(doc); design.tile = doc.tile; design.copies = doc.copies;
   designPages = docPages(doc); pageAt = Math.min(doc.at | 0, designPages.length - 1);
   await board.loadFromJSON(designPages[pageAt]);
@@ -904,6 +904,96 @@ function pictureFrame(image, kind) {
   return kind === 'none' ? null : kind === 'circle' ? new fabric.Circle({ originX: 'center', originY: 'center', radius: Math.min(image.width, image.height) / 2 }) : new fabric.Rect({ ...options, rx: kind === 'rounded' ? image.width / 8 : 0, ry: kind === 'rounded' ? image.height / 8 : 0 });
 }
 $('#prop-frame').onchange = e => change(o => o.type === 'image' ? { clipPath: pictureFrame(o, e.target.value) } : {});
+
+// ---- Filters: Develop's looks, her presets and a few adjustments, drawn by the same GPU code as Photos ----
+// A filtered picture keeps its original in kbOriginal and its settings in kbFilter, so every change starts from the original.
+const ADJUST = [['exposure', 'Brightness', -2, 2, 0.05], ['contrast', 'Contrast', -100, 100, 1], ['saturation', 'Saturation', -100, 100, 1], ['temp', 'Warmth', -100, 100, 1], ['vignette', 'Vignette', -100, 100, 1]];
+// 8-bit sRGB to linear light as half floats: the Developer's input, which it turns back into sRGB, so no filter means no change.
+const SRGB_HALF = (() => {
+  const f = new Float32Array(1), u = new Uint32Array(f.buffer);
+  return Uint16Array.from({ length: 256 }, (_, i) => {
+    const c = i / 255; f[0] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    const e = ((u[0] >>> 23) & 0xff) - 112, m = u[0] & 0x7fffff;
+    return e <= 0 ? (e < -10 ? 0 : (((m | 0x800000) >> (1 - e)) + 0x1000) >> 13) : (e << 10) + ((m + 0x1000) >> 13);
+  });
+})();
+let filterer = null, filtering = Promise.resolve(), filterThumbs = { original: null, urls: new Map() };
+async function filterPicture(src, filter, edge = Infinity) {
+  const img = new Image(); img.src = src; await img.decode();
+  const k = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight)), w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+  const ctx = Object.assign(document.createElement('canvas'), { width: w, height: h }).getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const source = ctx.getImageData(0, 0, w, h).data, bytes = new ArrayBuffer(8 + w * h * 6), rgb = new Uint16Array(bytes, 8, w * h * 3);
+  new Uint32Array(bytes, 0, 2).set([w, h]);
+  let clear = false;
+  for (let i = 0, j = 0; i < source.length; i += 4, j += 3) {
+    rgb[j] = SRGB_HALF[source[i]]; rgb[j + 1] = SRGB_HALF[source[i + 1]]; rgb[j + 2] = SRGB_HALF[source[i + 2]];
+    if (source[i + 3] < 255) clear = true;
+  }
+  try { filterer ||= new Developer(document.createElement('canvas')); } catch (error) { throw `this computer can't run filters (${error.message})`; }
+  filterer.setRaw(bytes, false);
+  const out = filterer.pixels(fullRecipe(filter), Math.max(w, h));
+  if (clear) for (let i = 3; i < source.length; i += 4) out.data[i] = source[i]; // clip art keeps its transparency
+  ctx.putImageData(out, 0, 0);
+  return ctx.canvas.toDataURL(clear || src.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.92);
+}
+// Settings left at their defaults are dropped; nothing left means no filter.
+function cleanFilter(f) {
+  const out = {};
+  for (const [k, v] of Object.entries(f || {})) if (k === 'look' || k === 'preset' ? v : k === 'lookAmount' ? f.look && v !== 100 : v !== 0) out[k] = v;
+  return Object.keys(out).length ? out : null;
+}
+function setFilter(image, filter) {
+  filter = cleanFilter(filter);
+  const run = filtering.then(async () => {
+    if (!board.getObjects().includes(image)) return;
+    const original = image.kbOriginal || image.getSrc(), keep = { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
+    $('#create-saved').textContent = 'Applying the filter…';
+    const src = filter ? await filterPicture(original, filter) : original;
+    await image.setSrc(src); image.set(keep); // same pixel size, so a crop stays put
+    image.kbOriginal = filter ? original : undefined; image.kbFilter = filter || undefined;
+    image.setCoords(); board.requestRenderAll(); commitDesign(); paintFilters();
+  });
+  filtering = run.catch(error => { $('#create-saved').textContent = 'Could not apply the filter: ' + error; });
+  return track(filtering);
+}
+const filterTarget = () => { const o = board?.getActiveObject(); return o?.type === 'image' && !o.kbLocked ? o : null; };
+function paintFilters() {
+  const image = filterTarget();
+  if (!image) return;
+  const current = image.kbFilter || {}, original = image.kbOriginal || image.getSrc();
+  if (filterThumbs.original !== original) filterThumbs = { original, urls: new Map() };
+  const thumb = (key, filter, img) => {
+    if (!filterThumbs.urls.has(key)) filterThumbs.urls.set(key, filtering.then(() => filterPicture(original, filter, 120)).catch(() => ''));
+    filterThumbs.urls.get(key).then(url => { if (url) img.src = url; });
+  };
+  const tile = (key, label, filter, on, pick) => {
+    const b = button('', pick), img = new Image(); img.alt = '';
+    b.append(img, label); b.dataset.filter = key; b.classList.toggle('on', on); b.title = label;
+    thumb(key, filter, img);
+    return b;
+  };
+  const strength = +$('#filter-strength').value;
+  $('#filter-looks').replaceChildren(
+    tile('none', 'None', {}, !current.look && !current.preset, () => setFilter(image, { ...current, look: '', preset: '' })),
+    ...LOOKS.map(l => tile('look:' + l.id, l.name, { look: l.id }, !current.preset && current.look === l.id, () => { const { preset, ...rest } = current; setFilter(image, { ...(preset ? {} : rest), look: l.id, lookAmount: strength }); })));
+  const mine = typeof presets === 'undefined' ? [] : presets;
+  $('#filter-presets-title').hidden = $('#filter-presets').hidden = !mine.length;
+  $('#filter-presets').replaceChildren(...mine.map(p => tile('preset:' + p.name, p.name, p.recipe, current.preset === p.name, () => setFilter(image, { ...p.recipe, preset: p.name }))));
+  $('#filter-strength').value = current.look ? current.lookAmount ?? 100 : strength;
+  $('#filter-strength').disabled = !current.look;
+  $('#filter-adjust').replaceChildren(...ADJUST.map(([key, label, min, max, step]) => {
+    const row = document.createElement('label'), input = Object.assign(document.createElement('input'), { type: 'range', min, max, step, value: current[key] || 0 });
+    input.dataset.adjust = key;
+    input.onchange = () => setFilter(image, { ...(image.kbFilter || {}), [key]: +input.value });
+    row.append(label, input);
+    return row;
+  }));
+  $('#filter-remove').disabled = !image.kbFilter;
+}
+$('#filters-open').addEventListener('click', paintFilters);
+$('#filter-strength').onchange = e => { const image = filterTarget(); if (image?.kbFilter?.look) setFilter(image, { ...image.kbFilter, lookAmount: +e.target.value }); };
+$('#filter-remove').onclick = () => { const image = filterTarget(); if (image) setFilter(image, null); };
 // Fabric owns the crop controls and boardPan; this session only handles Apply/Cancel.
 async function startPictureCrop() {
   const image = board.getActiveObject();
@@ -1143,7 +1233,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 4;
+const WHATS_NEW = 5;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

@@ -224,3 +224,10 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 #layers li[draggable=true]{cursor:grab}
 #layers li.drop-above{box-shadow:inset 0 2px 0 var(--accent)}
 #layers li.drop-below{box-shadow:inset 0 -2px 0 var(--accent)}
+#pop-filters{width:340px;max-height:min(80vh,640px);overflow-y:auto}
+.filter-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.filter-grid button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:3px !important;font-size:10px;line-height:1.15;color:var(--muted);min-width:0}
+.filter-grid button.on{outline:2px solid var(--accent);color:var(--text)}
+.filter-grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;background:var(--deep)}
+#filter-adjust label{display:flex;justify-content:space-between;gap:8px;align-items:center}
+#filter-adjust input{width:150px}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0
+
+- Filters for pictures in Create: select a picture and click Filters for the same looks as Photos, and your own Develop presets, shown as previews of that picture. A strength slider tones a look down, and Brightness, Contrast, Saturation, Warmth and Vignette adjust it further.
+- The original picture is kept with the design, so a filter can be changed or removed at any time without losing quality. Cropping, frames and size stay put when a filter changes.
+- The What's new card appears once more.
+
 ## 0.15.0
 
 - Colours, next to the colour box: the colours already used in this design (every page), saved colours and a default palette. With nothing selected it colours the background.

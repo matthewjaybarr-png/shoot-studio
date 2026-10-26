@@ -1580,6 +1580,48 @@ const test = `<script>
     step(board.getObjects()[1].type === 'rect', 'dropping above a layer brings it in front');
     await settle($('#create-home').onclick(), 'home for pictures');
     await until(() => $('#home-recent').firstElementChild?.querySelector('img')?.src.startsWith('data:image/png') && $('#home-recent').children.length > 24 && !$('#home-recent').children[24].querySelector('img'), 'the newest 24 designs show a picture of their first page');
+    // 0.16: Develop looks as picture filters.
+    await settle(newDesign(), 'filters design');
+    put($('#create-title'), 'Filters test', 'change');
+    const pixelOf = async (src, x = 10, y = 10) => { const im = new Image(); im.src = src; await im.decode(); const c = Object.assign(document.createElement('canvas'), { width: im.naturalWidth, height: im.naturalHeight }).getContext('2d'); c.drawImage(im, 0, 0); return [...c.getImageData(x, y, 1, 1).data]; };
+    const warmCanvas = Object.assign(document.createElement('canvas'), { width: 200, height: 100 }), warmCtx = warmCanvas.getContext('2d');
+    warmCtx.fillStyle = '#d2783c'; warmCtx.fillRect(0, 0, 200, 100);
+    const warmFile = new File([await new Promise(done => warmCanvas.toBlob(done, 'image/jpeg', 0.95))], 'warm.jpg', { type: 'image/jpeg' });
+    const filtered = await addImageBlob(warmFile, 'warm');
+    filtered.set({ cropX: 20, width: 160 }); commitDesign(); selectObjects([filtered]);
+    step(shown('#filters-open'), 'a filtered offers Filters');
+    const plainPx = await pixelOf(filtered.getSrc()), samePx = await pixelOf(await filterPicture(filtered.getSrc(), {}));
+    step(samePx.slice(0, 3).every((v, i) => Math.abs(v - plainPx[i]) <= 2), () => 'no filter leaves the filtered as it was: ' + plainPx + ' / ' + samePx);
+    $('#filters-open').click();
+    await until(() => $('#filter-looks').children.length === LOOKS.length + 1 && $('#filter-looks [data-filter="look:bw"] img').src.startsWith('data:'), 'the filter grid shows every Develop look with a preview of this picture');
+    const originalSrc = filtered.getSrc();
+    $('#filter-looks [data-filter="look:bw"]').click();
+    await until(() => filtered.kbFilter?.look === 'bw' && $('#filter-looks .on')?.dataset.filter === 'look:bw', 'choosing a look filters the picture');
+    const greyPx = await pixelOf(filtered.getSrc());
+    step(Math.abs(greyPx[0] - greyPx[1]) <= 2 && Math.abs(greyPx[1] - greyPx[2]) <= 2 && filtered.kbOriginal === originalSrc && filtered.cropX === 20 && filtered.width === 160, () => 'Black & white turns it greyPx, keeps the original and the crop: ' + greyPx + ' crop ' + filtered.cropX + '/' + filtered.width);
+    put($('#filter-strength'), '40', 'change');
+    await until(() => filtered.kbFilter?.lookAmount === 40, 'Strength fades the look');
+    const fadedPx = await pixelOf(filtered.getSrc());
+    step(fadedPx[0] - fadedPx[2] > 20 && fadedPx[0] - fadedPx[2] < plainPx[0] - plainPx[2], () => 'at 40% some colour comes back: ' + fadedPx);
+    put($('#filter-adjust [data-adjust=exposure]'), '1', 'change');
+    await until(() => filtered.kbFilter?.exposure === 1 && filtered.kbFilter?.look === 'bw', 'Brightness adds to the look');
+    const brighterPx = await pixelOf(filtered.getSrc());
+    step(brighterPx[1] > fadedPx[1] + 10, () => 'and brightens it: ' + brighterPx);
+    await settle(flush(), 'filters save'); await settle(openDesign('Filters test'), 'filters reopen');
+    const reopenedPic = board.getObjects()[0];
+    step(reopenedPic.kbFilter?.look === 'bw' && reopenedPic.kbFilter.lookAmount === 40 && reopenedPic.kbOriginal === originalSrc, 'a filter and its original survive save and reopen');
+    selectObjects([reopenedPic]); $('#filters-open').click();
+    $('#filter-remove').click();
+    await until(() => !reopenedPic.kbFilter && !reopenedPic.kbOriginal && reopenedPic.getSrc() === originalSrc && reopenedPic.cropX === 20, 'Remove filter goes back to the original exactly');
+    $('#create-undo').click();
+    await until(() => board.getObjects()[0]?.kbFilter?.look === 'bw' && !restoring, 'undo brings the filter back');
+    // Clip art keeps its transparency.
+    const clearCanvas = Object.assign(document.createElement('canvas'), { width: 40, height: 40 }), clearCtx = clearCanvas.getContext('2d');
+    clearCtx.fillStyle = '#ff0000'; clearCtx.fillRect(0, 0, 20, 40);
+    const clearOut = await filterPicture(clearCanvas.toDataURL('image/png'), { look: 'sepia' });
+    const [leftPx, rightPx] = [await pixelOf(clearOut, 5, 5), await pixelOf(clearOut, 30, 5)];
+    step(clearOut.startsWith('data:image/png') && leftPx[3] === 255 && rightPx[3] === 0, () => 'transparent parts stay transparent: ' + leftPx + ' / ' + rightPx);
+    closeMenus();
     document.body.dataset.testResult = 'PASS';
   } catch (e) { document.body.dataset.testResult = 'FAIL: ' + e.message; }
 })();

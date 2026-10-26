@@ -44,6 +44,7 @@
       <button data-for="shape image line multi" type="button" data-pop="pop-outline">Border</button>
       <label data-for="rect">Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
       <button data-for="image" id="prop-crop" type="button">Crop</button>
+      <button data-for="image" type="button" data-pop="pop-filters" id="filters-open">Filters</button>
       <label data-for="image">Frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option></select></label>
       <button data-for="shape image group multi" type="button" data-pop="pop-flip">Flip</button>
       <button data-for="object" type="button" data-pop="pop-effects">Effects</button>
@@ -151,6 +152,14 @@
       <label data-for="shape image line group multi" class="check"><input id="prop-shadow" type="checkbox"> Shadow</label>
       <label data-for="text" class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input data-for="text" id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
     </div>
+    <div id="pop-filters" class="pop" hidden>
+      <h4>Looks from Develop</h4><div id="filter-looks" class="filter-grid"></div>
+      <label>Strength <input id="filter-strength" type="range" min="0" max="100" value="100"></label>
+      <h4 id="filter-presets-title">Your presets</h4><div id="filter-presets" class="filter-grid"></div>
+      <h4>Adjust</h4><div id="filter-adjust"></div>
+      <button id="filter-remove" type="button" class="wide">Remove filter</button>
+      <p class="hint">Filters use the same looks as Photos. The original picture is kept, so you can change or remove a filter any time.</p>
+    </div>
     <div id="pop-transparency" class="pop" hidden><label>Transparency <input id="prop-opacity" type="range" min="0" max="100" value="100"></label></div>
     <div id="pop-position" class="pop" hidden>
       <h4>Arrange</h4>
@@ -172,6 +181,7 @@
         <li>Add things from the buttons on the left: Templates, Elements, Text, Uploads, Draw and Layers.</li>
         <li>Click something on the page and its options appear along the top.</li>
         <li>New: <b>pages</b>. Add, duplicate, reorder and delete them in the strip under the page. PDFs hold every page; PNG and JPEG save one picture per page.</li>
+        <li>New: <b>Filters</b>. Select a picture and click Filters at the top for the looks from Photos and your own presets. You can change or remove a filter any time.</li>
         <li>Resize scales everything to fit the new size, and offers a custom size.</li>
         <li><b>This shoot</b> on the left holds the photos you're editing, with your edits. Drop one on a frame (Elements → Frames) or on a picture to fill it.</li>
         <li>Drag shapes, text and graphics from the left straight onto the page. Things can hang off the edge.</li>
