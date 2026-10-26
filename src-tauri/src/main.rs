@@ -844,6 +844,7 @@ fn quit(app: AppHandle) {
 }
 
 fn main() {
+    desktop::add_to_menu(); // before the window exists, so the dock matches it to the refreshed entry
     tauri::Builder::default()
         // Closing the window first lets the page save what it holds (kbClose in create.js); no page, no wait.
         .on_window_event(|window, event| {
@@ -864,9 +865,9 @@ fn main() {
         .manage(PendingUpdate::default())
         .manage(Retouching::default())
         .setup(|app| {
-            // As an AppImage: the app menu entry and icon follow each update, and the dock pin happens once.
+            // As an AppImage, the dock pin happens once (the menu entry was refreshed in main, before any window).
             if let Ok(config) = app.path().app_config_dir() {
-                std::thread::spawn(move || desktop::run(config));
+                std::thread::spawn(move || desktop::pin_once(config));
             }
             Ok(())
         })

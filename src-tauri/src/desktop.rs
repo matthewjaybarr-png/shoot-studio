@@ -103,18 +103,24 @@ fn pin_to_dock() -> Result<bool, String> {
     Ok(status.success())
 }
 
-/// Called at launch, off the main thread. `config` holds the marker that the dock pin was done, so
-/// unpinning it is respected: the app never pins itself a second time.
-pub fn run(config: PathBuf) {
+/// Called first thing at launch, before any window exists, so the dock matches the new window to
+/// the refreshed entry instead of an old one. Only file writes; returns quickly.
+pub fn add_to_menu() {
     let (Ok(appimage), Some(home)) = (std::env::var("APPIMAGE"), std::env::var_os("HOME")) else { return };
     let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| Path::new(&home).join(".local/share"));
     match integrate(&data, &appimage) {
-        Ok(true) => {
-            // The menu notices new entries by itself; this just makes it quicker where the tool exists.
-            let _ = Command::new("update-desktop-database").arg(data.join("applications")).env_remove("LD_LIBRARY_PATH").status();
-        }
+        // The menu notices new entries by itself; this just makes it quicker where the tool exists.
+        Ok(true) => { let _ = Command::new("update-desktop-database").arg(data.join("applications")).env_remove("LD_LIBRARY_PATH").status(); }
         Ok(false) => {}
-        Err(e) => { eprintln!("could not add KB Studio to the app menu: {e}"); return; }
+        Err(e) => eprintln!("could not add KB Studio to the app menu: {e}"),
+    }
+}
+
+/// Called at launch, off the main thread. `config` holds the marker that the dock pin was done, so
+/// unpinning it is respected: the app never pins itself a second time.
+pub fn pin_once(config: PathBuf) {
+    if std::env::var_os("APPIMAGE").is_none() {
+        return;
     }
     let marker = config.join("dock-pinned");
     if marker.exists() {
