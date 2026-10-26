@@ -4,8 +4,20 @@
 Object.assign(fabric.FabricObject.ownDefaults, { originX: 'left', originY: 'top' });
 
 const PX = 96;                                         // design pixels per inch
-const PAGES = { letter: [8.5, 11], 'letter-landscape': [11, 8.5], half: [5.5, 8.5], quarter: [4.25, 5.5] };
-const PAGE_NAMES = { letter: 'Letter', 'letter-landscape': 'Letter, landscape', half: 'Half sheet card', quarter: 'Quarter sheet card' };
+const PAGES = {
+  letter: [8.5, 11], 'letter-landscape': [11, 8.5], half: [5.5, 8.5], quarter: [4.25, 5.5], poster: [11, 17],
+  'photo-4x6': [4, 6], 'photo-6x4': [6, 4], 'photo-5x7': [5, 7], 'photo-7x5': [7, 5], 'photo-8x10': [8, 10],
+  // Social posts are laid out at half their pixel size, 540 px wide like a small card, and saved at exactly the size the sites want.
+  'social-portrait': [5.625, 7.03125], 'social-square': [5.625, 5.625], 'social-story': [5.625, 10]
+};
+const PAGE_NAMES = {
+  letter: 'Letter', 'letter-landscape': 'Letter, landscape', half: 'Half sheet card', quarter: 'Quarter sheet card', poster: 'Poster',
+  'photo-4x6': '4 × 6 photo', 'photo-6x4': '6 × 4 photo', 'photo-5x7': '5 × 7 photo', 'photo-7x5': '7 × 5 photo', 'photo-8x10': '8 × 10 photo',
+  'social-portrait': 'Instagram post', 'social-square': 'Square post', 'social-story': 'Story'
+};
+const PAGE_GROUPS = [['Printing', ['letter', 'letter-landscape', 'half', 'quarter', 'poster']], ['Photo prints', ['photo-4x6', 'photo-6x4', 'photo-5x7', 'photo-7x5', 'photo-8x10']], ['Social media', ['social-portrait', 'social-square', 'social-story']]];
+const SOCIAL_SCALE = 2;
+const isSocial = key => key.startsWith('social-');
 const FONTS = ['Lexend', 'Andika', 'Atkinson Hyperlegible', 'Comic Neue', 'Fredoka', 'Balsamiq Sans', 'Nunito', 'Lora', 'Patrick Hand', 'Caveat', 'Roboto Slab'];
 // Generated offline from Unicode 15.0 emoji-test.txt; assets stay local.
 let emojiEntries = [], emojiPage = 0;
@@ -14,7 +26,7 @@ emojiReady.catch(error => { $('#create-saved').textContent = 'Could not load cli
 const IMAGE_EDGE = 3300;                               // imported pictures are shrunk to this many pixels on the long edge
 const MAX_HISTORY = 50, MAX_HISTORY_BYTES = 250e6;
 const FORMAT = 1;                                      // the design file format this version writes and reads
-const KEEP = ['kbName', 'kbLocked'];                   // our own fields, saved with every object
+const KEEP = ['kbName', 'kbLocked', 'kbFrame'];        // our own fields, saved with every object
 const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
 
 const sizeIn = key => PAGES[key] || PAGES.letter;
@@ -41,7 +53,9 @@ let settings = { colours: [], fonts: [], seen: 0 };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => sizeIn(design.page).map(v => Math.round(v * PX));
-const PAGE_LABEL = key => PAGE_NAMES[key] + ' (' + sizeIn(key).join(' × ') + ' in)';
+const PAGE_LABEL = key => PAGE_NAMES[key] + (isSocial(key) ? ' (' + sizeIn(key).map(v => Math.round(v * PX * SOCIAL_SCALE)).join(' × ') + ' px)' : key.startsWith('photo-') ? '' : ' (' + sizeIn(key).join(' × ') + ' in)');
+// PNG and JPEG: social posts at their exact pixel size, everything else at 300 dpi.
+const pictureScale = () => isSocial(design.page) ? SOCIAL_SCALE : DPI / PX;
 
 function setMode(next) {
   mode = next;
@@ -141,16 +155,26 @@ function startBoard() {
     else panBy(-e.deltaX, -e.deltaY);
   });
   const stage = $('#create-stage');
-  stage.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+  // A picture dragged over a frame or picture outlines it: letting go there swaps the picture in.
+  stage.ondragover = e => {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+    const picture = e.dataTransfer.types.includes('Files') || dragItem?.[0] === 'photo';
+    const target = picture && !cropSession && !$('#create').inert ? dropTarget(board.getScenePoint(e)) : null;
+    if (target !== dropHover) { dropHover = target; board.requestRenderAll(); }
+  };
+  stage.ondragleave = e => { if (dropHover && !stage.contains(e.relatedTarget)) { dropHover = null; board.requestRenderAll(); } };
   // Right-clicks on the grey around the page; the page itself is handled by Fabric above.
   stage.oncontextmenu = e => { e.preventDefault(); if ($('#create').inert || cropSession) return; board.discardActiveObject(); board.requestRenderAll(); paintPanel(); openMenu(e.clientX, e.clientY); };
   // Things dragged from a drawer, or picture files, land where they are dropped.
   stage.ondrop = e => {
     e.preventDefault();
     if ($('#create').inert || cropSession) return;
+    dropHover = null; board.requestRenderAll();
     const at = board.getScenePoint(e), item = e.dataTransfer.getData(DRAG_TYPE);
+    const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')), target = files.length === 1 && dropTarget(at);
     if (item) dropItem(JSON.parse(item), at);
-    else importFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/')), at);
+    else if (target) fillFrame(target, files[0], files[0].name.replace(/\.[^.]*$/, '')).catch(error => { $('#create-saved').textContent = `Could not add ${files[0].name}: ${error}`; });
+    else importFiles(files, at);
   };
   paintCreateTools();
 }
@@ -182,8 +206,27 @@ function drawPageOverlay() {
     hovered.getCoords().forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
     ctx.lineWidth = 1 / board.getZoom();
   }
+  for (const o of board.getObjects()) if (emptyFrame(o) && o.visible !== false) drawFrameHint(ctx, o);
+  if (dropHover && board.getObjects().includes(dropHover)) {
+    ctx.strokeStyle = '#8ab4ff'; ctx.lineWidth = 4 / board.getZoom(); ctx.beginPath();
+    dropHover.getCoords().forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+    ctx.lineWidth = 1 / board.getZoom();
+  }
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
+  ctx.restore();
+}
+// An empty frame shows a small picture sign and "Drop a photo" on screen only; exports keep the plain grey.
+function drawFrameHint(ctx, o) {
+  const c = o.getCenterPoint(), size = Math.min(o.getScaledWidth(), o.getScaledHeight()), s = Math.min(size / 6, 40);
+  if (size * board.getZoom() < 36) return;
+  ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(fabric.util.degreesToRadians(o.angle || 0));
+  ctx.strokeStyle = ctx.fillStyle = '#7a8090'; ctx.lineWidth = s / 10; ctx.lineJoin = 'round';
+  const top = size * board.getZoom() > 120 ? -s * 0.8 : 0;
+  ctx.strokeRect(-s, top - s * 0.7, s * 2, s * 1.4);
+  ctx.beginPath(); ctx.moveTo(-s * 0.8, top + s * 0.5); ctx.lineTo(-s * 0.2, top - s * 0.15); ctx.lineTo(s * 0.2, top + s * 0.25); ctx.lineTo(s * 0.45, top); ctx.lineTo(s * 0.8, top + s * 0.5); ctx.stroke();
+  ctx.beginPath(); ctx.arc(s * 0.45, top - s * 0.35, s * 0.15, 0, Math.PI * 2); ctx.fill();
+  if (top) { ctx.font = `600 ${s * 0.55}px Lexend, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText('Drop a photo', 0, top + s * 0.9); }
   ctx.restore();
 }
 // The view is Fabric's viewport transform: zoom, plus where the page sits on the stage.
@@ -288,7 +331,7 @@ async function uniqueTitle(base) {
 function newDesign(template, source) {
   return navigateDesign(async () => {
     startBoard();
-    let doc = { page: 'letter' };
+    let doc = { page: source === 'starter' ? starterPage(template) : 'letter' };
     if (template && source === 'mine') doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name: template }));
     const title = await uniqueTitle(template ? `My ${template}` : 'Untitled');
     await open(doc, title, null);
@@ -432,7 +475,9 @@ const importFiles = (files, at) => track((async () => {
   for (const [i, file] of files.entries()) await addImageBlob(file, file.name.replace(/\.[^.]*$/, ''), at && new fabric.Point(at.x + i * 24, at.y + i * 24)).catch(e => { $('#create-saved').textContent = `Could not add ${file.name}: ${e}`; });
 })());
 $('#create-file').onchange = async event => {
-  await importFiles([...event.target.files]);
+  const files = [...event.target.files], frame = board.getActiveObject();
+  if (files.length === 1 && emptyFrame(frame)) await fillFrame(frame, files[0], files[0].name.replace(/\.[^.]*$/, '')).catch(e => { $('#create-saved').textContent = `Could not add ${files[0].name}: ${e}`; });
+  else await importFiles(files);
   event.target.value = '';
 };
 // Clip art is an SVG copied onto a canvas, so the design keeps its own picture.
@@ -445,6 +490,45 @@ async function addingEmoji(code, at) {
   const image = await fabric.FabricImage.fromURL(out.toDataURL('image/png'));
   image.set({ scaleX: 150 / 512, scaleY: 150 / 512, kbName: emojiEntries.find(e => e.code === code)?.name || 'Clip art' });
   return place(image, at);
+}
+
+// Frames are grey placeholders: drop or click a photo to fill one. Sizes are 1:1, 4:5 and 3:2.
+const FRAME_FILL = '#dfe3ea';
+const FRAME_TILES = [
+  ['square', 'Square', '<rect x="8" y="4" width="24" height="24"/>'],
+  ['portrait', 'Portrait', '<rect x="10" y="2" width="20" height="28"/>'],
+  ['landscape', 'Landscape', '<rect x="4" y="7" width="32" height="20"/>'],
+  ['rounded', 'Rounded', '<rect x="8" y="4" width="24" height="24" rx="5"/>'],
+  ['circle', 'Circle', '<circle cx="20" cy="16" r="13"/>']
+];
+// `kind` is 'rect', 'rounded' or 'circle' (a circle uses the smaller side).
+const makeFrame = (width, height, kind = 'rect', o = {}) => kind === 'circle'
+  ? new fabric.Circle({ radius: Math.min(width, height) / 2, fill: FRAME_FILL, strokeWidth: 0, kbFrame: 'circle', kbName: 'Photo frame', ...o })
+  : new fabric.Rect({ width, height, rx: kind === 'rounded' ? width / 8 : 0, ry: kind === 'rounded' ? height / 8 : 0, fill: FRAME_FILL, strokeWidth: 0, kbFrame: kind, kbName: 'Photo frame', ...o });
+function addFrame(kind, at) {
+  const [width, height] = { portrait: [300, 375], landscape: [375, 250] }[kind] || [300, 300];
+  return place(makeFrame(width, height, kind === 'circle' || kind === 'rounded' ? kind : 'rect'), at);
+}
+const emptyFrame = o => !!o?.kbFrame && o.type !== 'image';
+// The frame or picture under a page point, topmost first; locked and hidden ones are passed over.
+const dropTarget = at => board.getObjects().findLast(o => o.visible !== false && !o.kbLocked && (emptyFrame(o) || o.type === 'image') && o.containsPoint(at));
+const frameKind = o => o.kbFrame || (!o.clipPath ? 'rect' : o.clipPath.type === 'circle' ? 'circle' : o.clipPath.rx ? 'rounded' : 'rect');
+// The picture takes the target's place, size, angle and frame shape, cropped from its middle to fill it, as in Canva.
+const fillFrame = (target, file, name) => track(fillingFrame(target, file, name));
+async function fillingFrame(target, file, name) {
+  const image = await fabric.FabricImage.fromURL(await shrink(file));
+  image.kbName = name ? 'Photo ' + name : 'Picture';
+  if (!board.getObjects().includes(target)) return place(image, target.getCenterPoint()); // undone or deleted meanwhile
+  const w = target.width * target.scaleX, h = target.height * target.scaleY, k = Math.max(w / image.width, h / image.height);
+  const width = w / k, height = h / k, kind = frameKind(target);
+  image.set({ cropX: (image.width - width) / 2, cropY: (image.height - height) / 2, width, height, scaleX: k, scaleY: k, angle: target.angle, opacity: target.opacity, shadow: target.shadow });
+  if (kind !== 'rect') image.set({ clipPath: pictureFrame(image, kind) });
+  image.setPositionByOrigin(target.getCenterPoint(), 'center', 'center');
+  const at = board.getObjects().indexOf(target);
+  board.remove(target); board.insertAt(at, image);
+  board.setActiveObject(image); image.setCoords();
+  commitDesign();
+  return image;
 }
 
 // Previews for the Elements drawer, drawn in a 40 x 32 box.
@@ -461,14 +545,50 @@ const SHAPE_TILES = [
 ];
 // Drawer items can be dragged onto the page as well as clicked.
 const DRAG_TYPE = 'application/x-kb-studio-item';
+let dragItem = null, dropHover = null; // what is being dragged from a drawer (drag data can't be read until the drop), and the frame it would fill
 function draggable(el, item) {
   el.draggable = true;
-  el.ondragstart = e => { e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(item)); e.dataTransfer.effectAllowed = 'copy'; };
+  el.ondragstart = e => { dragItem = item; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(item)); e.dataTransfer.effectAllowed = 'copy'; };
+  el.ondragend = () => { dragItem = null; if (dropHover) { dropHover = null; board?.requestRenderAll(); } };
 }
 function dropItem([kind, value], at) {
   if (kind === 'shape' && SHAPE_TILES.some(([k]) => k === value)) addShape(value, at);
   else if (kind === 'text') { const t = addText(value || undefined, at); t.exitEditing?.(); board.setActiveObject(t); }
   else if (kind === 'emoji') addEmoji(value, at).catch(e => { $('#create-saved').textContent = String(e); });
+  else if (kind === 'frame' && FRAME_TILES.some(([k]) => k === value)) addFrame(value, at);
+  else if (kind === 'photo') addShootPhoto(value, at, dropTarget(at));
+}
+
+// ---- This shoot: the open shoot's photos, developed with her edits ----
+// Clicking one fills the selected empty frame, or adds it in the middle; dropping it on a frame or picture fills that.
+const addShootPhoto = (id, at, target) => track((async () => {
+  const photo = shootPhotos().find(p => p.id === id);
+  if (!photo) return;
+  $('#create-saved').textContent = `Adding ${id}…`;
+  try {
+    const jpeg = await developedJpeg(photo);
+    await (target ? fillFrame(target, jpeg, id) : addImageBlob(jpeg, id, at));
+  } catch (error) { $('#create-saved').textContent = `Could not add ${id}: ${error}`; }
+})());
+let shootShown = null;
+const shootThumbs = new IntersectionObserver(entries => {
+  for (const { target: img, isIntersecting } of entries) if (isIntersecting && !img.src) {
+    shootThumbs.unobserve(img);
+    shootThumb(img.photo).then(url => { img.src = url; }, () => img.classList.add('missing'));
+  }
+}, { root: $('#create-drawer'), rootMargin: '400px 0px' });
+function paintShoot() {
+  const list = shootPhotos(), key = dir && dir + '\n' + list.map(p => p.id + (ratings[p.id]?.flag || '') + (recipes[p.id] ? '*' : '')).join();
+  $('#shoot-empty').hidden = list.length > 0;
+  if (key === shootShown) return;
+  shootShown = key; shootThumbs.disconnect();
+  $('#shoot-list').replaceChildren(...list.map(photo => {
+    const b = button('', () => addShootPhoto(photo.id, null, emptyFrame(board?.getActiveObject()) ? board.getActiveObject() : null));
+    b.title = photo.id + (rating(photo).flag === 'pick' ? ' · pick' : ''); b.classList.toggle('pick', rating(photo).flag === 'pick');
+    const img = Object.assign(document.createElement('img'), { alt: photo.id, draggable: false, photo });
+    b.append(img); draggable(b, ['photo', photo.id]); shootThumbs.observe(img);
+    return b;
+  }));
 }
 function toggleDraw(on = !board.isDrawingMode) {
   board.isDrawingMode = on; $('#create-draw').classList.toggle('on', on);
@@ -478,6 +598,11 @@ function toggleDraw(on = !board.isDrawingMode) {
 function paintCreateTools() {
   $('#create-tools').replaceChildren(...SHAPE_TILES.map(([kind, label, svg]) => {
     const b = button('', () => addShape(kind)); b.id = 'add-' + kind; b.title = label; draggable(b, ['shape', kind]);
+    b.innerHTML = `<svg viewBox="0 0 40 32">${svg}</svg>`; b.append(label);
+    return b;
+  }));
+  $('#create-frames').replaceChildren(...FRAME_TILES.map(([kind, label, svg]) => {
+    const b = button('', () => addFrame(kind)); b.id = 'add-frame-' + kind; b.title = label + ' photo frame'; draggable(b, ['frame', kind]);
     b.innerHTML = `<svg viewBox="0 0 40 32">${svg}</svg>`; b.append(label);
     return b;
   }));
@@ -895,6 +1020,7 @@ function paintDrawer() {
   $('#create-drawer').hidden = !drawer;
   if (board?.isDrawingMode && drawer !== 'draw') toggleDraw(false);
   if (drawer === 'templates') paintTemplates();
+  if (drawer === 'shoot') paintShoot();
 }
 for (const b of document.querySelectorAll('#create-rail [data-drawer]')) b.onclick = () => showDrawer(b.dataset.drawer);
 paintDrawer();
@@ -908,7 +1034,7 @@ async function drawThumb(size, build) {
   try { await build(sc); sc.renderAll(); return sc.toDataURL({ format: 'png', multiplier: 280 / w }); } finally { sc.dispose(); }
 }
 function templateThumb(name, source, modified) {
-  if (source === 'starter') return cached('starter:' + name, () => drawThumb(sizeIn('letter'), page => STARTERS[name](page)));
+  if (source === 'starter') return cached('starter:' + name, () => drawThumb(sizeIn(starterPage(name)), page => STARTERS[name](page)));
   return cached(`mine:${name}:${modified}`, async () => {
     const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
     return drawThumb(sizeIn(doc.page), c => c.loadFromJSON(doc.canvas || { objects: [] }));
@@ -929,7 +1055,7 @@ async function paintTemplates() {
 async function useTemplate(name, source) {
   if ($('#create').inert || cropSession) return;
   if (board.getObjects().length) return newDesign(name, source);
-  if (source === 'starter') await STARTERS[name](board);
+  if (source === 'starter') { design.page = starterPage(name); design.tile = 'single'; await STARTERS[name](board); }
   else {
     const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
     if ((doc.format ?? 1) > FORMAT) throw Error('it was made by a newer KB Studio; update KB Studio to use it');
@@ -946,7 +1072,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 2;
+const WHATS_NEW = 3;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -960,7 +1086,11 @@ function paintAll() {
   $('#create-tile').disabled = !TILES[design.page];
   paintFonts(); paintColours(); paintLayers(); paintPanel(); paintHistory(); fitBoard(); paintBw();
 }
-$('#create-page').replaceChildren(...Object.keys(PAGES).map(k => Object.assign(document.createElement('option'), { value: k, textContent: PAGE_LABEL(k) })));
+$('#create-page').replaceChildren(...PAGE_GROUPS.map(([label, keys]) => {
+  const group = Object.assign(document.createElement('optgroup'), { label });
+  group.append(...keys.map(k => Object.assign(document.createElement('option'), { value: k, textContent: PAGE_LABEL(k) })));
+  return group;
+}));
 $('#create-page').onchange = e => { design.page = e.target.value; if (!TILES[design.page]) design.tile = 'single'; commitDesign(); paintAll(); };
 $('#create-tile').onchange = e => { design.tile = e.target.value; remember(); schedule(); };
 $('#create-copies').onchange = e => { design.copies = Math.min(20, Math.max(1, +e.target.value | 0 || 1)); e.target.value = design.copies; remember(); schedule(); };
@@ -1026,7 +1156,7 @@ async function output(kind, open = false) {
   try {
     await flush();
     status.textContent = 'Making ' + (kind === 'pdf' ? 'the PDF' : 'the picture') + '…';
-    const bytes = kind === 'pdf' ? await makePdf() : toBytes(await render(DPI / PX, kind === 'png' ? 'png' : 'jpeg'));
+    const bytes = kind === 'pdf' ? await makePdf() : toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg'));
     const file = await invoke('save_output', bytes, { headers: { name: encodeURIComponent(design.title), ext: kind === 'jpeg' ? 'jpg' : kind, open: String(open) } });
     status.textContent = (open ? 'Opened ' : 'Saved ') + file;
   } catch (error) { status.textContent = 'Could not make it: ' + error; }
@@ -1141,7 +1271,43 @@ const STARTERS = {
     page.add(T('Handwriting Practice', 48, 40, { width: 720, fontSize: 48 }), T('Name: __________   Date: __________', 48, 120, { width: 720, fontSize: 26 }));
     for (let r = 0; r < 8; r++) page.add(handwritingLines(720).set({ left: 48, top: 230 + r * 96 }), T(r === 0 ? 'Trace your words here' : ' ', 52, 216 + r * 96, { width: 700, fontSize: 42, fontFamily: 'Patrick Hand', fill: '#aaaaaa' }));
   },
+  // Photography: frames to drop photos into. Social pages are 540 px wide (saved at 1080).
+  'Student of the week': async page => {
+    page.add(R(0, 0, 816, 1056, { fill: '#fff6e0', stroke: '#fff6e0', kbName: 'Background' }),
+      T('Student of the Week', 48, 56, { width: 720, fontSize: 64, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', fill: '#c0392b', kbName: 'Title' }),
+      makeFrame(380, 380, 'circle', { left: 218, top: 180 }),
+      T('Student Name', 48, 590, { width: 720, fontSize: 56, textAlign: 'center', fontFamily: 'Caveat', kbName: 'Name' }));
+    [['My favourite book', 700], ['When I grow up', 790], ['Something I love', 880]].forEach(([q, y]) => page.add(T(q + ': ____________________', 96, y, { width: 624, fontSize: 28 })));
+  },
+  'Mini session flyer': async page => {
+    page.add(makeFrame(816, 520, 'rect', { left: 0, top: 0 }),
+      T('Fall Mini Sessions', 48, 556, { width: 720, fontSize: 64, textAlign: 'center', fontFamily: 'Lora', kbName: 'Title' }),
+      T('20 minutes · 10 edited photos', 48, 650, { width: 720, fontSize: 30, textAlign: 'center', fill: '#8a5a1a' }),
+      makeFrame(228, 228, 'rounded', { left: 48, top: 720 }), makeFrame(228, 228, 'rounded', { left: 294, top: 720 }), makeFrame(228, 228, 'rounded', { left: 540, top: 720 }),
+      T('Date · Place · Price — book at your-site', 48, 980, { width: 720, fontSize: 24, textAlign: 'center' }));
+  },
+  'Photo card': async page => {
+    page.add(makeFrame(420, 480, 'rect', { left: 0, top: 0 }),
+      T('Happy Holidays', 440, 150, { width: 212, fontSize: 44, textAlign: 'center', fontFamily: 'Caveat', fill: '#a33', kbName: 'Greeting' }),
+      T('from our family', 440, 260, { width: 212, fontSize: 22, textAlign: 'center', fontFamily: 'Lora' }),
+      T('2026', 440, 310, { width: 212, fontSize: 20, textAlign: 'center', fill: '#777777' }));
+  },
+  'Instagram post': async page => {
+    page.add(makeFrame(540, 540, 'rect', { left: 0, top: 0 }), R(0, 540, 540, 135, { fill: '#2f2a26', stroke: '#2f2a26', kbName: 'Band' }),
+      T('Booking now', 24, 556, { width: 492, fontSize: 40, textAlign: 'center', fontFamily: 'Lora', fill: '#ffffff', kbName: 'Title' }),
+      T('Link in bio', 24, 618, { width: 492, fontSize: 20, textAlign: 'center', fill: '#e8c27a' }));
+  },
+  'Square collage': async page => {
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) page.add(makeFrame(267, 267, 'rect', { left: c * 273, top: r * 273 }));
+  },
+  'Story': async page => {
+    page.add(makeFrame(540, 960, 'rect', { left: 0, top: 0 }), R(32, 760, 476, 150, { fill: '#ffffffdd', stroke: '#ffffff00', rx: 16, ry: 16, kbName: 'Card' }),
+      T('New gallery!', 48, 778, { width: 444, fontSize: 44, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', kbName: 'Title' }),
+      T('Tap the link to see your photos', 48, 848, { width: 444, fontSize: 22, textAlign: 'center' }));
+  }
 };
+const STARTER_PAGE = { 'Photo card': 'photo-7x5', 'Instagram post': 'social-portrait', 'Square collage': 'social-square', 'Story': 'social-story' };
+const starterPage = name => STARTER_PAGE[name] || 'letter';
 
 loadSettings();
 

@@ -58,6 +58,7 @@
         <button type="button" data-drawer="elements"><svg viewBox="0 0 24 24"><circle cx="7.5" cy="7.5" r="4.5"/><rect x="13" y="3" width="8" height="8" rx="1"/><path d="M7.5 13 12 21H3z"/><path d="M17 13l1.2 2.6 2.8.3-2.1 1.9.6 2.8-2.5-1.5-2.5 1.5.6-2.8-2.1-1.9 2.8-.3z"/></svg>Elements</button>
         <button type="button" data-drawer="text"><svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>Text</button>
         <button type="button" data-drawer="uploads"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>Uploads</button>
+        <button type="button" data-drawer="shoot"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>This shoot</button>
         <button type="button" data-drawer="draw"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8l-3-3L5 16zM14 7l3 3"/></svg>Draw</button>
         <button type="button" data-drawer="layers"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>Layers</button>
       </nav>
@@ -65,6 +66,7 @@
         <section data-panel="templates" hidden><h3>Templates</h3><p class="hint">On a blank page a template fills it; otherwise it opens as a new design.</p><div id="drawer-templates" class="template-grid"></div></section>
         <section data-panel="elements" hidden>
           <h3>Shapes</h3><div id="create-tools" class="shape-grid"></div>
+          <h3>Frames</h3><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div>
           <h3>Graphics</h3><input id="emoji-search" type="search" placeholder="Search graphics" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p>
           <details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details>
           <details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details>
@@ -80,6 +82,12 @@
           <h3>Uploads</h3>
           <button id="add-image" type="button" class="primary wide">Upload pictures</button><input id="create-file" type="file" accept="image/*" multiple hidden>
           <p class="hint">Or drag pictures from your files onto the page, or paste one with Ctrl+V. In Photos, “Use in a design” sends a developed photo here.</p>
+        </section>
+        <section data-panel="shoot" hidden>
+          <h3>This shoot</h3>
+          <p id="shoot-empty" class="hint">Open a shoot in Photos and its photos appear here, with your edits. Picks come first; rejects are left out.</p>
+          <div id="shoot-list" class="photo-grid"></div>
+          <p class="hint">Click a photo to add it, or drag it onto the page. Drop it on a frame or a picture to fill it.</p>
         </section>
         <section data-panel="draw" hidden>
           <h3>Draw</h3>
@@ -136,10 +144,12 @@
     <div id="create-menu" role="menu" hidden></div>
     <output id="create-readout" hidden></output>
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
-      <h3 id="whatsnew-title">Create has a new look</h3>
+      <h3 id="whatsnew-title">What's new in Create</h3>
       <ul>
         <li>Add things from the buttons on the left: Templates, Elements, Text, Uploads, Draw and Layers.</li>
         <li>Click something on the page and its options appear along the top.</li>
+        <li>New: <b>This shoot</b> on the left holds the photos you're editing, with your edits. Drop one on a frame (Elements → Frames) or on a picture to fill it.</li>
+        <li>Photo prints, Instagram posts and stories are in Resize, with templates for them.</li>
         <li>Drag shapes, text and graphics from the left straight onto the page. Things can hang off the edge.</li>
         <li>Scroll to move around the page, Ctrl+scroll to zoom, or hold Space and drag.</li>
         <li>Right-click for copy, paste, layers and lock. Download and Print are at the top right.</li>

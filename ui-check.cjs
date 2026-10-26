@@ -86,7 +86,7 @@ const test = `<script>
   const lastSave = () => calls.filter(c => c.command === 'save_shoot').at(-1)?.args.data.ratings;
   try {
     step(!$('#home').hidden && mode === 'home', 'the app starts on the home screen');
-    await until(() => $('#home-templates').children.length === 9, 'the home screen is filled in at launch with no shoot');
+    await until(() => $('#home-templates').children.length === Object.keys(STARTERS).length, 'the home screen is filled in at launch with no shoot');
     $('#home-photos').click();
     step($('#home').hidden && mode === 'photos', 'Photos leaves the home screen');
     $('#open').click();
@@ -812,11 +812,11 @@ const test = `<script>
     // Starter templates, saved templates, fonts, colours and clip art.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
     const names = [...$('#home-templates').children].map(b => b.textContent);
-    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet', () => 'nine starter templates: ' + names);
+    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet,Student of the week,Mini session flyer,Photo card,Instagram post,Square collage,Story', () => 'fifteen starter templates: ' + names);
     for (const name of names) {
       await settle(Promise.resolve($('#home-templates').children[names.indexOf(name)].click()));
-      await until(() => !navigating && mode === 'create' && design.title === 'My ' + name && board.getObjects().length > 5, 'the ' + name + ' template opens');
-      step(board.getObjects().some(o => o.type === 'textbox' && o.text) && board.getObjects().every(o => !o.text || o.text.length < 120), 'the ' + name + ' has placeholder text');
+      await until(() => !navigating && mode === 'create' && design.title === 'My ' + name && board.getObjects().length >= 4, 'the ' + name + ' template opens');
+      step(board.getObjects().some(o => (o.type === 'textbox' && o.text) || emptyFrame(o)) && board.getObjects().every(o => !o.text || o.text.length < 120), 'the ' + name + ' has placeholder text or photo frames');
       step(history.length === 2, 'the ' + name + ' template is one undo step');
       await settle($('#create-home').onclick(), 'Start saves and leaves');
       await until(() => $('#home-templates').children.length >= 4, 'home again');
@@ -1229,8 +1229,8 @@ const test = `<script>
     step(refusal?.includes('newer KB Studio') && design.title !== 'From the future' && !$('#create').inert, () => 'a newer design format is refused: ' + refusal);
     delete disk['c:designs:From the future'];
     // What's new shows once.
-    settings.seen = 1; paintWhatsNew();
-    step(!$('#create-whatsnew').hidden, 'someone who saw the 0.11 card sees it again for 0.12');
+    settings.seen = WHATS_NEW - 1; paintWhatsNew();
+    step(!$('#create-whatsnew').hidden, 'someone who saw the last card sees the new one');
     step(!$('#create-whatsnew').hidden, "What's new shows in Create until it is dismissed");
     $('#whatsnew-ok').click();
     await until(() => $('#create-whatsnew').hidden && JSON.parse(disk.createSettings).seen === WHATS_NEW, "Got it hides What's new for good");
@@ -1427,6 +1427,54 @@ const test = `<script>
     $('#use-in-design').click();
     await until(() => mode === 'create' && board.getObjects().length === 1 && board.getObjects()[0].kbName === 'Photo IMG_0002', () => 'Use in a design opens it in Create: ' + mode + ' ' + types());
     step(count('export_source') === sends + 1 && calls.filter(c => c.command === 'export_source').at(-1).args.full === false && Math.max(board.getObjects()[0].width, board.getObjects()[0].height) <= 2048, 'it was rendered at web size');
+    // 0.13: frames, drop-to-replace and This shoot.
+    showDrawer('shoot');
+    await until(() => $('#shoot-list').children.length === photos.filter(p => rating(p).flag !== 'reject').length && $('#shoot-list').children.length > 0 && $('#shoot-empty').hidden, () => 'This shoot lists the open shoot without rejects: ' + $('#shoot-list').children.length);
+    step(photos.some(p => rating(p).flag === 'pick') ? $('#shoot-list').firstElementChild.classList.contains('pick') : true, 'picks come first');
+    step($('#add-frame-circle') && $('#add-frame-portrait').draggable, 'Elements offers photo frames that can be dragged');
+    const frameAt = new fabric.Point(250, 300);
+    dropItem(['frame', 'circle'], frameAt);
+    const frame = board.getActiveObject(), frameIndex = board.getObjects().indexOf(frame);
+    step(emptyFrame(frame) && frame.kbFrame === 'circle' && Math.abs(frame.getCenterPoint().x - 250) < 1 && blob().canvas.objects.at(-1).kbFrame === 'circle', 'a frame lands where it is dropped and is saved as a frame');
+    board.renderAll();
+    const exportedFrame = await createImageBitmap(new Blob([toBytes(await render(1, 'png'))], { type: 'image/png' }));
+    const probe = Object.assign(document.createElement('canvas'), { width: 816, height: 1056 }).getContext('2d'); probe.drawImage(exportedFrame, 0, 0);
+    step([...probe.getImageData(250, 300 - 25, 1, 1).data.slice(0, 3)].join() === '223,227,234', 'an empty frame exports plain grey, without the on-screen hint');
+    const sendsBefore = count('export_source');
+    $('#shoot-list').children[1].click();
+    await until(() => board.getObjects()[frameIndex]?.type === 'image', 'clicking a shoot photo fills the selected frame');
+    const filled = board.getObjects()[frameIndex];
+    step(count('export_source') === sendsBefore + 1 && filled.clipPath?.type === 'circle' && Math.abs(filled.getScaledWidth() - 300) < 1 && Math.abs(filled.getScaledHeight() - 300) < 1 && Math.abs(filled.getCenterPoint().x - 250) < 1 && !board.getObjects().includes(frame), () => 'it is developed and cropped to fill the circle: ' + filled.getScaledWidth() + 'x' + filled.getScaledHeight());
+    const swapCanvas = Object.assign(document.createElement('canvas'), { width: 400, height: 200 }); swapCanvas.getContext('2d').fillStyle = '#c00'; swapCanvas.getContext('2d').fillRect(0, 0, 400, 200);
+    const swapFile = new File([await new Promise(done => swapCanvas.toBlob(done, 'image/png'))], 'swap.png', { type: 'image/png' });
+    const files = new DataTransfer(); files.items.add(swapFile);
+    const stageBox = board.upperCanvasEl.getBoundingClientRect(), vt = board.viewportTransform, zt = board.getZoom();
+    const over = { dataTransfer: files, clientX: stageBox.left + vt[4] + 250 * zt, clientY: stageBox.top + vt[5] + 300 * zt, bubbles: true, cancelable: true };
+    $('#create-stage').dispatchEvent(new DragEvent('dragover', over));
+    step(dropHover === filled, 'dragging a picture over a picture outlines it');
+    const objectsBefore = board.getObjects().length;
+    $('#create-stage').dispatchEvent(new DragEvent('drop', over));
+    await until(() => board.getObjects()[frameIndex]?.kbName === 'Photo swap', 'dropping a picture file on a picture replaces it');
+    const swapped = board.getObjects()[frameIndex];
+    step(board.getObjects().length === objectsBefore && dropHover === null && swapped.clipPath?.type === 'circle' && Math.abs(swapped.getScaledWidth() - 300) < 1 && Math.round(swapped.cropX) === 100 && swapped.cropY === 0, () => 'it keeps the place, size and circle, cropped from the middle: ' + swapped.cropX + ',' + swapped.cropY);
+    stepHistory(-1);
+    await until(() => board.getObjects()[frameIndex]?.kbName?.startsWith('Photo IMG'), () => 'undo brings the previous picture back: ' + board.getObjects()[frameIndex]?.kbName);
+    // 0.13: print and social sizes, photographer templates.
+    step(PAGE_GROUPS.flatMap(([, keys]) => keys).sort().join() === Object.keys(PAGES).sort().join() && $('#create-page').querySelectorAll('optgroup').length === 3, 'every page size is offered once, in Printing, Photo prints and Social media');
+    step(PAGE_LABEL('social-portrait') === 'Instagram post (1080 × 1350 px)' && PAGE_LABEL('photo-5x7') === '5 × 7 photo' && PAGE_LABEL('poster') === 'Poster (11 × 17 in)', () => 'size names: ' + PAGE_LABEL('social-portrait'));
+    await settle(newDesign('Instagram post', 'starter'), 'Instagram template');
+    step(design.page === 'social-portrait' && pagePx().join() === '540,675' && board.getObjects().filter(emptyFrame).length === 1, () => 'the Instagram template opens on its own page with a frame: ' + design.page);
+    const postSaves = count('save_output');
+    $('#create-png').click();
+    await until(() => count('save_output') === postSaves + 1, 'the post saves as a PNG');
+    const post = await createImageBitmap(new Blob([new Uint8Array(calls.filter(c => c.command === 'save_output').at(-1).args)], { type: 'image/png' }));
+    step(post.width === 1080 && post.height === 1350, () => 'a social post saves at exactly 1080 × 1350: ' + post.width + 'x' + post.height); post.close();
+    await settle(newDesign(), 'blank for template');
+    await useTemplate('Square collage', 'starter');
+    step(design.page === 'social-square' && board.getObjects().filter(emptyFrame).length === 4 && design.title.startsWith('My Square collage'), () => 'a template used on a blank page takes its size too: ' + design.page);
+    const cardThumb = await templateThumb('Photo card', 'starter', 0);
+    const cardImage = await new Promise(done => Object.assign(new Image(), { onload() { done(this); }, src: cardThumb }));
+    step(cardImage.width > cardImage.height, 'template pictures have the template page shape');
     document.body.dataset.testResult = 'PASS';
   } catch (e) { document.body.dataset.testResult = 'FAIL: ' + e.message; }
 })();

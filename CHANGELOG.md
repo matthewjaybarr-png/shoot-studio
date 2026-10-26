@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0
+
+- Photo frames in Elements: square, portrait, landscape, rounded and circle. Drop a photo on a frame, or on any picture, and it fills that spot, cropped from the middle, keeping the place, size, angle and shape. Dragging over one outlines it first. Clicking a photo, or uploading one, with an empty frame selected fills it.
+- This shoot: a drawer with the photos of the shoot open in Photos, picks first and rejects left out. Click or drag one onto the page; it's developed with your edits at 2048 pixels.
+- New sizes in Resize: an 11 × 17 poster; 4 × 6, 5 × 7 and 8 × 10 photo prints; Instagram posts, square posts and stories, which save at exactly 1080 × 1350, 1080 × 1080 and 1080 × 1920.
+- Six templates with frames ready for photos: Student of the week, Mini session flyer, Photo card (5 × 7), Instagram post, Square collage and Story. Templates bring their own page size, and their pictures show that shape.
+
 ## 0.12.0
 
 - Create shows grey space around the page. Things can hang off the edge, faded outside the page, and anything outside is left out of exports and prints.

@@ -989,15 +989,36 @@ async function useInDesign() {
   const shoot = dir;
   status('Sending ' + photo.id + ' to Create…');
   try {
+    await createFromPhoto(await developedJpeg(photo, shoot), photo.id);
+    setMode('create');
+  } catch (error) { status('Could not send the photo: ' + error, true); } finally { sending = false; }
+}
+// A photo with its edits, at 2048 px; Create's "This shoot" drawer uses it too. One at a time, as the exporter is shared.
+let developing = Promise.resolve();
+function developedJpeg(photo, shoot = dir) {
+  const run = developing.then(async () => {
+    stale(shoot);
+    if (delivering) throw 'a delivery is still running; try again when it finishes';
     try { exporter ||= new Developer(document.createElement('canvas')); } catch (error) { throw `this computer can't render photos (${error.message})`; }
     const recipe = fullRecipe(recipes[photo.id]);
     const bytes = await invoke('export_source', { dir: shoot, name: photo.raw || photo.jpg, strokes: recipe.retouch, full: false });
     stale(shoot);
     exporter.setRaw(bytes, !!photo.raw);
-    const jpeg = await deliverJpeg(exporter.pixels(recipe, WEB_EDGE), { quality: 92, watermark: false });
-    await createFromPhoto(jpeg, photo.id);
-    setMode('create');
-  } catch (error) { status('Could not send the photo: ' + error, true); } finally { sending = false; }
+    return deliverJpeg(exporter.pixels(recipe, WEB_EDGE), { quality: 92, watermark: false });
+  });
+  developing = run.catch(() => {});
+  return run;
+}
+// The open shoot's photos for Create, picks first and rejects left out, with a thumbnail loader.
+function shootPhotos() {
+  if (!dir) return [];
+  const order = p => (rating(p).flag === 'pick' ? 0 : 1) * 10 - (rating(p).stars || 0);
+  return photos.filter(p => rating(p).flag !== 'reject').sort((a, b) => order(a) - order(b));
+}
+async function shootThumb(photo) {
+  const shoot = dir;
+  if (!thumbs.has(photo.id)) { const blob = await makeThumb(photo, shoot); stale(shoot); if (!thumbs.has(photo.id)) thumbs.set(photo.id, URL.createObjectURL(blob)); }
+  return thumbs.get(photo.id);
 }
 $('#use-in-design').onclick = () => { $('#use-in-design').blur(); useInDesign(); };
 
