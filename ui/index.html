@@ -68,6 +68,7 @@
       <button data-for="object" type="button" data-pop="pop-effects">Effects</button>
       <button data-for="object" type="button" data-pop="pop-transparency">Transparency</button>
       <button data-for="object" type="button" data-pop="pop-position">Position</button>
+      <button data-for="object" type="button" data-pop="pop-link" id="link-open" title="Make it open a web page or an email from the PDF">🔗 Link</button>
       <button data-for="multi" id="prop-group" type="button">Group</button><button data-for="group" id="prop-ungroup" type="button">Ungroup</button>
       <button id="ctx-more" type="button" data-pop="pop-more" hidden>More ▾</button>
     </div>
@@ -151,6 +152,7 @@
       <button id="file-import" type="button" class="wide">Import from Canva…</button>
       <button id="file-copy" type="button" class="wide">Make a copy</button>
       <button id="file-rename" type="button" class="wide">Rename</button>
+      <button id="file-find" type="button" class="wide" data-pop="pop-find">Find and replace text…</button>
       <label>Folder <select id="file-folder"></select></label>
       <button id="file-template" type="button" class="wide">Save as template</button>
       <button id="file-download" type="button" class="wide">Download &amp; print…</button>
@@ -222,6 +224,18 @@
       <div class="grid2"><button id="table-select" type="button">Select the whole table</button><button id="table-delete" type="button">Delete the table</button></div>
     </div>
     <div id="pop-more" class="pop" hidden></div>
+    <div id="pop-link" class="pop" hidden>
+      <form id="link-form"><label>Link <input id="link-url" type="text" placeholder="www.example.com or name@school.org" spellcheck="false"></label>
+      <div class="row"><button type="submit" class="primary">Use this link</button><button id="link-remove" type="button">Remove link</button></div></form>
+      <p id="link-note" class="hint" role="status"></p><p class="hint">Links open from the downloaded PDF.</p>
+    </div>
+    <div id="pop-find" class="pop" hidden>
+      <form id="find-form"><label>Find <input id="find-text" type="text" spellcheck="false"></label>
+      <label>Replace with <input id="find-with" type="text" spellcheck="false"></label>
+      <label class="check"><input id="find-case" type="checkbox"> Match capitals</label>
+      <p id="find-count" class="hint" role="status"></p>
+      <div class="grid2"><button id="find-prev" type="button">◀ Previous</button><button id="find-next" type="submit">Next ▶</button><button id="find-replace-one" type="button">Replace</button><button id="find-replace-all" type="button">Replace all</button></div></form>
+    </div>
     <div id="pop-position" class="pop" hidden>
       <h4>Arrange</h4>
       <div class="grid2"><button id="prop-front" type="button">To front</button><button id="prop-forward" type="button">Forward</button><button id="prop-back" type="button">To back</button><button id="prop-backward" type="button">Backward</button></div>
@@ -241,10 +255,10 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Links</b> (🔗 in the toolbar) work in the downloaded PDF. <b>Find and replace</b> is in the File menu, which can now also <b>Open</b> your recent designs.</li>
         <li><b>My elements</b>: select anything on the page, even pieces of a Canva design, and save it to the top of Elements to use again in any design.</li>
         <li><b>Tables</b> you can change: click a cell, then <b>Table</b> to add or remove rows and columns, colour a cell or change the borders. Rows grow to fit what you type.</li>
         <li><b>Gradients</b> in Colours, for words, shapes and the page. A photo's <b>Set as background</b> fills the page with it. PNGs can be <b>see-through</b>.</li>
-        <li><b>Decorations</b> in Elements: leaves, flowers, wreaths, doodles, dividers and party pieces. Click their colour dots in the toolbar to recolour them. Elements sections now fold away.</li>
         <li>Text can <b>curve</b> (Effects), become a bulleted or numbered <b>list</b>, go to capitals or get a strikethrough. <b>Copy style</b> paints one thing's look onto another.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
@@ -311,5 +325,6 @@
   <script src="fills.js"></script>
   <script src="tables.js"></script>
   <script src="myelements.js"></script>
+  <script src="doctools.js"></script>
 
 </body></html>

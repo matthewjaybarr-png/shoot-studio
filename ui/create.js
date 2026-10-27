@@ -1295,11 +1295,12 @@ function closeMenus() {
 }
 function togglePop(anchor) {
   const el = $('#' + anchor.dataset.pop), same = openPop?.el === el;
+  // Measured before menus close, so a button inside File or More opens its panel where it was.
+  const before = anchor.getBoundingClientRect(), a = before.width ? before : $('#ctx-more').getBoundingClientRect();
   closeMenus();
   if (same) return;
   el.hidden = false; anchor.classList.add('open'); openPop = { el, anchor };
-  const shownAt = anchor.getClientRects().length && !anchor.closest('[hidden]') ? anchor : $('#ctx-more'); // a button in More opens under More
-  const a = shownAt.getBoundingClientRect(), host = $('#create').getBoundingClientRect();
+  const host = $('#create').getBoundingClientRect();
   el.style.left = Math.max(8, Math.min(a.left - host.left, host.width - el.offsetWidth - 8)) + 'px';
   el.style.top = a.bottom - host.top + 6 + 'px';
 }
@@ -1417,7 +1418,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 14;
+const WHATS_NEW = 15;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1600,10 +1601,14 @@ async function makePdf() {
   const layout = pageLayout(design.page, design.tile, design.size), [sw, sh] = layout.sheet, [pw, ph] = design.size;
   const images = [];
   for (const page of allPages()) images.push(await render(DPI / PX, 'jpeg', 0.92, page));
+  const links = typeof linksOf === 'function' ? await Promise.all(allPages().map(linksOf)) : [];
   const pdf = new window.jspdf.jsPDF({ unit: 'in', format: [sw, sh], orientation: sw > sh ? 'landscape' : 'portrait', compress: true });
   for (let copy = 0, sheet = 0; copy < design.copies; copy++) images.forEach((image, i) => {
     if (sheet++) pdf.addPage([sw, sh], sw > sh ? 'landscape' : 'portrait');
-    for (const t of layout.tiles) pdf.addImage(image, 'JPEG', t.x, t.y, pw, ph, 'page' + i, 'FAST');
+    for (const t of layout.tiles) {
+      pdf.addImage(image, 'JPEG', t.x, t.y, pw, ph, 'page' + i, 'FAST');
+      for (const l of links[i] || []) pdf.link(t.x + l.x / PX, t.y + l.y / PX, l.w / PX, l.h / PX, { url: l.url }); // clickable in the PDF
+    }
     pdf.setDrawColor(110); pdf.setLineWidth(0.01);
     for (const [x1, y1, x2, y2] of layout.marks) pdf.line(x1, y1, x2, y2);
   });

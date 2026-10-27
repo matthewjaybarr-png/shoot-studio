@@ -2069,14 +2069,15 @@ const test = `<script>
       const order = []; for (let i = 0; i < 4; i++) { $('#prop-align').click(); order.push(board.getActiveObject().textAlign); }
       step(order.join() === 'center,right,justify,left' && $('#prop-align').textContent === '⇤', () => 'one button steps through the alignments: ' + order); board.remove(words); }
     { const words = addText('body'); words.exitEditing(); selectObjects([words]);
-      const bar = $('#create-context'); bar.style.width = '560px'; bar.style.flex = 'none'; paintPanel();
+      const bar = $('#create-context'); paintPanel(); const movedAtStart = $('#pop-more').children.length;
+      bar.style.width = '560px'; bar.style.flex = 'none'; paintPanel();
       const moved = [...$('#pop-more').children];
       step(seen('#ctx-more') && moved.length > 0 && bar.scrollWidth <= bar.clientWidth + 1, () => 'a narrow toolbar moves its last buttons into More: ' + moved.length);
       $('#ctx-more').click(); step(seen('#pop-more'), 'More opens');
       const positionBtn = $('#pop-more [data-pop=pop-position]'); positionBtn?.click();
       step(positionBtn && seen('#pop-position') && !seen('#pop-more'), 'a panel button inside More opens its panel');
       closeMenus(); bar.style.width = ''; bar.style.flex = ''; paintPanel();
-      step(!seen('#ctx-more') && !$('#pop-more').children.length && bar.querySelector('[data-pop=pop-position]'), 'with room again, everything is back in the toolbar');
+      step($('#pop-more').children.length === movedAtStart && seen('#ctx-more') === movedAtStart > 0 && bar.scrollWidth <= bar.clientWidth + 1, 'with room again, the buttons come back to the toolbar');
       board.remove(words); }
     // Tables: rows and columns added and taken away, cell colours, borders, rows that grow with their words.
     addTable(2, 3);
@@ -2141,6 +2142,42 @@ const test = `<script>
     del.click(); await until(() => !myElements.has('My element') && !disk['c:elements:My element'], 'the second deletes it');
     myElements.clear(); await settle(loadMine(), 'reload saved elements');
     step(myElements.size === 2 && myElements.has('Autumn leaf') && $('#create-mine').children.length === 2, 'saved elements are read back from their files');
+    // Links in the PDF, and Find and replace across pages.
+    { const linkWords = addText('body'); linkWords.exitEditing(); linkWords.set({ text: 'Fall fun for all' }); selectObjects([linkWords]); paintPanel();
+      $('#link-open').click(); step(seen('#pop-link'), 'Link opens its panel');
+      $('#link-url').value = 'hello there'; $('#link-form').requestSubmit();
+      step(!linkWords.kbLink && $('#link-note').textContent.includes('web address'), 'something that is not a link is refused, with a reason');
+      $('#link-url').value = 'www.school.org'; $('#link-form').requestSubmit();
+      step(linkWords.kbLink === 'https://www.school.org' && $('#link-open').textContent.includes('Linked'), 'a web address becomes a link');
+      selectObjects([square]); paintPanel(); $('#link-url').value = 'office@school.org'; $('#link-form').requestSubmit();
+      step(square.kbLink === 'mailto:office@school.org', 'an email address becomes an email link');
+      closeMenus();
+      const links = await linksOf(board.toObject(KEEP));
+      step(links.length === 2 && links.some(l => l.url === 'https://www.school.org' && Math.abs(l.x - linkWords.getBoundingRect().left) < 1), () => 'links are found where they sit on the page: ' + JSON.stringify(links));
+      const pdfText = new TextDecoder('latin1').decode(await makePdf());
+      step(pdfText.includes('https://www.school.org') && pdfText.includes('mailto:office@school.org') && pdfText.includes('/Link'), 'the PDF carries both links');
+      selectObjects([square]); paintPanel(); $('#link-remove').click();
+      step(!square.kbLink, 'Remove link takes it off');
+      await addPage(); await until(() => pageAt === designPages.length - 1, 'a second page for Find');
+      const page2 = addText('body'); page2.exitEditing(); page2.set({ text: 'Fall leaves fall' }); commitDesign();
+      await showPage(0);
+      $('#file-open').click(); $('#file-find').click();
+      step(seen('#pop-find') && !seen('#pop-file'), 'File has Find and replace');
+      put($('#find-text'), 'fall', 'input');
+      step(findState.hits.length >= 4 && $('#find-count').textContent.includes('on 2 pages'), () => 'Find counts matches on every page: ' + $('#find-count').textContent);
+      const allFound = findState.hits.length; $('#find-case').checked = true; $('#find-case').dispatchEvent(new Event('change'));
+      step(findState.hits.length > 0 && findState.hits.length < allFound, 'Match capitals finds only the exact capitals');
+      $('#find-case').checked = false; $('#find-case').dispatchEvent(new Event('change'));
+      const lastPageHit = findState.hits.findIndex(h => h.p === 1);
+      await showHit(lastPageHit);
+      step(pageAt === 1 && board.getActiveObject() === board.getObjects().find(o => o.text === 'Fall leaves fall'), 'showing a match goes to its page and selects its words');
+      $('#find-with').value = 'Spring';
+      await replaceAll();
+      const page1Text = board.getObjects().find(o => o.text?.startsWith?.('Spring leaves'));
+      step(page1Text?.text === 'Spring leaves Spring' && $('#find-count').textContent.startsWith('Replaced'), () => 'Replace all changes every page: ' + page1Text?.text + ' / ' + $('#find-count').textContent);
+      step(allPages().every(pg => !JSON.stringify(pg.objects).match(/"text":"[^"]*[Ff]all/)), 'no match is left anywhere');
+      closeMenus();
+      await showPage(1); await deletePage(); await until(() => designPages.length === 1 && pageAt === 0, 'back to one page'); }
     await settle(flush(), 'tools save'); await settle(openDesign(design.title), 'tools reopen');
     step(readTable(keptTable).cells.length === 4, 'a table is still a table after save and reopen');
     step(board.backgroundColor?.colorStops && board.getObjects().some(o => o.fill?.type === 'radial') && board.getObjects()[0].kbName === 'Background photo', 'gradients and the background photo survive save and reopen');
@@ -2167,8 +2204,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

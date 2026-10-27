@@ -175,6 +175,7 @@ function paintTextTools(o) {
   if (typeof paintGraphicColours === 'function') paintGraphicColours(o);
   if (typeof paintChartPanel === 'function') paintChartPanel(o);
   if (typeof paintTablePanel === 'function') paintTablePanel();
+  if (typeof paintLink === 'function') paintLink(o);
   if (o?.type !== 'textbox') return;
   if (typeof paintAlign === 'function') paintAlign(o);
   $('#prop-strike').classList.toggle('on', !!o.linethrough);

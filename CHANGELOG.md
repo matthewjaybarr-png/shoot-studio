@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.26.0
+
+- Links: 🔗 Link in the toolbar makes any text, picture or shape open a web page or an email from the downloaded PDF. Type www.example.com or name@school.org; anything that isn't a link is refused with a reason.
+- Find and replace text (File menu, or Ctrl+F) looks through every page: Previous and Next show each match on its page, Replace changes one, Replace all changes them everywhere. Match capitals is optional.
+- File → Open lists your most recent designs, with All designs and folders… for the rest.
+- The start screen shows your recent designs at the top, above the templates.
+- When the toolbar is wider than the window, its last buttons move into More ▾ instead of running off the edge.
+- Deliver names a first delivery after the shoot, and says what's missing whenever Deliver can't run yet.
+- This shoot has an Open a shoot in Photos button when no shoot is open. My elements is one line until something is saved. The Highlight colour sits next to its checkbox.
+- The What's new card appears once more.
+
 ## 0.25.0
 
 - My elements, at the top of Elements: select anything on the page (a decoration from a Canva file, a styled heading, a chart, a few pieces together) and click Save the selection to My elements, or Save to My elements in the ⋯ and right-click menus. It waits there, with a picture of it, for any design.
