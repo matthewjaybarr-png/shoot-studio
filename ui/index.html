@@ -53,6 +53,7 @@
       <span data-for="text"><button id="prop-bold" type="button" title="Bold" aria-label="Bold"><b>B</b></button><button id="prop-italic" type="button" title="Italic" aria-label="Italic"><i>I</i></button><button id="prop-underline" type="button" title="Underline" aria-label="Underline"><u>U</u></button><button id="prop-strike" type="button" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button><button id="prop-caps" type="button" title="Capitals" aria-label="Capitals">aA</button><button id="prop-list" type="button" title="Bullets, then numbers, then none">• List</button></span>
       <span data-for="text"><button type="button" data-text-align="left" title="Align left" aria-label="Align left">⇤</button><button type="button" data-text-align="center" title="Centre" aria-label="Centre">↔</button><button type="button" data-text-align="right" title="Align right" aria-label="Align right">⇥</button></span>
       <button data-for="text" type="button" data-pop="pop-spacing">Spacing</button>
+      <button data-for="chart" type="button" data-pop="pop-chart" id="chart-open">Edit chart</button>
       <span data-for="group" id="graphic-colours" class="graphic-colours" aria-label="Colours in this graphic"></span>
       <button data-for="text shape line image" id="prop-copy-style" type="button" title="Copy this look onto something else">🖌 Copy style</button>
       <button data-for="shape image line multi" type="button" data-pop="pop-outline">Border</button>
@@ -84,6 +85,7 @@
           <details class="fold" data-fold="frames" open><summary>Frames</summary><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div></details>
           <details class="fold" data-fold="grids" open><summary>Photo grids</summary><p class="hint">Fill the page with frames, then drop photos into them.</p><div id="create-grids" class="shape-grid frames"></div></details>
           <details class="fold" data-fold="decor" open><summary>Decorations</summary><p class="hint">Leaves, flowers, doodles and more. Change their colours from the toolbar.</p><select id="decor-group" aria-label="Decoration group"></select><div id="create-decor" class="decor-grid"></div></details>
+          <details class="fold" data-fold="charts" open><summary>Charts</summary><p class="hint">Click Edit chart in the toolbar to type in your own labels and numbers.</p><div id="create-charts" class="shape-grid"></div></details>
           <details class="fold" data-fold="graphics" open><summary>Graphics</summary><input id="emoji-search" type="search" placeholder="Search graphics" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p></details>
           <details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details>
           <details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details>
@@ -190,6 +192,13 @@
       <p class="hint">Filters use the same looks as Photos. The original picture is kept, so you can change or remove a filter any time.</p>
     </div>
     <div id="pop-transparency" class="pop" hidden><label>Transparency <input id="prop-opacity" type="range" min="0" max="100" value="100"></label></div>
+    <div id="pop-chart" class="pop" hidden>
+      <label>Kind <select id="chart-kind"><option value="column">Column</option><option value="bar">Bar</option><option value="line">Line</option><option value="pie">Pie</option><option value="donut">Donut</option></select></label>
+      <label>Title <input id="chart-title" type="text" maxlength="80" placeholder="No title"></label>
+      <h4>Labels and numbers</h4><div id="chart-rows"></div>
+      <button id="chart-add" type="button" class="wide">+ Add a row</button>
+      <label class="check"><input id="chart-values" type="checkbox" checked> Show the numbers</label>
+    </div>
     <div id="pop-position" class="pop" hidden>
       <h4>Arrange</h4>
       <div class="grid2"><button id="prop-front" type="button">To front</button><button id="prop-forward" type="button">Forward</button><button id="prop-back" type="button">To back</button><button id="prop-backward" type="button">Backward</button></div>
@@ -209,11 +218,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Charts</b> in Elements: column, bar, line, pie and donut. Click <b>Edit chart</b> to type your own labels and numbers. Charts from Canva files come in ready to edit too.</li>
         <li><b>Decorations</b> in Elements: leaves, flowers, wreaths, doodles, dividers and party pieces. Click their colour dots in the toolbar to recolour them. Elements sections now fold away.</li>
         <li>Text can <b>curve</b> (Effects), become a bulleted or numbered <b>list</b>, go to capitals or get a strikethrough. <b>Copy style</b> paints one thing's look onto another.</li>
         <li>A fresh new look: soft pinks, purples and light blues, with your artwork on the start screen. Photos still sit on neutral grey so colours look true.</li>
         <li>In <b>Photos</b>, everything has a button now: Pick, Reject and stars above the photos (or on each photo in the grid), Grid / Photo / Compare / Develop, arrows and a filmstrip, and in Develop: hold for before, Undo, Fit and 100%. Develop's settings are in drawers on the left, with each look shown as a picture.</li>
-        <li><b>Folders</b> for your designs on the start screen: drag a design onto a folder, or use the ⋯ on a design. Deleted designs wait in the Trash.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -275,5 +284,6 @@
   <script src="projects.js"></script>
   <script src="texttools.js"></script>
   <script src="decor.js"></script>
+  <script src="charts.js"></script>
 
 </body></html>

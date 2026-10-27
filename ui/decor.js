@@ -149,7 +149,7 @@ function graphicColours(o) {
 }
 function paintGraphicColours(o) {
   const box = $('#graphic-colours');
-  const colours = o?.type === 'group' && !o.kbLocked ? graphicColours(o) : [];
+  const colours = o?.type === 'group' && !o.kbLocked && !o.kbChart ? graphicColours(o) : []; // a chart's colours are in Edit chart
   box.hidden = colours.length < 1;
   box.replaceChildren(...colours.map(colour => {
     const input = Object.assign(document.createElement('input'), { type: 'color', value: colour, title: 'Change this colour' });

@@ -718,6 +718,7 @@ function dropItem([kind, value], at) {
   else if (kind === 'emoji') addEmoji(value, at).catch(e => { $('#create-saved').textContent = String(e); });
   else if (kind === 'frame' && FRAME_TILES.some(([k]) => k === value)) addFrame(value, at);
   else if (kind === 'grid' && GRIDS[value]) addGrid(value);
+  else if (kind === 'chart' && typeof addChart === 'function') addChart(value, at);
   else if (kind === 'decor' && typeof addDecor === 'function') addDecor(value, at).catch(e => { $('#create-saved').textContent = String(e); });
   else if (kind === 'photo') addShootPhoto(value, at, dropTarget(at));
 }
@@ -961,7 +962,7 @@ function tagsOf(o) {
   if (objects.some(x => x.kbLocked)) return ['locked'];
   if (o.type === 'activeselection') return ['object', 'multi'];
   const kind = { textbox: 'text', image: 'image', group: 'group', line: 'line' }[o.type] || (o.type === 'path' && !o.fill ? 'line' : 'shape');
-  return ['object', kind, ...(o.type === 'rect' ? ['rect'] : [])];
+  return ['object', kind, ...(o.type === 'rect' ? ['rect'] : []), ...(o.kbChart ? ['chart'] : [])];
 }
 // The toolbar along the top shows only what fits the selection, like Canva's.
 function paintPanel() {
@@ -1378,7 +1379,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 10;
+const WHATS_NEW = 11;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

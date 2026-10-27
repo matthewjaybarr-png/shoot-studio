@@ -46,7 +46,13 @@ const pptxFixture = (() => {
     + `</p:spTree></p:cSld></p:sld>`;
   const slide2 = `<p:sld ${A}><p:cSld><p:bg><p:bgPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:bgPr></p:bg><p:spTree>`
     + `<p:sp><p:nvSpPr><p:cNvPr id="2" name="Note"/><p:cNvSpPr txBox="true"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(457200, 457200, 3657600, 914400)}</p:spPr><p:txBody><a:bodyPr/><a:p>${run('Page two', 'sz="1800"', '<a:schemeClr val="tx1"/>', 'Fixture Script')}</a:p></p:txBody></p:sp>`
+    + `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="1828800"/><a:ext cx="3657600" cy="2743200"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId3"/></a:graphicData></a:graphic></p:graphicFrame>`
     + `</p:spTree></p:cSld></p:sld>`;
+  const pts = (tag, values) => `<c:${tag}><c:ptCount val="${values.length}"/>${values.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join('')}</c:${tag}>`;
+  const series = (values, more = '') => `<c:ser><c:idx val="0"/>${more}<c:cat><c:strRef><c:f>S!A2</c:f>${pts('strCache', ['Apples', 'Pears', 'Plums'])}</c:strRef></c:cat><c:val><c:numRef><c:f>S!B2</c:f>${pts('numCache', values)}</c:numRef></c:val></c:ser>`;
+  const chart1 = `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" ${A}><c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Fruit we picked</a:t></a:r></a:p></c:rich></c:tx></c:title><c:plotArea><c:barChart><c:barDir val="bar"/><c:varyColors val="0"/>`
+    + series([12, 5, 8], `<c:spPr><a:solidFill><a:srgbClr val="AA3355"/></a:solidFill></c:spPr><c:dPt><c:idx val="1"/><c:spPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></c:spPr></c:dPt>`) + series([1, 2, 3])
+    + `</c:barChart></c:plotArea></c:chart></c:chartSpace>`;
   const rel = (id, target, type) => `<Relationship Id="${id}" Target="${target}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}"/>`;
   const relsOf = (...r) => `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${r.join('')}</Relationships>`;
   const font = fs.readFileSync(path.join(__dirname, 'ui/fonts/caveat-latin-400-normal.woff2')).toString('base64');
@@ -57,7 +63,8 @@ const pptxFixture = (() => {
       'ppt/theme/theme1.xml': `<a:theme ${A}><a:themeElements><a:clrScheme name="t"><a:dk1><a:srgbClr val="222222"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme></a:themeElements></a:theme>`,
       'ppt/slides/slide1.xml': slide1, 'ppt/slides/slide2.xml': slide2,
       'ppt/slides/_rels/slide1.xml.rels': relsOf(rel('rId2', '../media/image1.png', 'image')),
-      'ppt/slides/_rels/slide2.xml.rels': relsOf()
+      'ppt/slides/_rels/slide2.xml.rels': relsOf(rel('rId3', '../charts/chart1.xml', 'chart')),
+      'ppt/charts/chart1.xml': chart1
     },
     media: {},                                         // the test draws image1.png
     fonts: { 'ppt/fonts/font9.fntdata': 'data:font/ttf;base64,' + font }
@@ -1779,11 +1786,14 @@ const test = `<script>
     step(designFonts.some(f => f.family === 'Fixture Script') && [...$('#prop-font').options].some(o => o.value === 'Fixture Script'), 'embedded fonts are added to the design and the font menu');
     step(document.fonts.check('16px "Fixture Script"'), 'and are ready to draw');
     const importNoteText = $('#create-import-note').textContent;
-    step(shown('#create-import-note') && importNoteText.includes('Montserrat → Lexend') && !importNoteText.includes('a table') && importNoteText.includes('a shape') && importNoteText.includes('2 pages'), () => 'a note says what was swapped and left out: ' + importNoteText);
+    step(shown('#create-import-note') && importNoteText.includes('Montserrat → Lexend') && !importNoteText.includes('a table') && importNoteText.includes('a shape') && importNoteText.includes('extra series') && !importNoteText.includes('a chart or diagram') && importNoteText.includes('2 pages'), () => 'a note says what was swapped and left out: ' + importNoteText);
     $('#import-note-ok').click();
     step($('#create-import-note').hidden, 'OK closes the note');
     showPage(1); await until(() => pageAt === 1 && !restoring, 'page two');
     step(board.backgroundColor === '#336699' && board.getObjects()[0]?.fill === '#222222', 'theme colours come across');
+    const canvaChart = board.getObjects()[1]?.kbChart;
+    step(canvaChart?.kind === 'bar' && canvaChart.title === 'Fruit we picked' && JSON.stringify(canvaChart.rows) === JSON.stringify([['Apples', 12, '#aa3355'], ['Pears', 5, '#336699'], ['Plums', 8, '#aa3355']]), () => 'a Canva chart comes across with its numbers and colours: ' + JSON.stringify(canvaChart));
+    step(Math.abs(board.getObjects()[1].getScaledWidth() - 384) < 1 && Math.abs(board.getObjects()[1].left - 48) < 1, () => 'in its place and size: ' + board.getObjects()[1].left + ' ' + board.getObjects()[1].getScaledWidth());
     await settle(flush(), 'import save');
     const importedDoc = JSON.parse(disk['c:designs:Fall flyer']);
     step(importedDoc.format === 2 && importedDoc.fonts?.[0]?.family === 'Fixture Script' && importedDoc.pages.length === 2, 'the design saves with its fonts');
@@ -1986,7 +1996,34 @@ const test = `<script>
     step(maple.getObjects().some(p => p.fill === '#8e6cc4') && !maple.getObjects().some(p => p.fill === '#c8552b'), 'changing a swatch recolours that colour everywhere in it');
     dropItem(['decor', 'daisy'], new fabric.Point(300, 300));
     await until(() => board.getObjects().some(o => o.kbName === 'Daisy'), 'a decoration can be dropped onto the page');
+    // Charts: one tile per kind, edited from the toolbar.
+    step(CHART_KINDS.every(([kind]) => $('#add-chart-' + kind)), 'Elements lists the charts');
+    for (const [kind] of CHART_KINDS) { const c = addChart(kind); step(c?.kbChart?.kind === kind && c.getObjects().length > 5, 'the ' + kind + ' chart draws'); board.remove(c); }
+    const chart = addChart('column'); selectObjects([chart]); paintPanel();
+    const seen = sel => !$(sel).closest('[hidden]');
+    step(seen('#chart-open') && !seen('#graphic-colours'), 'a chart shows Edit chart instead of the graphic swatches');
+    $('#chart-open').click();
+    step(seen('#pop-chart') && $('#chart-rows').children.length === 5, 'Edit chart lists a row per value');
+    const chartMid = chart.getCenterPoint(), chartWidth = chart.getScaledWidth();
+    const [, firstLabel, firstValue] = $('#chart-rows').children[0].children;
+    firstLabel.value = 'Monday'; firstLabel.dispatchEvent(new Event('input', { bubbles: true }));
+    firstValue.value = '20'; firstValue.dispatchEvent(new Event('input', { bubbles: true })); firstValue.dispatchEvent(new Event('change', { bubbles: true }));
+    let edited = board.getActiveObject();
+    step(edited.kbChart.rows[0][0] === 'Monday' && edited.kbChart.rows[0][1] === 20 && $('#chart-rows').children[0].children[1] === firstLabel, 'typing a label and number redraws the chart and keeps the box being typed in');
+    step(Math.abs(edited.getCenterPoint().x - chartMid.x) < 1 && Math.abs(edited.getScaledWidth() - chartWidth) < 1, 'the chart stays in place and size');
+    $('#chart-add').click();
+    step(board.getActiveObject().kbChart.rows.length === 6 && $('#chart-rows').children.length === 6, 'Add a row adds one');
+    $('#chart-rows').children[1].querySelector('button').click();
+    step(board.getActiveObject().kbChart.rows.length === 5 && board.getActiveObject().kbChart.rows[1][0] === 'Wed', 'the × removes a row');
+    put($('#chart-kind'), 'donut', 'change');
+    step(board.getActiveObject().kbChart.kind === 'donut' && board.getActiveObject().kbName === 'Donut chart', 'the kind can be changed');
+    put($('#chart-title'), 'Reading minutes', 'change');
+    step(board.getActiveObject().getObjects().some(o => o.text === 'Reading minutes'), 'a title can be added');
+    closeMenus();
+    dropItem(['chart', 'line'], new fabric.Point(400, 300));
+    await until(() => board.getObjects().some(o => o.kbChart?.kind === 'line'), 'a chart can be dropped onto the page');
     await settle(flush(), 'tools save'); await settle(openDesign(design.title), 'tools reopen');
+    step(board.getObjects().some(o => o.kbChart?.kind === 'donut' && o.kbChart.title === 'Reading minutes' && o.kbChart.rows[0][1] === 20), 'a chart survives save and reopen');
     const reopenedWords = board.getObjects().find(o => o.type === 'textbox' && o.kbCurve);
     step(reopenedWords?.kbCurve === -40 && reopenedWords.text.includes('Music'), 'curved text survives save and reopen');
     step(board.getObjects().some(o => o.kbName === 'Maple leaf' && o.getObjects().some(p => p.fill === '#8e6cc4')), 'a recoloured decoration survives save and reopen');
@@ -2009,8 +2046,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

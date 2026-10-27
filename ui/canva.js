@@ -392,8 +392,16 @@ async function slideObjects(tree, ctx, space, out) {
         }
       } else if (name === 'graphicFrame') {
         const table = kid(el, 'graphic', 'graphicData', 'tbl');
+        const chartRef = kid(el, 'graphic', 'graphicData', 'chart'), chartPath = chartRef && ctx.rels.get(relId(chartRef, 'id'));
         if (table) out.objects.push(...tableOf(table, boxOf(kid(el, 'xfrm'), space), ctx));
-        else out.skipped.push('a chart or diagram');
+        else if (chartPath && typeof chartFromXml === 'function') {
+          const box = boxOf(kid(el, 'xfrm'), space), read = chartFromXml(ctx.part(chartPath), ctx.theme, box);
+          if (!read) { out.skipped.push('a chart'); continue; }
+          const chart = makeChart(read.chart);
+          chart.set({ left: box.x, top: box.y, angle: box.rot }); chart.setCoords();
+          out.objects.push(chart);
+          if (read.more) out.skipped.push('extra series in a chart (only the first came across)');
+        } else out.skipped.push('a chart or diagram');
       } else if (name === 'AlternateContent') { const fb = kid(el, 'Fallback'); if (fb) await slideObjects(fb, ctx, space, out); }
     } catch (error) {
       console.warn('Canva import: skipped', name, error);
@@ -442,7 +450,7 @@ async function designFromPowerPoint(pkg) {
   const themeFonts = kid(xmlPart(pkg, Object.keys(pkg.parts).find(p => /^ppt\/theme\/theme\d*\.xml$/.test(p))), 'themeElements', 'fontScheme');
   const pictures = new Map();
   const ctx = {
-    theme: themeColours(pkg), families, swaps: new Map(), k: PX / EMU * fit.scale,
+    theme: themeColours(pkg), families, swaps: new Map(), k: PX / EMU * fit.scale, part: path => xmlPart(pkg, path),
     majorFont: kid(themeFonts, 'majorFont', 'latin')?.getAttribute('typeface'), minorFont: kid(themeFonts, 'minorFont', 'latin')?.getAttribute('typeface'),
     // Pictures are shrunk like uploads, once each however often they're used.
     picture: path => {

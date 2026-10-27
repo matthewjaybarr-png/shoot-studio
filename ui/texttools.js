@@ -173,6 +173,7 @@ $('#prop-angle').onchange = e => {
 function paintTextTools(o) {
   paintSize();
   if (typeof paintGraphicColours === 'function') paintGraphicColours(o);
+  if (typeof paintChartPanel === 'function') paintChartPanel(o);
   if (o?.type !== 'textbox') return;
   $('#prop-strike').classList.toggle('on', !!o.linethrough);
   $('#prop-caps').classList.toggle('on', o.kbCaps != null);

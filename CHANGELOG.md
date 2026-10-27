@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0
+
+- Charts in Elements: column, bar, line, pie and donut. Click one to add it, or drag it onto the page.
+- Edit chart in the toolbar: change the kind, add a title, and type a label, number and colour for each row. + Add a row and × take rows away; Show the numbers turns the values on the chart on or off. The chart keeps its place and size as it changes.
+- Charts in Canva files now come across as charts you can edit, with their labels, numbers, colours and title. A chart with several series brings the first one, and the import note says so.
+- The What's new card appears once more.
+
 ## 0.21.0
 
 - Decorations in Elements, drawn for KB Studio: maple, oak and autumn leaves, falling leaves, acorn, pumpkin, wheat, apple and mushroom; leafy sprigs, eucalyptus, fern, a branch, a leaf wreath and leafy corners; daisy, blossom, tulip, rose, lavender, sunflower, a bouquet, a floral corner and a flower border; sparkles, a doodle heart, a swirly arrow, squiggles, burst lines, a circle scribble, an underline swash, a boho rainbow, a sun, a cloud and a star; flourish, dotted and leafy dividers, a corner flourish and a scalloped label; confetti, balloons, bunting, a ribbon banner and a bow; and a pencil, camera, paw print and books.

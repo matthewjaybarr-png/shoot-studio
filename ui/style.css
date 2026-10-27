@@ -325,3 +325,8 @@ header,.create-bar{border-bottom-color:var(--pink)}
 #create-drawer details.fold:not([open])>summary::after{transform:rotate(-90deg)}
 #create-drawer details.fold>summary:hover{color:var(--accent)}
 #create .graphic-colours input[type=color]::-webkit-color-swatch-wrapper{padding:0}#create .graphic-colours input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
+#create .chart-tile{fill:var(--accent);stroke:var(--accent);stroke-width:2;stroke-linecap:round}
+#pop-chart{width:330px;max-height:min(80vh,620px);overflow-y:auto}#pop-chart label input[type=text],#pop-chart select{width:200px}
+.chart-row{display:grid;grid-template-columns:30px 1fr 74px 28px;gap:4px;align-items:center;margin-bottom:4px}
+#create .chart-row input{min-width:0;width:100%;padding:4px 6px;border:1px solid var(--edge);border-radius:6px;background:var(--deep);color:var(--text);font:inherit}
+#create .chart-row input[type=color]{height:28px;padding:1px}#create .chart-row button{padding:2px 0}
