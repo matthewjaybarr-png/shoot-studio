@@ -173,7 +173,7 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
         return Rect::default();
     }
     if stroke.tool == Tool::Remove {
-        return remove(img, w, h, stroke, rect, &cov);
+        return remove(img, w, h, 3, stroke, rect, &cov);
     }
     let at = |x: i64, y: i64| (y.clamp(0, h as i64 - 1) as usize * w + x.clamp(0, w as i64 - 1) as usize) * 3;
     let (sx, sy) = shift(stroke, w, h);
@@ -287,30 +287,31 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
 
 /// Remove: the stroke, everything it encloses and a small halo become a hole, filled from a crop
 /// around it (patch-based, so the fill keeps the grain of what's nearby). Hard-edged, unlike the
-/// other tools: a soft edge would let the removed thing show through.
-fn remove(img: &mut [f32], w: usize, h: usize, stroke: &Stroke, rect: Rect, cov: &[f32]) -> Rect {
+/// other tools: a soft edge would let the removed thing show through. `n` channels per pixel: a
+/// picture with transparency brings its alpha, so a cut-out leaf removed becomes see-through too.
+fn remove(img: &mut [f32], w: usize, h: usize, n: usize, stroke: &Stroke, rect: Rect, cov: &[f32]) -> Rect {
     let r = radius(stroke, w, h) as usize;
     let halo = (r / 8).clamp(2, 12);
     let pad = rect.w.max(rect.h).max(64) + halo;
     let (cx0, cy0) = (rect.x.saturating_sub(pad), rect.y.saturating_sub(pad));
     let (cx1, cy1) = ((rect.x + rect.w + pad).min(w), (rect.y + rect.h + pad).min(h));
-    let (cw, ch) = (cx1 - cx0, cy1 - cy0);
-    let mut brushed = vec![false; cw * ch];
+    let (cw, chh) = (cx1 - cx0, cy1 - cy0);
+    let mut brushed = vec![false; cw * chh];
     for y in 0..rect.h {
         for x in 0..rect.w {
             brushed[(rect.y + y - cy0) * cw + rect.x + x - cx0] = cov[y * rect.w + x] > 0.0;
         }
     }
-    let hole = dilate(cw, ch, &close_loops(cw, ch, &brushed), halo);
-    let crop: Vec<f32> = (cy0..cy1).flat_map(|y| img[(y * w + cx0) * 3..(y * w + cx1) * 3].iter().copied()).collect();
-    let Ok(filled) = remove_with(cw, ch, 3, &crop, &hole, 1, &Interrupt::NONE) else {
+    let hole = dilate(cw, chh, &close_loops(cw, chh, &brushed), halo);
+    let crop: Vec<f32> = (cy0..cy1).flat_map(|y| img[(y * w + cx0) * n..(y * w + cx1) * n].iter().copied()).collect();
+    let Ok(filled) = remove_with(cw, chh, n, &crop, &hole, 1, &Interrupt::NONE) else {
         return Rect::default();
     };
-    let (mut x0, mut y0, mut x1, mut y1) = (cw, ch, 0, 0);
+    let (mut x0, mut y0, mut x1, mut y1) = (cw, chh, 0, 0);
     for (i, _) in hole.iter().enumerate().filter(|(_, m)| **m) {
         let (x, y) = (i % cw, i / cw);
-        let d = ((cy0 + y) * w + cx0 + x) * 3;
-        img[d..d + 3].copy_from_slice(&filled[i * 3..i * 3 + 3]);
+        let d = ((cy0 + y) * w + cx0 + x) * n;
+        img[d..d + n].copy_from_slice(&filled[i * n..i * n + n]);
         (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
     }
     if x1 == 0 {
@@ -373,9 +374,10 @@ fn linear_to_srgb(v: f32) -> u8 {
     (s * 255.0).round() as u8
 }
 
-/// Retouch a picture from Create in place: `rgba` is `w × h` 8-bit sRGB with alpha, which is left
-/// as it is. A spot stroke with no source yet (offset 0, 0) gets one found nearby, as in Develop.
-/// Only the returned rectangle changes.
+/// Retouch a picture from Create in place: `rgba` is `w × h` 8-bit sRGB with alpha. Alpha is left
+/// as it is, except that Remove on a picture with transparency fills it from around the hole too.
+/// A spot stroke with no source yet (offset 0, 0) gets one found nearby, as in Develop. Only the
+/// returned rectangle changes.
 pub fn retouch_picture(w: usize, h: usize, rgba: &mut [u8], mut strokes: Vec<Stroke>) -> Result<Rect, String> {
     if w == 0 || h == 0 || w > PICTURE_EDGE || h > PICTURE_EDGE || rgba.len() != w * h * 4 {
         return Err(format!("not a picture KB Studio can retouch ({w} × {h})"));
@@ -383,18 +385,36 @@ pub fn retouch_picture(w: usize, h: usize, rgba: &mut [u8], mut strokes: Vec<Str
     validate(&strokes)?;
     let lut: Vec<f32> = (0..=255u8).map(srgb_to_linear).collect();
     let mut img: Vec<f32> = rgba.as_chunks::<4>().0.iter().flat_map(|p| [lut[p[0] as usize], lut[p[1] as usize], lut[p[2] as usize]]).collect();
+    let mut alpha: Vec<f32> = rgba.as_chunks::<4>().0.iter().map(|p| p[3] as f32 / 255.0).collect();
+    let see_through = alpha.iter().any(|a| *a < 1.0);
     let mut dirty = Rect::default();
     for stroke in &mut strokes {
         if stroke.tool == Tool::Spot && stroke.offset == Some([0.0, 0.0]) {
             stroke.offset = Some(spot_source(&img, w, h, stroke));
         }
-        dirty = dirty.union(apply(&mut img, w, h, stroke));
+        if stroke.tool == Tool::Remove && see_through {
+            let (rect, cov) = coverage(stroke, w, h);
+            if rect.w == 0 || rect.h == 0 {
+                continue;
+            }
+            let mut four: Vec<f32> = img.as_chunks::<3>().0.iter().zip(&alpha).flat_map(|(p, a)| [p[0], p[1], p[2], *a]).collect();
+            dirty = dirty.union(remove(&mut four, w, h, 4, stroke, rect, &cov));
+            for (i, p) in four.as_chunks::<4>().0.iter().enumerate() {
+                img[i * 3..i * 3 + 3].copy_from_slice(&p[..3]);
+                alpha[i] = p[3].clamp(0.0, 1.0);
+            }
+        } else {
+            dirty = dirty.union(apply(&mut img, w, h, stroke));
+        }
     }
     for y in dirty.y..dirty.y + dirty.h {
         for x in dirty.x..dirty.x + dirty.w {
             let i = y * w + x;
             for c in 0..3 {
                 rgba[i * 4 + c] = linear_to_srgb(img[i * 3 + c]);
+            }
+            if see_through {
+                rgba[i * 4 + 3] = (alpha[i] * 255.0).round() as u8;
             }
         }
     }
@@ -552,6 +572,18 @@ mod tests {
             }
         }
         assert!(retouch_picture(w, h, &mut rgba[..10].to_vec(), vec![]).is_err(), "a short buffer is refused");
+    }
+
+    /// A cut-out leaf on a see-through picture: removing it leaves see-through pixels, not a smudge.
+    #[test]
+    fn remove_on_a_see_through_picture_makes_it_see_through() {
+        let (w, h) = (100, 80);
+        let leaf = |x: usize, y: usize| (x as f32 - 50.0).hypot(y as f32 - 40.0) < 10.0;
+        let mut rgba: Vec<u8> = (0..w * h).flat_map(|i| if leaf(i % w, i / w) { [200, 90, 20, 255] } else { [0, 0, 0, 0] }).collect();
+        let s = stroke(Tool::Remove, 8.0 / 100.0, &[[0.45, 0.45], [0.55, 0.45], [0.55, 0.55], [0.45, 0.55]]);
+        retouch_picture(w, h, &mut rgba, vec![s]).unwrap();
+        let left = (0..w * h).filter(|&i| leaf(i % w, i / w) && rgba[i * 4 + 3] > 20).count();
+        assert_eq!(left, 0, "{left} leaf pixels still show");
     }
 
     /// A Develop-sized photo with a 300 px object: the fill must stay interactive.

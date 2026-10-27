@@ -2169,7 +2169,13 @@ const test = `<script>
       pic.set({ angle: 90, flipX: true }); pic.setCoords();
       const turned = fromPicture(pic, [0.2, 0.25]), again = toPicture(pic, turned);
       step(Math.abs(again[0] - 0.2) < 1e-6 && Math.abs(again[1] - 0.25) < 1e-6, 'and for a turned, flipped picture');
-      pic.set({ angle: 0, flipX: false }); pic.setCoords(); commitDesign(); // where it is now is what Undo returns to
+      pic.set({ angle: 0, flipX: false }); pic.setCoords();
+      const veil = document.createElement('canvas'); veil.width = 300; veil.height = 200; veil.getContext('2d').fillRect(250, 0, 50, 50);
+      const over = await settle(addImageBlob(await new Promise(r => veil.toBlob(r, 'image/png')), 'veil'), 'a see-through picture on top');
+      over.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); over.setCoords();
+      step(pictureAt(new fabric.Point(160, 150)) === pic && pictureAt(new fabric.Point(380, 110)) === over, 'the brush reaches through the see-through part of a picture on top');
+      board.remove(over); board.discardActiveObject();
+      commitDesign(); // where it is now is what Undo returns to
       const srcBefore = pic.getSrc(), canvasRect = board.upperCanvasEl.getBoundingClientRect();
       const screenAt = (x, y) => { const p = new fabric.Point(x, y).transform(board.viewportTransform); return { clientX: canvasRect.left + p.x, clientY: canvasRect.top + p.y }; };
       const paint = points => {

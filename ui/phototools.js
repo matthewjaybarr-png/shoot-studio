@@ -44,8 +44,25 @@ function fromPicture(image, [u, v]) {
 }
 const onPicture = ([u, v]) => u >= 0 && v >= 0 && u <= 1 && v <= 1;
 const brushRadius = image => touch.size * Math.max(...naturalSize(image)) * Math.abs(image.scaleX || 1); // on the page
-// The topmost picture under the pointer, locked ones included: a Canva background is where things need removing.
-const pictureAt = at => board.getObjects().slice().reverse().find(o => o.type === 'image' && o.visible !== false && o.containsPoint(at)) || null;
+// The topmost picture you can see under the pointer, locked ones included: a Canva background is where things need
+// removing. See-through parts don't count, so a Canva layer of scattered leaves lets the brush reach what's below it.
+const touchAlpha = new WeakMap(); // picture element → its alpha at up to 512 px
+function alphaAt(image, [u, v]) {
+  const el = image.getElement();
+  if (!touchAlpha.has(el)) {
+    const [nw, nh] = naturalSize(image), k = Math.min(1, 512 / Math.max(nw, nh)), w = Math.max(1, Math.round(nw * k)), h = Math.max(1, Math.round(nh * k));
+    const ctx = Object.assign(document.createElement('canvas'), { width: w, height: h }).getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(el, 0, 0, w, h);
+    touchAlpha.set(el, { w, h, data: ctx.getImageData(0, 0, w, h).data });
+  }
+  const a = touchAlpha.get(el), x = Math.min(a.w - 1, Math.floor(u * a.w)), y = Math.min(a.h - 1, Math.floor(v * a.h));
+  return a.data[(y * a.w + x) * 4 + 3];
+}
+const pictureAt = at => board.getObjects().slice().reverse().find(o => {
+  if (o.type !== 'image' || o.visible === false || !o.containsPoint(at)) return false;
+  const uv = toPicture(o, at);
+  return onPicture(uv) && alphaAt(o, uv) > 24;
+}) || null;
 
 // ---- Brush mode: while a brush is picked, the page paints instead of selecting ----
 let touchMode = false;
