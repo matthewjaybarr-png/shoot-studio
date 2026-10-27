@@ -26,7 +26,7 @@ const TOUCH_HINTS = {
   dodge: 'Paint to lighten, a little at a time.',
   burn: 'Paint to darken, a little at a time.'
 };
-const touch = { tool: null, size: 0.02, strengths: { soften: 0.5, dodge: 0.25, burn: 0.25 }, picking: false, source: null, offset: null, stroke: null, pointer: null, work: null };
+const touch = { tool: null, px: 20, strengths: { soften: 0.5, dodge: 0.25, burn: 0.25 }, picking: false, source: null, offset: null, stroke: null, pointer: null, work: null };
 let touchQueue = Promise.resolve();
 const touchStrength = t => touch.strengths[t] ?? 1;
 const touchSay = text => { $('#create-saved').textContent = text; };
@@ -43,7 +43,11 @@ function fromPicture(image, [u, v]) {
   return fabric.util.transformPoint(new fabric.Point(u * nw - (image.cropX || 0) - image.width / 2, v * nh - (image.cropY || 0) - image.height / 2), image.calcTransformMatrix());
 }
 const onPicture = ([u, v]) => u >= 0 && v >= 0 && u <= 1 && v <= 1;
-const brushRadius = image => touch.size * Math.max(...naturalSize(image)) * Math.abs(image.scaleX || 1); // on the page
+// The brush is sized on screen, as in Canva, whatever picture is under it. A stroke stores it as a share of that
+// picture's long edge, within the limits Rust allows (at most a tenth of a small picture).
+const pictureLong = image => Math.max(...naturalSize(image)) * Math.abs(image.scaleX || 1); // on the page
+const brushSize = image => Math.min(STROKE_LIMITS.maxSize, Math.max(STROKE_LIMITS.minSize, touch.px / board.getZoom() / pictureLong(image)));
+const brushRadius = (image, size = brushSize(image)) => size * pictureLong(image); // on the page
 // The topmost picture you can see under the pointer, locked ones included: a Canva background is where things need
 // removing. See-through parts don't count, so a Canva layer of scattered leaves lets the brush reach what's below it.
 const touchAlpha = new WeakMap(); // picture element → its alpha at up to 512 px
@@ -88,9 +92,7 @@ function paintTouch() {
   }));
   for (const b of tools.children) { b.classList.toggle('on', b.dataset.touch === touch.tool); b.setAttribute('aria-pressed', b.dataset.touch === touch.tool); }
   const size = $('#touch-size'), strength = $('#touch-strength');
-  size.value = sizeToSlider(touch.size);
-  const image = touch.stroke?.image || board?.getActiveObject();
-  $('#touch-size-out').textContent = image?.type === 'image' ? Math.max(1, Math.round(touch.size * Math.max(...naturalSize(image)))) + ' px' : '';
+  size.value = touch.px; $('#touch-size-out').textContent = touch.px + ' px';
   strength.value = Math.round(touchStrength(touch.tool) * 100); $('#touch-strength-out').textContent = strength.value + '%';
   $('#touch-strength-row').hidden = !touch.tool || touch.tool === 'remove';
   const copies = ['heal', 'clone'].includes(touch.tool);
@@ -100,7 +102,7 @@ function paintTouch() {
   $('#touch-hint').textContent = touch.tool ? TOUCH_HINTS[touch.tool] : 'Pick a brush, then paint on any picture on the page.';
   setTouchMode(brushing());
 }
-$('#touch-size').oninput = e => { touch.size = Math.min(STROKE_LIMITS.maxSize, Math.max(STROKE_LIMITS.minSize, sliderToSize(+e.target.value))); paintTouch(); board?.requestRenderAll(); };
+$('#touch-size').oninput = e => { touch.px = +e.target.value; paintTouch(); board?.requestRenderAll(); };
 $('#touch-strength').oninput = e => { if (touch.tool && touch.tool !== 'remove') touch.strengths[touch.tool] = +e.target.value / 100; paintTouch(); };
 $('#touch-source').onclick = () => { touch.picking = !touch.picking; paintTouch(); };
 $('#touch-done').onclick = () => { touch.tool = null; touch.picking = false; showDrawer('retouch'); };
@@ -125,7 +127,7 @@ function touchDown({ e }) {
     if (touch.source?.image !== image) { touch.picking = true; paintTouch(); return touchSay('First click where to copy from on this picture.'); }
     touch.offset ||= [round(touch.source.uv[0] - uv[0]), round(touch.source.uv[1] - uv[1])]; // kept for the next strokes, as in Photos
   }
-  touch.stroke = { image, tool: touch.tool, size: touch.size, strength: touchStrength(touch.tool), points: [uv.map(v => Math.min(1, Math.max(0, v)))], scene: [at] };
+  touch.stroke = { image, tool: touch.tool, size: brushSize(image), strength: touchStrength(touch.tool), points: [uv.map(v => Math.min(1, Math.max(0, v)))], scene: [at] };
   board.requestRenderAll();
 }
 function touchMove({ e }) {
@@ -196,9 +198,9 @@ function drawTouch(ctx) {
   const s = touch.stroke;
   if (s?.scene.length) {
     ctx.save(); ctx.strokeStyle = s.tool === 'remove' ? 'rgba(208,72,155,.45)' : 'rgba(255,255,255,.4)'; ctx.fillStyle = ctx.strokeStyle;
-    ctx.lineWidth = 2 * brushRadius(s.image); ctx.lineCap = ctx.lineJoin = 'round'; ctx.beginPath();
+    ctx.lineWidth = 2 * brushRadius(s.image, s.size); ctx.lineCap = ctx.lineJoin = 'round'; ctx.beginPath();
     s.scene.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-    if (s.scene.length === 1) { ctx.arc(s.scene[0].x, s.scene[0].y, brushRadius(s.image), 0, 2 * Math.PI); ctx.fill(); } else ctx.stroke();
+    if (s.scene.length === 1) { ctx.arc(s.scene[0].x, s.scene[0].y, brushRadius(s.image, s.size), 0, 2 * Math.PI); ctx.fill(); } else ctx.stroke();
     ctx.restore();
   }
   const src = touch.source;
@@ -209,7 +211,7 @@ function drawTouch(ctx) {
   }
   if (touch.pointer) {
     const image = s?.image || pictureAt(touch.pointer);
-    if (image) ring(touch.pointer, brushRadius(image), touch.picking ? '#7fc8f8' : '#ffffff');
+    if (image) ring(touch.pointer, s ? brushRadius(image, s.size) : brushRadius(image), touch.picking ? '#7fc8f8' : '#ffffff');
   }
 }
 function startPhotoTools() {
