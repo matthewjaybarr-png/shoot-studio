@@ -234,6 +234,7 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 .effect-grid span{font:700 26px Lexend,sans-serif;color:var(--text);line-height:1.2}
 #touch-tools svg,#cut-tools svg{width:28px;height:28px;margin:2px 0;color:var(--text)}#touch-tools button.on svg,#cut-tools button.on svg{color:var(--accent)}
 #photo-tabs{margin:10px 0 2px}#photo-tabs button{flex:1}
+#cut-tools{grid-template-columns:repeat(5,1fr);gap:4px}#cut-tools button{padding:6px 2px !important;line-height:1.15}#cut-tools svg{width:24px;height:24px}
 #cut-mode{margin:4px 0 2px}#cut-mode button{flex:1}
 #photo-cutout button.wide+button.wide,#cut-actions{margin-top:6px}#cut-done{margin-top:10px}
 #create-drawer label.check{justify-content:flex-start;gap:8px}

@@ -20,7 +20,7 @@ const CUT_HINTS = {
   brush: 'Paint exactly what to add or take away, to fix an edge.'
 };
 const CUT_STEPS = 6; // Step back remembers this many choices (each is a copy of the mask)
-const cut = { tool: 'smart', take: false, px: 30, tolerance: 32, soft: 3, image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, pointer: null, view: null };
+const cut = { loading: false, tool: 'smart', take: false, px: 30, tolerance: 32, soft: 3, image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, pointer: null, view: null };
 let cutQueue = Promise.resolve();
 const cutting = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'cutout' && !cropSession;
 const cutPictureGone = () => !cut.image || !board.getObjects().includes(cut.image) || (cut.image.kbOriginal || cut.image.getSrc()) !== cut.base;
@@ -40,6 +40,10 @@ function paintCut() {
   $('#cut-size-row').hidden = !['smart', 'brush'].includes(cut.tool);
   $('#cut-tolerance-row').hidden = cut.tool !== 'wand';
   if (cut.image && cutPictureGone()) resetCut();
+  if (!cut.image && !cut.loading && cutting()) { // a page with one picture, as Edit a photo makes, needs no click to choose it
+    const pictures = board.getObjects().filter(o => o.type === 'image' && o.visible !== false);
+    if (pictures.length === 1) { cut.loading = true; cutQueued(() => chooseCutPicture(pictures[0]).finally(() => { cut.loading = false; })); }
+  }
   $('#cut-actions').hidden = !cut.any;
   $('#cut-back').disabled = !cut.steps.length;
   $('#cut-hint').textContent = !cut.image ? 'Click the picture you want to cut out.' : CUT_HINTS[cut.tool];
@@ -80,9 +84,11 @@ function mergeCut(x, y, rw, rh, bytes, replace = false) {
   cutChanged();
 }
 function cutChanged() {
+  const had = cut.any;
   cut.any = cut.mask.some(v => v > 0);
   cut.view = cut.any ? cutView() : null;
   paintCut(); board.requestRenderAll();
+  if (cut.any && !had) $('#cut-actions').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); // the buttons can sit below a small window's edge
 }
 // What the page shows: everything not chosen dimmed, with a pink line along the edge about 2 screen pixels wide, at
 // up to 1000 px. Redrawn when zooming changes how wide the line would look.
