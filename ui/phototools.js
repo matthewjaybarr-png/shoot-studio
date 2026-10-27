@@ -62,11 +62,15 @@ function alphaAt(image, [u, v]) {
   const a = touchAlpha.get(el), x = Math.min(a.w - 1, Math.floor(u * a.w)), y = Math.min(a.h - 1, Math.floor(v * a.h));
   return a.data[(y * a.w + x) * 4 + 3];
 }
-const pictureAt = at => board.getObjects().slice().reverse().find(o => {
-  if (o.type !== 'image' || o.visible === false || !o.containsPoint(at)) return false;
-  const uv = toPicture(o, at);
-  return onPicture(uv) && alphaAt(o, uv) > 24;
-}) || null;
+// Anywhere inside the brush counts, so a stroke can start just beside a small leaf and still catch it.
+function pictureAt(at, r = board ? touch.px / board.getZoom() : 0) {
+  const spots = [at, ...[0.5, 1].flatMap(k => Array.from({ length: 8 }, (_, i) => new fabric.Point(at.x + k * r * Math.cos(i * Math.PI / 4), at.y + k * r * Math.sin(i * Math.PI / 4))))];
+  return board.getObjects().slice().reverse().find(o => o.type === 'image' && o.visible !== false && spots.some(p => {
+    if (!o.containsPoint(p)) return false;
+    const uv = toPicture(o, p);
+    return onPicture(uv) && alphaAt(o, uv) > 24;
+  })) || null;
+}
 
 // ---- Brush mode: while a brush is picked, the page paints instead of selecting ----
 let touchMode = false;

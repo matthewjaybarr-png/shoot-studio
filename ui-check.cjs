@@ -2173,7 +2173,8 @@ const test = `<script>
       const veil = document.createElement('canvas'); veil.width = 300; veil.height = 200; veil.getContext('2d').fillRect(250, 0, 50, 50);
       const over = await settle(addImageBlob(await new Promise(r => veil.toBlob(r, 'image/png')), 'veil'), 'a see-through picture on top');
       over.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); over.setCoords();
-      step(pictureAt(new fabric.Point(160, 150)) === pic && pictureAt(new fabric.Point(380, 110)) === over, 'the brush reaches through the see-through part of a picture on top');
+      step(pictureAt(new fabric.Point(160, 150), 0) === pic && pictureAt(new fabric.Point(380, 110), 0) === over, 'the brush reaches through the see-through part of a picture on top');
+      step(pictureAt(new fabric.Point(342, 160), 20) === over && pictureAt(new fabric.Point(342, 160), 0) === pic, 'and catches a picture whose visible part is inside the brush, not just under its middle');
       board.remove(over); board.discardActiveObject();
       commitDesign(); // where it is now is what Undo returns to
       const srcBefore = pic.getSrc(), canvasRect = board.upperCanvasEl.getBoundingClientRect();
