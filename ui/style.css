@@ -392,3 +392,12 @@ header,.create-bar{border-bottom-color:var(--pink)}
   .print-sheet img,.print-sheet svg{position:absolute}
   .print-sheet svg{inset:0;width:100%;height:100%}
 }
+/* Bulk create: a card over Create, the list on top and a text box chosen for each column below. */
+#bulk{position:fixed;z-index:70;inset:0;display:grid;place-items:center;padding:16px;background:rgb(40 20 50/.28)}
+#bulk[hidden]{display:none}
+.bulk-card{display:flex;flex-direction:column;gap:6px;width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;box-sizing:border-box;padding:18px 20px;border:1px solid var(--accent);border-radius:14px;background:var(--panel);box-shadow:0 12px 40px var(--shadow)}
+.bulk-card h3{margin:0;font-size:17px}.bulk-card h4{margin:8px 0 0;font-size:14px}.bulk-card .hint{margin:0}
+#bulk-list{width:100%;box-sizing:border-box;resize:vertical;font:inherit;padding:8px;border:1px solid var(--edge);border-radius:8px}
+.bulk-field{display:flex;align-items:center;gap:10px}.bulk-field span{flex:none;min-width:90px;font-weight:600}.bulk-field select{flex:1;min-width:0}
+#bulk-count{margin:4px 0 0;color:var(--muted)}
+.bulk-actions{display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:-18px;padding:8px 0 0;background:var(--panel)}

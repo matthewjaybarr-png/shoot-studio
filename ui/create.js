@@ -8,14 +8,18 @@ const PAGES = {
   letter: [8.5, 11], 'letter-landscape': [11, 8.5], half: [5.5, 8.5], quarter: [4.25, 5.5], poster: [11, 17],
   'photo-4x6': [4, 6], 'photo-6x4': [6, 4], 'photo-5x7': [5, 7], 'photo-7x5': [7, 5], 'photo-8x10': [8, 10],
   // Social posts are laid out at half their pixel size, 540 px wide like a small card, and saved at exactly the size the sites want.
-  'social-portrait': [5.625, 7.03125], 'social-square': [5.625, 5.625], 'social-story': [5.625, 10]
+  'social-portrait': [5.625, 7.03125], 'social-square': [5.625, 5.625], 'social-story': [5.625, 10],
+  // Avery label and card sheets for Letter paper: each label is a page, and printing fills the sheet (see TILES).
+  'label-5160': [2.625, 1], 'label-5163': [4, 2], 'label-5164': [4, 10 / 3], 'label-5395': [3.375, 7 / 3], 'label-5371': [3.5, 2], 'label-5388': [5, 3]
 };
 const PAGE_NAMES = {
   letter: 'Letter', 'letter-landscape': 'Letter, landscape', half: 'Half sheet card', quarter: 'Quarter sheet card', poster: 'Poster',
   'photo-4x6': '4 × 6 photo', 'photo-6x4': '6 × 4 photo', 'photo-5x7': '5 × 7 photo', 'photo-7x5': '7 × 5 photo', 'photo-8x10': '8 × 10 photo',
-  'social-portrait': 'Instagram post', 'social-square': 'Square post', 'social-story': 'Story'
+  'social-portrait': 'Instagram post', 'social-square': 'Square post', 'social-story': 'Story',
+  'label-5160': 'Address labels, 30 a sheet (Avery 5160)', 'label-5163': 'Shipping labels, 10 a sheet (Avery 5163)', 'label-5164': 'Big labels, 6 a sheet (Avery 5164)',
+  'label-5395': 'Name badges, 8 a sheet (Avery 5395)', 'label-5371': 'Business cards, 10 a sheet (Avery 5371)', 'label-5388': 'Index cards, 3 a sheet (Avery 5388)'
 };
-const PAGE_GROUPS = [['Printing', ['letter', 'letter-landscape', 'half', 'quarter', 'poster']], ['Photo prints', ['photo-4x6', 'photo-6x4', 'photo-5x7', 'photo-7x5', 'photo-8x10']], ['Social media', ['social-portrait', 'social-square', 'social-story']]];
+const PAGE_GROUPS = [['Printing', ['letter', 'letter-landscape', 'half', 'quarter', 'poster']], ['Photo prints', ['photo-4x6', 'photo-6x4', 'photo-5x7', 'photo-7x5', 'photo-8x10']], ['Social media', ['social-portrait', 'social-square', 'social-story']], ['Labels and cards', ['label-5160', 'label-5163', 'label-5164', 'label-5395', 'label-5371', 'label-5388']]];
 const SOCIAL_SCALE = 2;
 const isSocial = key => key.startsWith('social-');
 const FONTS = ['Lexend', 'Andika', 'Atkinson Hyperlegible', 'Comic Neue', 'Fredoka', 'Balsamiq Sans', 'Nunito', 'Lora', 'Patrick Hand', 'Caveat', 'Roboto Slab'];
@@ -28,7 +32,7 @@ const MAX_HISTORY = 50, MAX_HISTORY_BYTES = 250e6;
 const FORMAT = 2;                                      // the newest design file format this version reads
 // Format 1 is one page in a named size; format 2 adds `pages` and a custom `size`. A one-page design in a named
 // size is still written as format 1, so older KB Studio keeps opening everything it can show correctly.
-const MAX_SIDE = 36, MAX_PAGES = 30;                   // custom sizes are 1–36 inches a side
+const MAX_SIDE = 36, MAX_PAGES = 60;                   // custom sizes are 1–36 inches a side; 60 pages fits a class twice
 const blankPage = () => ({ objects: [], background: '#ffffff' });
 const validSize = s => Array.isArray(s) && s.length === 2 && s.every(v => Number.isFinite(v) && v >= 1 && v <= MAX_SIDE);
 const docPage = doc => doc.page === 'custom' && validSize(doc.size) ? 'custom' : PAGES[doc.page] ? doc.page : 'letter';
@@ -36,19 +40,48 @@ const docSize = doc => docPage(doc) === 'custom' ? doc.size.map(Number) : sizeIn
 const docPages = doc => Array.isArray(doc.pages) && doc.pages.length ? doc.pages.slice(0, MAX_PAGES) : [doc.canvas || blankPage()];
 const KEEP = ['kbName', 'kbLocked', 'kbFrame', 'kbEffect', 'kbOriginal', 'kbFilter', 'kbLocal', 'kbMask', 'kbFade']; // our own fields, saved with every object
 const SHARED_PICTURES = new Set(['src', 'kbOriginal', 'kbMask']); // picture data kept once however many undo steps use it
-const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
+// Cards printed several to a sheet. Half and quarter cards butt up against each other with cut marks between; a
+// label sheet has its own margins and spacing (`left`, `top`, and `dx`, `dy` from one label to the next, in inches,
+// from Avery's templates) and comes ready cut, so it has no marks.
+const TILES = {
+  half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 },
+  'label-5160': { sheet: 'letter', cols: 3, rows: 10, left: 0.1875, top: 0.5, dx: 2.75, dy: 1, label: true },
+  'label-5163': { sheet: 'letter', cols: 2, rows: 5, left: 0.15625, top: 0.5, dx: 4.1875, dy: 2, label: true },
+  'label-5164': { sheet: 'letter', cols: 2, rows: 3, left: 0.15625, top: 0.5, dx: 4.1875, dy: 10 / 3, label: true },
+  'label-5395': { sheet: 'letter', cols: 2, rows: 4, left: 0.6875, top: 0.59375, dx: 3.75, dy: 2.5, label: true },
+  'label-5371': { sheet: 'letter', cols: 2, rows: 5, left: 0.75, top: 0.5, dx: 3.5, dy: 2, label: true },
+  'label-5388': { sheet: 'letter', cols: 1, rows: 3, left: 1.75, top: 1, dx: 5, dy: 3, label: true }
+};
+const TILE_MODES = ['single', 'sheet', 'fill'];
 
 const sizeIn = key => PAGES[key] || PAGES.letter;
 
-// Where the cards go on the paper (inches), and the cut marks between them. `tile` is 'single' or 'sheet'.
+// Where the cards go on the paper (inches), and the cut marks between them. `tile` is 'single', or 'sheet' or 'fill'
+// for several to a sheet (see sheetPlan for the difference).
 function pageLayout(page, tile, size = sizeIn(page)) {
   const [w, h] = size, t = TILES[page];
-  if (tile !== 'sheet' || !t) return { sheet: [w, h], tiles: [{ x: 0, y: 0, w, h }], marks: [] };
-  const [sw, sh] = sizeIn(t.sheet), tiles = [], marks = [], tick = 0.2;
-  for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) tiles.push({ x: c * w, y: r * h, w, h });
-  for (let c = 1; c < t.cols; c++) marks.push([c * w, 0, c * w, tick], [c * w, sh - tick, c * w, sh]);
-  for (let r = 1; r < t.rows; r++) marks.push([0, r * h, tick, r * h], [sw - tick, r * h, sw, r * h]);
+  if (tile === 'single' || !TILE_MODES.includes(tile) || !t) return { sheet: [w, h], tiles: [{ x: 0, y: 0, w, h }], marks: [] };
+  const [sw, sh] = sizeIn(t.sheet), tiles = [], marks = [], tick = 0.2, { left = 0, top = 0, dx = w, dy = h } = t;
+  for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) tiles.push({ x: left + c * dx, y: top + r * dy, w, h });
+  if (!t.label) {
+    for (let c = 1; c < t.cols; c++) marks.push([c * w, 0, c * w, tick], [c * w, sh - tick, c * w, sh]);
+    for (let r = 1; r < t.rows; r++) marks.push([0, r * h, tick, r * h], [sw - tick, r * h, sw, r * h]);
+  }
   return { sheet: [sw, sh], tiles, marks };
+}
+// Which page goes on each card of each sheet: a list of sheets, each a page number per tile (undefined leaves the
+// tile blank). 'fill' runs the pages one after another, each `copies` times, as name tags from Bulk create want;
+// otherwise every card on a sheet is the same page, all the pages once per copy.
+function sheetPlan(count, layout, tile, copies) {
+  const sheets = [];
+  if (tile !== 'fill' || layout.tiles.length === 1) {
+    for (let copy = 0; copy < copies; copy++) for (let i = 0; i < count; i++) sheets.push(layout.tiles.map(() => i));
+    return sheets;
+  }
+  const run = [];
+  for (let i = 0; i < count; i++) for (let copy = 0; copy < copies; copy++) run.push(i);
+  for (let at = 0; at < run.length; at += layout.tiles.length) sheets.push(layout.tiles.map((_, k) => run[at + k]));
+  return sheets;
 }
 
 let designClipboard = null;
@@ -64,7 +97,10 @@ let settings = { colours: [], fonts: [], seen: 0, rulers: false, closed: ['frame
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => design.size.map(v => Math.round(v * PX));
-const PAGE_LABEL = key => PAGE_NAMES[key] + (isSocial(key) ? ' (' + sizeIn(key).map(v => Math.round(v * PX * SOCIAL_SCALE)).join(' × ') + ' px)' : key.startsWith('photo-') ? '' : ' (' + sizeIn(key).join(' × ') + ' in)');
+// Inches as people write them on a label packet: 2⅝, 3⅓.
+const FRACTIONS = [[1 / 8, '⅛'], [1 / 4, '¼'], [1 / 3, '⅓'], [3 / 8, '⅜'], [1 / 2, '½'], [5 / 8, '⅝'], [2 / 3, '⅔'], [3 / 4, '¾'], [7 / 8, '⅞']];
+const inches = v => { const whole = Math.floor(v + 1e-9), part = FRACTIONS.find(([f]) => Math.abs(v - whole - f) < 1e-6); return part ? (whole || '') + part[1] : String(Math.round(v * 100) / 100); };
+const PAGE_LABEL = key => PAGE_NAMES[key] + (isSocial(key) ? ' (' + sizeIn(key).map(v => Math.round(v * PX * SOCIAL_SCALE)).join(' × ') + ' px)' : key.startsWith('photo-') ? '' : ' (' + sizeIn(key).map(inches).join(' × ') + ' in)');
 // PNG and JPEG: social posts at their exact pixel size, everything else at 300 dpi.
 const pictureScale = () => isSocial(design.page) ? SOCIAL_SCALE : DPI / PX;
 
@@ -244,7 +280,8 @@ function drawPageOverlay() {
   ctx.save(); ctx.transform(...board.viewportTransform); ctx.lineWidth = 1 / board.getZoom();
   if ($('#create-margin').checked) {
     ctx.strokeStyle = '#777777'; ctx.setLineDash([4 / board.getZoom(), 4 / board.getZoom()]);
-    ctx.strokeRect(PX / 4, PX / 4, w - PX / 2, h - PX / 2);
+    const inset = TILES[design.page]?.label ? PX / 8 : PX / 4; // a label's edge is where it's cut, not the printer's
+    ctx.strokeRect(inset, inset, w - 2 * inset, h - 2 * inset);
   }
   ctx.setLineDash([]);
   // A thin outline under the pointer shows what a click would pick, as in Canva.
@@ -326,7 +363,7 @@ $('#create-margin').onchange = () => board?.requestRenderAll();
 // Show the whole page, as large as fits, in the middle of the stage.
 function fitBoard() {
   if (!board || !design || !layoutBoard()) return;
-  const [w, h] = pagePx(), zoom = Math.max(0.1, Math.min((board.width - 64) / w, (board.height - 64) / h, 1.5));
+  const [w, h] = pagePx(), zoom = Math.max(0.1, Math.min((board.width - 64) / w, (board.height - 64) / h, Math.max(w, h) < 4 * PX ? 3 : 1.5)); // a label is shown bigger
   board.setViewportTransform([zoom, 0, 0, zoom, Math.round((board.width - w * zoom) / 2), Math.round((board.height - h * zoom) / 2)]);
   fitted = true; $('#create-zoom').textContent = Math.round(zoom * 100) + '%';
 }
@@ -367,7 +404,7 @@ async function open(doc, title, name) {
   designFonts = await addDesignFonts(doc.fonts);
   await fonts().catch(() => {}); // Editing can use fallback fonts; output remains strict.
   restoring = true;
-  design = { title, page: docPage(doc), size: docSize(doc), tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)), guides: typeof cleanGuides === 'function' ? cleanGuides(doc.guides) : undefined };
+  design = { title, page: docPage(doc), size: docSize(doc), tile: TILE_MODES.includes(doc.tile) ? doc.tile : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)), guides: typeof cleanGuides === 'function' ? cleanGuides(doc.guides) : undefined };
   diskName = name; dirty = false;
   designPages = docPages(doc); pageAt = 0;
   liveThumb = null; await board.loadFromJSON(designPages[0]);
@@ -1554,7 +1591,7 @@ async function useTemplate(name, source) {
       liveThumb = null; await board.loadFromJSON(designPages[0]);
       for (const o of board.getObjects()) applyLock(o);
       design.page = docPage(doc); design.size = docSize(doc);
-      design.tile = doc.tile === 'sheet' && TILES[design.page] ? 'sheet' : 'single';
+      design.tile = TILE_MODES.includes(doc.tile) && TILES[design.page] ? doc.tile : 'single';
     } finally { restoring = false; }
   }
   if (/^Untitled( \d+)?$/.test(design.title)) design.title = await uniqueTitle(`My ${name}`);
@@ -1562,7 +1599,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 22;
+const WHATS_NEW = 23;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1600,6 +1637,7 @@ async function resizeDesign(page, size) {
   }
   design.page = page; design.size = [...size];
   if (!TILES[page]) design.tile = 'single';
+  else if (TILES[page].label && design.tile === 'single') design.tile = list.length > 1 ? 'fill' : 'sheet'; // one label to a sheet is never wanted
   designPages = list;
   await loadPage(pageAt);
   commitDesign(); paintAll();
@@ -1739,7 +1777,7 @@ async function render(multiplier, format, quality = 0.92, page = board.toObject(
 const toBytes = url => Uint8Array.from(atob(url.slice(url.indexOf(',') + 1)), c => c.charCodeAt(0));
 const DPI = 300;
 
-// The PDF: one sheet of paper per page, all pages once per copy; a card tiled onto a Letter sheet repeats on it, with cut marks.
+// The PDF: one sheet of paper per page, all pages once per copy; cards several to a sheet go as sheetPlan says.
 async function makePdf() {
   board.discardActiveObject();
   const layout = pageLayout(design.page, design.tile, design.size), [sw, sh] = layout.sheet, [pw, ph] = design.size;
@@ -1747,15 +1785,17 @@ async function makePdf() {
   for (const page of allPages()) images.push(await render(DPI / PX, 'jpeg', 0.92, page));
   const links = typeof linksOf === 'function' ? await Promise.all(allPages().map(linksOf)) : [];
   const pdf = new window.jspdf.jsPDF({ unit: 'in', format: [sw, sh], orientation: sw > sh ? 'landscape' : 'portrait', compress: true });
-  for (let copy = 0, sheet = 0; copy < design.copies; copy++) images.forEach((image, i) => {
-    if (sheet++) pdf.addPage([sw, sh], sw > sh ? 'landscape' : 'portrait');
-    for (const t of layout.tiles) {
-      pdf.addImage(image, 'JPEG', t.x, t.y, pw, ph, 'page' + i, 'FAST');
+  for (const [n, sheet] of sheetPlan(images.length, layout, design.tile, design.copies).entries()) {
+    if (n) pdf.addPage([sw, sh], sw > sh ? 'landscape' : 'portrait');
+    for (const [k, t] of layout.tiles.entries()) {
+      const i = sheet[k];
+      if (i === undefined) continue;
+      pdf.addImage(images[i], 'JPEG', t.x, t.y, pw, ph, 'page' + i, 'FAST');
       for (const l of links[i] || []) pdf.link(t.x + l.x / PX, t.y + l.y / PX, l.w / PX, l.h / PX, { url: l.url }); // clickable in the PDF
     }
     pdf.setDrawColor(110); pdf.setLineWidth(0.01);
     for (const [x1, y1, x2, y2] of layout.marks) pdf.line(x1, y1, x2, y2);
-  });
+  }
   return new Uint8Array(pdf.output('arraybuffer'));
 }
 // Download: a Save dialog (Downloads the first time, then wherever she saved last) with the name filled in; several
@@ -1809,13 +1849,14 @@ async function printDesign() {
     const box = $('#print-sheets'), svg = 'http://www.w3.org/2000/svg';
     box.replaceChildren();
     $('#print-size').textContent = `@page{size:${sw}in ${sh}in;margin:0}`;
-    for (let copy = 0; copy < design.copies; copy++) for (const url of printPictures) {
+    for (const plan of sheetPlan(printPictures.length, layout, design.tile, design.copies)) {
       const sheet = document.createElement('div');
       sheet.className = 'print-sheet';
       sheet.style.cssText = `width:${sw}in;height:${sh}in`;
-      for (const t of layout.tiles) {
+      for (const [k, t] of layout.tiles.entries()) {
+        if (plan[k] === undefined) continue;
         const img = new Image();
-        img.src = url;
+        img.src = printPictures[plan[k]];
         img.style.cssText = `left:${t.x}in;top:${t.y}in;width:${pw}in;height:${ph}in`;
         sheet.append(img);
       }

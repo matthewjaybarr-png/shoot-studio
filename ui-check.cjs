@@ -1659,7 +1659,7 @@ const test = `<script>
     stepHistory(-1);
     await until(() => board.getObjects()[frameIndex]?.kbName?.startsWith('Photo IMG'), () => 'undo brings the previous picture back: ' + board.getObjects()[frameIndex]?.kbName);
     // 0.13: print and social sizes, photographer templates.
-    step(PAGE_GROUPS.flatMap(([, keys]) => keys).sort().join() === Object.keys(PAGES).sort().join() && $('#create-page').querySelectorAll('optgroup').length === 3, 'every page size is offered once, in Printing, Photo prints and Social media');
+    step(PAGE_GROUPS.flatMap(([, keys]) => keys).sort().join() === Object.keys(PAGES).sort().join() && $('#create-page').querySelectorAll('optgroup').length === 4, 'every page size is offered once, in Printing, Photo prints, Social media and Labels and cards');
     step(PAGE_LABEL('social-portrait') === 'Instagram post (1080 × 1350 px)' && PAGE_LABEL('photo-5x7') === '5 × 7 photo' && PAGE_LABEL('poster') === 'Poster (11 × 17 in)', () => 'size names: ' + PAGE_LABEL('social-portrait'));
     await settle(newDesign('Instagram post', 'starter'), 'Instagram template');
     step(design.page === 'social-portrait' && pagePx().join() === '540,675' && board.getObjects().filter(emptyFrame).length === 1, () => 'the Instagram template opens on its own page with a frame: ' + design.page);
@@ -1842,6 +1842,39 @@ const test = `<script>
       const okFix = await autoFix(okPic);
       step(Math.abs(okFix.exposure) <= 0.3 && Math.abs(okFix.temp) <= 5 && okFix.contrast <= 5 && !okFix.highlights && !okFix.shadows, () => 'Auto fix leaves a good picture nearly alone: ' + JSON.stringify(okFix));
       board.remove(okPic); commitDesign();
+    }
+    // 0.34: label sheets, and Bulk create making a page per name.
+    { const sheetEdge = Object.entries(TILES).filter(([, t]) => t.label).map(([key, t]) => { const l = pageLayout(key, 'fill'), last = l.tiles.at(-1); return [key, l.tiles.length === t.cols * t.rows && !l.marks.length && last.x + last.w <= 8.5 + 1e-6 && last.y + last.h <= 11 + 1e-6 && Math.abs(8.5 - (last.x + last.w) - l.tiles[0].x) < 0.05 && Math.abs(11 - (last.y + last.h) - l.tiles[0].y) < 0.05]; });
+      step(sheetEdge.length === 6 && sheetEdge.every(([, ok]) => ok), () => 'every label sheet fits Letter with even margins and no cut marks: ' + JSON.stringify(sheetEdge));
+      const badge = pageLayout('label-5395', 'fill');
+      step(badge.tiles.length === 8 && badge.tiles[1].x === 0.6875 + 3.75 && badge.tiles[2].y === 0.59375 + 2.5, 'name badges sit where Avery 5395 has them');
+      const inOrder = sheetPlan(3, badge, 'fill', 1), copied = sheetPlan(3, badge, 'fill', 3), same = sheetPlan(2, badge, 'sheet', 2);
+      step(inOrder.length === 1 && inOrder[0][0] === 0 && inOrder[0][2] === 2 && inOrder[0][3] === undefined && copied.length === 2 && copied[0].slice(0, 4).join() === '0,0,0,1' && same.length === 4 && same[1].every(i => i === 1), () => 'pages in order fill the labels one after another: ' + JSON.stringify([inOrder, copied]));
+      await settle(newDesign(), 'a design for bulk create');
+      put($('#create-page'), 'label-5395', 'change');
+      await until(() => design.page === 'label-5395', 'name badge size');
+      step(design.tile === 'sheet' && !$('#create-tile').disabled && [...$('#create-page').options].some(o => o.value === 'label-5160' && o.textContent.includes('Avery 5160')), 'a label size prints a sheet full, and the sizes are listed');
+      board.add(new fabric.Textbox('Student Name', { left: 16, top: 30, width: 290, fontSize: 30, fontFamily: 'Lexend' }), new fabric.Textbox('Room {room}', { left: 16, top: 120, width: 290, fontSize: 16, fontFamily: 'Lexend' }));
+      commitDesign();
+      $('#file-bulk').click();
+      step(!$('#bulk').hidden && $('#bulk-make').disabled, 'Bulk create opens, waiting for a list');
+      $('#bulk-list').value = 'Name\\tRoom\\nAva\\t12\\nBartholomew Featherstonehaugh-Smythe\\t12\\nCy\\t14'; $('#bulk-list').dispatchEvent(new Event('input'));
+      step(!$('#bulk-headings-row').hidden && $('#bulk-field-0').value === '0:0' && $('#bulk-field-1').value === '' && $('#bulk-field-1').options[0].textContent.includes('{Room}') && $('#bulk-make').textContent === 'Make 3 pages' && !$('#bulk-make').disabled, () => 'it reads the columns and guesses where they go: ' + $('#bulk-fields').textContent + ' / ' + $('#bulk-count').textContent);
+      const bulkFrom = design.title;
+      $('#bulk-make').click();
+      await until(() => design.title !== bulkFrom && designPages.length === 3, () => 'a new design with a page per name: ' + $('#bulk-count').textContent);
+      const made = allPages().map(p => p.objects.filter(o => /textbox/i.test(o.type)));
+      step(made[0][0].text === 'Ava' && made[1][0].text.startsWith('Bartholomew') && made[1][1].text === 'Room 12' && made[2][1].text === 'Room 14' && $('#bulk').hidden, () => 'each page has its name and room: ' + made.map(m => m.map(o => o.text).join('|')).join(' / '));
+      step(made[0][0].fontSize === 30 && made[1][0].fontSize < 30 && design.title.includes('for each name') && design.tile === 'fill', () => 'a long name shrinks to stay on one line, and it prints in order: ' + made[1][0].fontSize + ' ' + design.tile);
+      const printedBefore = window.printed || 0;
+      $('#create-print').click();
+      await until(() => window.printed === printedBefore + 1, 'print the badges');
+      const badgeSheets = [...document.querySelectorAll('#print-sheets .print-sheet')];
+      step(badgeSheets.length === 1 && badgeSheets[0].querySelectorAll('img').length === 3 && !badgeSheets[0].querySelector('svg'), () => 'all three badges on one sheet, no cut marks: ' + badgeSheets.length);
+      $('#create-pdf').click();
+      await until(() => window.outputs?.[design.title + '.pdf'], 'the badges as a PDF');
+      step((new TextDecoder('latin1').decode(window.outputs[design.title + '.pdf'].bytes).match(/\\/Type\\s*\\/Page\\b/g) || []).length === 1, 'one sheet in the PDF too');
+      $('#saved-close').click();
     }
     // 0.17: Import from Canva (PowerPoint, or a picture).
     await settle($('#create-home').onclick(), 'home for import');
@@ -2657,8 +2690,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="bulk.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('bulk.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

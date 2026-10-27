@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.34.0
+
+- 👥 Bulk create, in File and in the Text drawer: type or paste a list of names and get one copy of the design for each, as a new design with a page per name, for name tags, desk plates, certificates or birthday cards. Pasted from a spreadsheet, each column can go into its own text box (a name and a room, say). KB Studio guesses which text box each column goes into, and typing {Name} in a text box fills in just that part. A long name gets smaller so it stays on one line. The design you started from stays as it is.
+- Label and card sheets, under Labels and cards in the page sizes: address labels (Avery 5160), shipping labels (5163), big labels (5164), name badges (5395), business cards (5371) and index cards (5388). Each label is a page, and Print and PDF put them on the sheet where Avery's labels are. Try a plain paper print first and hold it up to a label sheet.
+- Print has a third choice, Several per sheet, pages in order: different pages fill the sheet one after another (thirty name tags on one sheet of labels), where Several per sheet, all the same fills each sheet with one page.
+- A design can have up to 60 pages (it was 30), enough for a class with a front and a back each.
+- Page sizes show in inches as written on the packet (2⅝ × 1 in), labels show bigger on screen, and their print-safe line sits ⅛ inch in from the edge.
+- The What's new card appears once more.
+
 ## 0.33.0
 
 - Print opens the print window, where you choose the printer and copies and click Print. It used to save a PDF and try to open it, which could silently do nothing.

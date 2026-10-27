@@ -32,6 +32,21 @@
   <div id="home-menu" role="menu" hidden></div>
   <dialog id="name-dialog"><form method="dialog"><h3 id="name-title"></h3><input id="name-input" type="text" maxlength="80" spellcheck="false" aria-labelledby="name-title"><p id="name-error" role="alert"></p><div class="row"><button value="ok" class="primary">OK</button><button value="cancel" formnovalidate>Cancel</button></div></form></dialog>
   <section id="create" aria-label="Create" hidden>
+    <div id="bulk" hidden>
+      <div class="bulk-card" role="dialog" aria-labelledby="bulk-title">
+        <h3 id="bulk-title">👥 Bulk create</h3>
+        <p class="hint">One copy of this design for each name: name tags, desk plates, certificates, birthday cards. Each name gets its own page in a new design.</p>
+        <label for="bulk-list">Your list, one per line</label>
+        <textarea id="bulk-list" rows="8" spellcheck="false" placeholder="Ava&#10;Ben&#10;Charlie"></textarea>
+        <p class="hint">Pasted from a spreadsheet, each column can go in a different text box (a name and a birthday, say).</p>
+        <label id="bulk-headings-row" class="check" hidden><input id="bulk-headings" type="checkbox" checked> The first line is the column names</label>
+        <h4>Which text box gets each one</h4>
+        <div id="bulk-fields"></div>
+        <p class="hint">Tip: type {Name} in a text box to fill in just that part, as in “Happy birthday, {Name}!”</p>
+        <p id="bulk-count" role="status"></p>
+        <div class="bulk-actions"><button id="bulk-cancel" type="button">Cancel</button><button id="bulk-make" type="button" class="primary">Make the pages</button></div>
+      </div>
+    </div>
     <div id="saved-card" role="status" hidden>
       <span class="saved-tick" aria-hidden="true">✓</span>
       <div class="saved-text"><strong id="saved-what"></strong> <span id="saved-where"></span><small id="saved-path"></small></div>
@@ -112,6 +127,7 @@
           <button id="add-subheading" type="button" class="text-preset subheading">Add a subheading</button>
           <button id="add-body" type="button" class="text-preset body">Add a little bit of body text</button>
           <button id="add-text" type="button">Add a text box</button>
+          <button id="text-bulk" type="button" class="wide">👥 Bulk create: one for each name…</button>
           <h3>Font combinations</h3><div id="font-combos"></div>
         </section>
         <section data-panel="uploads" hidden>
@@ -231,6 +247,7 @@
       <button id="file-find" type="button" class="wide" data-pop="pop-find">Find and replace text…</button>
       <label>Folder <select id="file-folder"></select></label>
       <button id="file-template" type="button" class="wide">Save as template</button>
+      <button id="file-bulk" type="button" class="wide">👥 Bulk create: one for each name…</button>
       <button id="file-download" type="button" class="wide">Download &amp; print…</button>
       <button id="file-trash" type="button" class="wide">Move to trash</button>
       <p id="file-info" class="hint"></p>
@@ -241,7 +258,7 @@
       <label class="check"><input id="create-transparent" type="checkbox"> See-through PNG (no page colour)</label>
       <button id="create-print" type="button" class="primary wide">Print</button>
       <h4>Printing</h4>
-      <label>Print <select id="create-tile"><option value="single">One per sheet</option><option value="sheet">Tiled on Letter, with cut marks</option></select></label>
+      <label>Print <select id="create-tile"><option value="single">One per sheet</option><option value="sheet">Several per sheet, all the same</option><option value="fill">Several per sheet, pages in order</option></select></label>
       <label>Copies <input id="create-copies" type="number" min="1" max="20" value="1"></label>
       <label class="check"><input id="create-margin" type="checkbox" checked> Show the print-safe margin</label>
       <label class="check"><input id="create-bw" type="checkbox"> Preview in black &amp; white</label>
@@ -336,11 +353,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>👥 Bulk create</b> (in File and Text): paste your class list and get a name tag, desk plate or certificate for each child. New <b>label sheets</b> (Avery address labels, name badges, business cards and more) under Resize print right onto the labels.</li>
         <li><b>Print</b> now opens the print window. <b>Download</b> asks where to save, then shows where it went with <b>Open it</b> and <b>Show in folder</b>. Drag pictures in from your files. <b>My elements</b> can save to Shapes, Graphics, Text and more. <b>✨ Auto fix</b> in Filters fixes a dark or tinted picture in one click.</li>
         <li><b>Blur the background</b> in Cut out keeps the main thing sharp and makes the rest soft. <b>Straighten</b> now finds a page's corners for you.</li>
         <li><b>Straighten</b> and <b>Reshape</b> in Edit photo: drag four corners onto a worksheet or poster photographed at an angle to flatten it, or push, grow and shrink parts of a picture. <b>Filters</b> has Highlights, Shadows, Sharpen and Smooth grain.</li>
         <li><b>Photo layers</b>: Cut out now hides instead of deleting, with <b>Erase</b> and <b>Bring back</b> brushes. <b>Adjust this part</b> brightens or warms just what you choose, <b>Fade</b> melts a picture into the page, and <b>Blend</b> (under Transparency) mixes it with what's underneath. <b>Layers</b> shows each picture and can rename it.</li>
-        <li><b>✂ Cut out</b> on a picture: <b>Remove the background</b> in one click, or choose what to keep with the Smart brush, a box, the Magic wand, a lasso or a brush. Keep only that part, erase it, or <b>make a sticker</b> of it.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -413,6 +430,7 @@
   <script src="cutout.js"></script>
   <script src="straighten.js"></script>
   <script src="reshape.js"></script>
+  <script src="bulk.js"></script>
   <div id="print-sheets" aria-hidden="true"></div>
   <style id="print-size"></style>
 
