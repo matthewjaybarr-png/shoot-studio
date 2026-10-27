@@ -239,7 +239,7 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 #cut-parts{display:flex;align-items:center;justify-content:space-between;gap:8px}
 #cut-adjust .cut-row{margin-top:8px}#cut-tools button{padding:6px 2px !important;line-height:1.15}#cut-tools svg{width:24px;height:24px}
 #cut-mode{margin:4px 0 2px}#cut-mode button{flex:1}
-#photo-cutout button.wide+button.wide,#cut-actions{margin-top:6px}#cut-done{margin-top:10px}#straight-actions{display:grid;gap:6px}#straight-done,#shape-done{margin-top:10px}#shape-tools{grid-template-columns:repeat(3,1fr)}
+#photo-cutout button.wide+button.wide,#cut-actions{margin-top:6px}#cut-done{margin-top:10px}#straight-actions{display:grid;gap:6px}#cut-focus{margin-top:6px}#straight-done,#shape-done{margin-top:10px}#shape-tools{grid-template-columns:repeat(3,1fr)}
 #create-drawer label.check{justify-content:flex-start;gap:8px}
 .cut-row{display:flex;gap:6px}.cut-row button{flex:1}
 .effect-grid .effect-shadow{text-shadow:2px 2px 3px #0007}

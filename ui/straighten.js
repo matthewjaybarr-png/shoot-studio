@@ -23,6 +23,26 @@ function paintStraighten() {
 function chooseStraighten(image, corners = STRAIGHT_START) {
   Object.assign(straightTool, { image, corners: corners.map(c => c.slice()), drag: null });
   board.requestRenderAll();
+  if (corners === STRAIGHT_START) findStraightEdges(true); // a newly chosen picture gets its corners found for it
+}
+// Find the edges: Rust picks out the page or poster and sends back its corners. Found by itself on a newly chosen
+// picture, it only moves corners nobody has dragged yet.
+async function findStraightEdges(quiet) {
+  const image = straightTool.image;
+  if (!image || straightGone() || straightTool.busy) return;
+  const before = JSON.stringify(straightTool.corners);
+  if (!quiet) straightSay('Looking for the edges…');
+  try {
+    const work = await touchPixels(image.kbOriginal || image.getSrc()), { width: w, height: h } = work.canvas, pixels = work.ctx.getImageData(0, 0, w, h).data;
+    const body = new Uint8Array(8 + pixels.length), view = new DataView(body.buffer);
+    view.setUint32(0, w, true); view.setUint32(4, h, true); body.set(pixels, 8);
+    const found = await invoke('find_picture_corners', body);
+    if (straightTool.image !== image || JSON.stringify(straightTool.corners) !== before) return; // she moved on, or dragged a corner meanwhile
+    if (found) { straightTool.corners = found; board.requestRenderAll(); straightSay('Found the edges. Drag any corner that is off, then click Straighten.'); }
+    else if (!quiet) straightSay("Couldn't find the edges. Drag the four pink corners onto them yourself.");
+  } catch (error) {
+    if (!quiet) straightSay(`Couldn't look for the edges: ${error}`);
+  }
 }
 
 // ---- Dragging the corners ----
@@ -96,6 +116,7 @@ async function straightenPicture() {
   }
 }
 $('#straight-go').onclick = straightenPicture;
+$('#straight-find').onclick = () => findStraightEdges(false);
 $('#straight-reset').onclick = () => { if (straightTool.image) { straightTool.corners = STRAIGHT_START.map(c => c.slice()); board.requestRenderAll(); } };
 $('#straight-done').onclick = () => { Object.assign(straightTool, { image: null, corners: null, drag: null }); photoTab = 'retouch'; showDrawer('retouch'); };
 

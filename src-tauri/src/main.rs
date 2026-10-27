@@ -4,6 +4,7 @@
 #[allow(dead_code)] // copied whole; not every function is used yet
 mod creations;
 mod cutout;
+mod focus;
 mod reshape;
 mod straighten;
 mod desktop;
@@ -650,6 +651,32 @@ async fn straighten_picture(request: tauri::ipc::Request<'_>) -> Result<Response
     .map_err(|e| e.to_string())?
 }
 
+/// Straighten's Find the edges: the body is retouch_picture's; returns the corners of the main thing
+/// in the picture as straighten_picture takes them, or null when nothing stands out.
+#[tauri::command]
+async fn find_picture_corners(request: tauri::ipc::Request<'_>) -> Result<Option<[[f64; 2]; 4]>, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("find_picture_corners needs the picture as its body".into());
+    };
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || straighten::find_corners(w, h, &rgba)).await.map_err(|e| e.to_string())?
+}
+
+/// Blur the background in Cut out: the body is retouch_picture's and the amount (1–100) travels as an
+/// `amount` header. Returns the picture's RGBA with its background blurred, or nothing (an empty
+/// reply) when no main thing stands out.
+#[tauri::command]
+async fn blur_picture_background(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("blur_picture_background needs the picture as its body".into());
+    };
+    let amount: f32 = header(&request, "amount")?.parse().map_err(|_| "bad blur amount")?;
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(Response::new(focus::blur_background(w, h, &rgba, amount)?.unwrap_or_default())))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Reshapes a Create picture: the body is [w][h][RGBA] then the displacement field as [gw][gh] (LE
 /// u32s) and gw × gh pairs of LE f32s. Returns the reshaped RGBA, the same size.
 #[tauri::command]
@@ -1051,7 +1078,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture, straighten_picture, reshape_picture,
+            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background,
             load_shoot,
             save_shoot,
             develop_source,

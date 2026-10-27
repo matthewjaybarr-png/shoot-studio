@@ -89,7 +89,7 @@ The start screen offers Create next to Photos: a small Canva-style maker for pos
 - **My elements**: save anything from a page (including pieces of Canva designs) to the Elements drawer and use it again in any design.
 - **Links** that work in the downloaded PDF, and **Find and replace** across every page.
 - **Retouch** any picture in Create with Photos' brushes and **Remove**, which makes things disappear and fills the gap from what's around them; **Edit a photo** on the start screen opens a photo as a page its own size. Remove is in Develop too.
-- **Cut out** part of any picture in Create: **Remove the background** in one click, or choose what to keep with the Smart brush, Box, Magic wand, Lasso or Brush, then keep it, erase it or make a sticker of it. Nothing is lost: Erase and Bring back brushes touch it up later.
+- **Cut out** part of any picture in Create: **Remove the background** in one click, or choose what to keep with the Smart brush, Box, Magic wand, Lasso or Brush, then keep it, erase it or make a sticker of it, or **Blur the background** behind it. Nothing is lost: Erase and Bring back brushes touch it up later.
 - **Photo layers** in Create: adjust just one part of a picture, fade it into the page, or blend it with what's underneath; Layers shows each picture and what was done to it.
 - **Straighten and Reshape** in Create's Edit photo: flatten a page or poster photographed at an angle by dragging its four corners, or push, grow and shrink parts of a picture.
 - **Rulers** and **guide lines** to line things up (drag a guide out of a ruler), and **All pages**, a grid of every page to find one or drag it to a new place.

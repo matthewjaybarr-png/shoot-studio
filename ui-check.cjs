@@ -115,6 +115,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
   if (command === 'spot_source') return [0.05, 0];
   if (command === 'reshape_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([200, 40, 120, 255], i); return out.buffer; }
+  if (command === 'blur_picture_background') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([128, 128, 128, 255], i); return out.buffer; }
+  if (command === 'find_picture_corners') return window.foundCorners || null;
   if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 900 * 600 * 4); new Uint32Array(b, 0, 2).set([900, 600]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
   if (command === 'select_picture') { const b = new ArrayBuffer(16 + 100 * 80); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); new Uint8Array(b, 16).fill(255); return b; }
@@ -2285,7 +2287,7 @@ const test = `<script>
       step(cut.image === pic && !cut.any, 'the choice is cleared, ready for more');
       $('#create-undo').click();
       await until(() => board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo cutout')?.getSrc() === srcBefore, 'Undo brings the background back');
-      const restored = board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo cutout');
+      let restored = board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo cutout');
       // A sticker: a new picture of just the chosen part, with a white outline, placed over it and selected.
       paintCut();
       step(!cut.image && $('#cut-hint').textContent.includes('Click the picture'), 'after Undo it asks for the picture again');
@@ -2309,6 +2311,15 @@ const test = `<script>
       await until(() => restored.getSrc() !== autoBefore && !adding.size, 'Remove the background');
       step(lastPick().kind === 'subject' && picks().length === n + 1 && !!restored.kbMask, 'it finds the subject and keeps only that');
       await until(() => cut.image === restored && !adding.size, 'ready to carry on');
+      // Blur the background: Rust gets the picture and the amount, and the picture's own pixels change (one Undo).
+      const focusBefore = restored.kbOriginal, focusN = calls.filter(c => c.command === 'blur_picture_background').length;
+      $('#cut-focus-amount').value = 70; $('#cut-focus').click();
+      await until(() => restored.kbOriginal !== focusBefore && !adding.size && cut.base === restored.kbOriginal, 'Blur the background');
+      const focusCall = calls.filter(c => c.command === 'blur_picture_background').at(-1);
+      step(calls.filter(c => c.command === 'blur_picture_background').length === focusN + 1 && focusCall.options.headers.amount === '70' && !!restored.kbMask, 'Rust blurs it at the chosen amount, and the cut-out stays');
+      undoDesign(); await until(() => board.getObjects().some(o => o.kbOriginal === focusBefore), 'Undo takes the blur back');
+      restored = board.getObjects().find(o => o.kbOriginal === focusBefore);
+      await chooseCutPicture(restored); // Undo loads new objects
       // Touch up: Erase hides part of the picture and Bring back shows it again, straight into its mask.
       $('#cut-size').value = 4; $('#cut-size').dispatchEvent(new Event('input'));
       $('#cut-fix [data-cut=erase]').click();
@@ -2376,6 +2387,13 @@ const test = `<script>
         document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt(...to), bubbles: true, buttons: 1 }));
         document.dispatchEvent(new MouseEvent('mouseup', { ...screenAt(...to), bubbles: true, button: 0 }));
       };
+      await until(() => calls.some(c => c.command === 'find_picture_corners'), 'choosing a picture looks for its edges');
+      step(JSON.stringify(straightTool.corners) === JSON.stringify(STRAIGHT_START), 'nothing found leaves the corners where they start');
+      window.foundCorners = [[0.12, 0.1], [0.85, 0.15], [0.9, 0.88], [0.1, 0.9]];
+      $('#straight-find').click();
+      await until(() => straightTool.corners[0][0] === 0.12, 'Find the edges');
+      step(/Found the edges/.test($('#straight-hint').textContent), 'Find the edges moves the corners onto what it found');
+      window.foundCorners = null; $('#straight-reset').click();
       const corner = i => fromPicture(pic, straightTool.corners[i]);
       drag([corner(0).x, corner(0).y], [110, 105]);
       step(Math.abs(straightTool.corners[0][0] - 10 / 300) < 0.02 && Math.abs(straightTool.corners[0][1] - 5 / 200) < 0.02 && !straightTool.drag, () => 'dragging a pink corner moves it: ' + straightTool.corners[0]);
@@ -2405,15 +2423,18 @@ const test = `<script>
       const move = (x, y) => document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt(x, y), bubbles: true, buttons: 1 }));
       const up = (x, y) => document.dispatchEvent(new MouseEvent('mouseup', { ...screenAt(x, y), bubbles: true, button: 0 }));
       const reshapes = () => calls.filter(c => c.command === 'reshape_picture');
+      await settle(setPicture(pic, { kbMask: maskUrl(new Uint8Array(300 * 200).fill(255), 300, 200) }), 'a cut-out mask to carry along');
+      const maskBefore = pic.kbMask;
       down(220, 200); move(235, 200); move(250, 200);
       const f = shape.grid, mid = shapeAt(f, f.d, 145, 100), far = shapeAt(f, f.d, 10, 10);
       step(shape.preview && mid[0] < -5 && Math.abs(mid[1]) < 1 && !far[0] && !far[1], () => 'Push makes the middle take its colour from behind the stroke, and leaves the rest alone: ' + mid + ' / ' + far);
       let n = reshapes().length, src = pic.getSrc();
       up(250, 200);
-      await until(() => reshapes().length === n + 1 && !shape.busy && pic.getSrc() !== src, 'a Push stroke');
-      const sent = reshapes().at(-1).args, sv = new DataView(sent.buffer, sent.byteOffset), gw = sv.getUint32(8 + 300 * 200 * 4, true), gh = sv.getUint32(12 + 300 * 200 * 4, true);
+      await until(() => reshapes().length === n + 2 && !shape.busy && pic.getSrc() !== src, 'a Push stroke');
+      step(pic.kbMask && pic.kbMask !== maskBefore, 'the cut-out mask is reshaped with the picture');
+      const sent = reshapes().at(-2).args, sv = new DataView(sent.buffer, sent.byteOffset), gw = sv.getUint32(8 + 300 * 200 * 4, true), gh = sv.getUint32(12 + 300 * 200 * 4, true);
       step(gw === 257 && gh === 172 && sent.length === 16 + 300 * 200 * 4 + gw * gh * 8 && !shape.grid && !shape.preview, () => 'Rust gets the original and the field: ' + [gw, gh, sent.length]);
-      step(pic.width === 300 && pic.kbOriginal === undefined, 'the reshaped picture takes the place of the old one');
+      step(pic.width === 300 && !!pic.kbOriginal, 'the reshaped picture takes the place of the old one, its mask kept');
       $('#shape-tools [data-shape=grow]').click();
       down(250, 200); await new Promise(r => setTimeout(r, 150));
       const g = shapeAt(shape.grid, shape.grid.d, 150 + 20, 100);

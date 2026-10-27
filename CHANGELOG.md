@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.32.0
+
+- Blur the background, in Cut out: one click keeps the main thing in the picture sharp and makes what's behind it soft, like a portrait lens. Blur amount sets how soft. One Undo puts it back.
+- Straighten finds the edges for you: choosing a picture puts the four corners on the page or poster it finds, ready to check and Straighten. Find the edges looks again after you've moved them.
+- Reshape keeps a cut-out's edge and any adjusted parts on what they belong to, instead of leaving them where the picture was.
+- The What's new card appears once more.
+
 ## 0.31.0
 
 - Straighten, a new tab in Edit photo: drag four pink corners onto the corners of a worksheet, poster or whiteboard photographed at an angle, click Straighten, and it comes out flat, as if photographed from straight in front. A magnifier shows what's under a corner while you drag it. The flat picture stays where the sheet was and keeps its filter; on a photo opened with Edit a photo, the page becomes the flat picture's size. One Undo puts it back. Put the corners back starts again.

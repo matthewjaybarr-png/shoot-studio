@@ -401,6 +401,26 @@ $('#cut-auto').onclick = () => cutQueued(async () => {
   const kept = await cutKeep(cut.mask);
   if (kept) await cutApply(kept, 'Background removed. Bring back or Undo returns any of it.');
 });
+// Blur the background: the main thing stays sharp and what's behind it goes soft, in the picture's own pixels (so
+// Undo, not Bring back, takes it away).
+$('#cut-focus').onclick = () => cutQueued(async () => {
+  if (cut.image && cutPictureGone()) resetCut();
+  if (!cut.image) {
+    const pictures = board.getObjects().filter(o => o.type === 'image' && o.visible !== false);
+    if (pictures.length !== 1) return cutSay('First click the picture whose background should go soft.');
+    await chooseCutPicture(pictures[0]);
+  }
+  const image = cut.image, work = await touchPixels(cut.base), { width: w, height: h } = work.canvas;
+  cutSay('Blurring the background…');
+  const out = new Uint8Array(await invoke('blur_picture_background', await cutBody(), { headers: { amount: String(+$('#cut-focus-amount').value) } }));
+  if (!out.length) return cutSay("Couldn't tell what's in front. Choose it with a brush and use Adjust this part instead.");
+  const canvas = pictureCanvas(w, h);
+  canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out.buffer, 0, w * h * 4), w, h), 0, 0);
+  if (await setPicture(image, { original: canvas.toDataURL(work.clear ? 'image/png' : 'image/jpeg', 0.92) })) {
+    await chooseCutPicture(image);
+    cutSay('Background blurred. Undo puts it back.');
+  }
+});
 $('#prop-cutout').onclick = () => {
   const image = board.getActiveObject();
   photoTab = 'cutout';

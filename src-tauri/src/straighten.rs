@@ -74,6 +74,35 @@ pub fn flatten(w: usize, h: usize, rgba: &[u8], corners: [[f64; 2]; 4]) -> Resul
     Ok((ow, oh, out))
 }
 
+/// Where the corners of the main thing in the picture are (top left, top right, bottom right, bottom
+/// left, as 0–1 places), for Straighten's Find the edges: Cut out's subject finder picks out the page
+/// or poster, and each corner is the point of it furthest that way. None when nothing stands out or
+/// what does is too small to be a page.
+pub fn find_corners(w: usize, h: usize, rgba: &[u8]) -> Result<Option<[[f64; 2]; 4]>, String> {
+    let Some(region) = crate::cutout::select(w, h, rgba, &crate::cutout::Pick::Subject)? else { return Ok(None) };
+    let (bw, x0, y0) = (region.bbox.width() as usize, region.bbox.x0 as f64, region.bbox.y0 as f64);
+    // Furthest along each diagonal: smallest x + y is the top left, largest x − y the top right, and so on.
+    let mut best = [(f64::MAX, [0.0; 2]), (f64::MIN, [0.0; 2]), (f64::MIN, [0.0; 2]), (f64::MAX, [0.0; 2])];
+    let mut count = 0usize;
+    for (i, &m) in region.mask.iter().enumerate() {
+        if m < 128 {
+            continue;
+        }
+        count += 1;
+        let (x, y) = (x0 + (i % bw) as f64 + 0.5, y0 + (i / bw) as f64 + 0.5);
+        let p = [x, y];
+        if x + y < best[0].0 { best[0] = (x + y, p) }
+        if x - y > best[1].0 { best[1] = (x - y, p) }
+        if x + y > best[2].0 { best[2] = (x + y, p) }
+        if x - y < best[3].0 { best[3] = (x - y, p) }
+    }
+    if (count as f64) < 0.04 * (w * h) as f64 {
+        return Ok(None);
+    }
+    let corners = best.map(|(_, [x, y])| [x / w as f64, y / h as f64]);
+    Ok(convex(&corners.map(|[x, y]| [x * w as f64, y * h as f64])).then_some(corners))
+}
+
 /// Bilinear sample at a pixel-centre place, premultiplied so see-through neighbours don't darken
 /// the edge; outside the picture is see-through.
 pub(crate) fn sample(w: usize, h: usize, rgba: &[u8], x: f64, y: f64) -> [u8; 4] {
@@ -171,6 +200,21 @@ mod tests {
         let (ow, _, out) = flatten(w, h, &px, [[-0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [-0.5, 1.0]]).unwrap();
         assert_eq!(out[3], 0, "left of the picture");
         assert_eq!(out[(ow - 1) * 4 + 3], 255);
+    }
+
+    #[test]
+    fn find_the_edges_finds_the_sheet() {
+        let (w, h, px, want) = tilted();
+        let got = find_corners(w, h, &px).unwrap().expect("a sheet is found");
+        for (g, c) in got.iter().zip(want.iter()) {
+            assert!((g[0] - c[0]).abs() < 0.04 && (g[1] - c[1]).abs() < 0.04, "{got:?} vs {want:?}");
+        }
+    }
+
+    #[test]
+    fn find_the_edges_finds_nothing_in_a_plain_picture() {
+        let (w, h) = (120, 80);
+        assert_eq!(find_corners(w, h, &vec![128u8; w * h * 4]).unwrap(), None);
     }
 
     #[test]

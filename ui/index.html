@@ -139,6 +139,8 @@
           <div id="photo-cutout" hidden>
           <h3>Cut out</h3>
           <button id="cut-auto" type="button" class="wide primary">Remove the background</button>
+          <button id="cut-focus" type="button" class="wide">Blur the background</button>
+          <label>Blur amount <input id="cut-focus-amount" type="range" min="10" max="100" step="5" value="50"></label>
           <p class="hint">Or choose what to keep yourself:</p>
           <div id="cut-tools" class="effect-grid" role="group" aria-label="Ways to choose"></div>
           <div id="cut-mode" class="segmented" role="group" aria-label="Add or take away"><button type="button" data-cut-mode="add">Add to it</button><button type="button" data-cut-mode="take">Take away</button></div>
@@ -174,6 +176,7 @@
           <p class="hint" id="straight-hint"></p>
           <div id="straight-actions" hidden>
             <button id="straight-go" type="button" class="wide primary">Straighten</button>
+            <button id="straight-find" type="button" class="wide">Find the edges</button>
             <button id="straight-reset" type="button" class="wide">Put the corners back</button>
           </div>
           <button id="straight-done" type="button" class="wide">Done</button>
@@ -325,10 +328,10 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Blur the background</b> in Cut out keeps the main thing sharp and makes the rest soft. <b>Straighten</b> now finds a page's corners for you.</li>
         <li><b>Straighten</b> and <b>Reshape</b> in Edit photo: drag four corners onto a worksheet or poster photographed at an angle to flatten it, or push, grow and shrink parts of a picture. <b>Filters</b> has Highlights, Shadows, Sharpen and Smooth grain.</li>
         <li><b>Photo layers</b>: Cut out now hides instead of deleting, with <b>Erase</b> and <b>Bring back</b> brushes. <b>Adjust this part</b> brightens or warms just what you choose, <b>Fade</b> melts a picture into the page, and <b>Blend</b> (under Transparency) mixes it with what's underneath. <b>Layers</b> shows each picture and can rename it.</li>
         <li><b>✂ Cut out</b> on a picture: <b>Remove the background</b> in one click, or choose what to keep with the Smart brush, a box, the Magic wand, a lasso or a brush. Keep only that part, erase it, or <b>make a sticker</b> of it.</li>
-        <li><b>Remove</b> things from any photo: <b>Edit a photo</b> on the start screen, or <b>✨ Retouch</b> on a picture in a design. Paint over what you want gone. Photos' heal, clone and skin brushes are there too.</li>
         <li><b>📏 Rulers</b> in the top bar: drag from a ruler to add a guide line things snap to. <b>▦ All pages</b> shows every page at once; drag one to move it.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>

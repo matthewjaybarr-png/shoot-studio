@@ -138,22 +138,38 @@ async function shapeUp() {
   if (!image || shapeGone() || !f || !f.d.some(Boolean)) { shape.grid = shape.preview = null; return board.requestRenderAll(); }
   shape.busy = true; shapeSay('Reshaping…');
   try {
-    const work = await touchPixels(image.kbOriginal || image.getSrc()), { width: w, height: h } = work.canvas, pixels = work.ctx.getImageData(0, 0, w, h).data;
-    const body = new Uint8Array(16 + pixels.length + f.d.length * 4), view = new DataView(body.buffer);
-    view.setUint32(0, w, true); view.setUint32(4, h, true); body.set(pixels, 8);
-    view.setUint32(8 + pixels.length, f.gw, true); view.setUint32(12 + pixels.length, f.gh, true);
-    // The field is in the shown picture's pixels; the original is the same size, so it applies as it is.
-    new Uint8Array(body.buffer, 16 + pixels.length).set(new Uint8Array(f.d.buffer));
-    const out = new Uint8Array(await invoke('reshape_picture', body));
-    const canvas = pictureCanvas(w, h);
-    canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out.buffer, 0, w * h * 4), w, h), 0, 0);
-    await setPicture(image, { original: canvas.toDataURL(work.clear ? 'image/png' : 'image/jpeg', 0.92) });
+    const work = await touchPixels(image.kbOriginal || image.getSrc());
+    // The picture's mask and its adjusted parts' masks go through the same field, so a cut-out edge or an adjusted
+    // part moves with what it belongs to.
+    const masks = async url => url && warpShape(await pictureData(url, work.canvas.width, work.canvas.height), f, 'image/png');
+    const [original, kbMask, parts] = await Promise.all([
+      warpShape(work.ctx.getImageData(0, 0, work.canvas.width, work.canvas.height), f, work.clear ? 'image/png' : 'image/jpeg'),
+      masks(image.kbMask),
+      Promise.all((image.kbLocal || []).map(async part => ({ ...part, kbMask: await masks(part.kbMask) })))
+    ]);
+    await setPicture(image, { original, kbMask: kbMask || undefined, kbLocal: parts.length ? parts : undefined });
   } catch (error) {
     shapeSay(`Couldn't reshape it: ${error}`);
   } finally {
     shape.busy = false; shape.grid = shape.preview = null; board.requestRenderAll();
     if (!$('#shape-hint').textContent.startsWith("Couldn't")) paintReshape();
   }
+}
+
+// The field is in the shown picture's pixels; the original and its masks are the same size, so it applies as it is.
+async function warpShape(pixels, f, type) {
+  const { width: w, height: h, data } = pixels, body = new Uint8Array(16 + data.length + f.d.length * 4), view = new DataView(body.buffer);
+  view.setUint32(0, w, true); view.setUint32(4, h, true); body.set(data, 8);
+  view.setUint32(8 + data.length, f.gw, true); view.setUint32(12 + data.length, f.gh, true);
+  new Uint8Array(body.buffer, 16 + data.length).set(new Uint8Array(f.d.buffer));
+  const out = new Uint8Array(await invoke('reshape_picture', body)), canvas = pictureCanvas(w, h);
+  canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out.buffer, 0, w * h * 4), w, h), 0, 0);
+  return canvas.toDataURL(type, 0.92);
+}
+async function pictureData(url, w, h) {
+  const ctx = pictureCanvas(w, h).getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(await loadPicture(url), 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
 }
 
 // ---- Drawing: the live copy over the picture while a stroke is on, and the brush ring ----
