@@ -87,7 +87,9 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'quit') return null;
   if (command === 'save_creation') { disk['c:' + options.headers.kind + ':' + decodeURIComponent(options.headers.name)] = new TextDecoder().decode(args); return null; }
   if (command === 'delete_creation') { delete disk['c:' + args.kind + ':' + args.name]; return null; }
-  if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; (window.outputs ??= {})[name] = { bytes: args, open: h.open }; return '/out/' + name; }
+  if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; if (window.saveCancel && h.ask !== 'no') return ''; (window.outputs ??= {})[name] = { bytes: args, ask: h.ask }; return '/home/me/Downloads/' + name; }
+  if (command === 'show_output') { (window.shown ??= []).push(args); return null; }
+  if (command === 'print_page') { window.printed = (window.printed || 0) + 1; return null; }
   if (command === 'load_create_settings') return JSON.parse(disk.createSettings || 'null');
   if (command === 'save_create_settings') { disk.createSettings = JSON.stringify(args.settings); return null; }
   if (command === 'read_pptx') { if (!(args instanceof Uint8Array)) throw 'read_pptx needs the file as its body'; if (!window.pptxPackage) throw "this is not a PowerPoint file"; return JSON.parse(JSON.stringify(window.pptxPackage)); }
@@ -945,9 +947,26 @@ const test = `<script>
     await until(() => window.outputs?.['Poster.pdf'], () => 'the PDF is made: ' + $('#create-saved').textContent);
     const outputs = window.outputs, pdf = new TextDecoder('latin1').decode(outputs['Poster.pdf'].bytes);
     step(pdf.startsWith('%PDF') && (pdf.match(/\\/Type\\s*\\/Page\\b/g) || []).length === 2, () => 'the PDF has one page per copy: ' + (pdf.match(/\\/Type\\s*\\/Page\\b/g) || []).length);
-    step(/MediaBox\\s*\\[\\s*0\\s+0\\s+612\\.?0*\\s+792\\.?0*\\s*\\]/.test(pdf) && outputs['Poster.pdf'].open === 'false', () => 'on Letter paper: ' + pdf.slice(pdf.indexOf('MediaBox') - 5, pdf.indexOf('MediaBox') + 40) + ' open=' + outputs['Poster.pdf'].open);
+    step(/MediaBox\\s*\\[\\s*0\\s+0\\s+612\\.?0*\\s+792\\.?0*\\s*\\]/.test(pdf) && outputs['Poster.pdf'].ask === 'file', () => 'on Letter paper, through a Save dialog: ' + pdf.slice(pdf.indexOf('MediaBox') - 5, pdf.indexOf('MediaBox') + 40) + ' ask=' + outputs['Poster.pdf'].ask);
+    // 0.33: a card says where the download went, with buttons to open it or show it in its folder.
+    await until(() => !$('#saved-card').hidden, 'the Saved card shows');
+    step($('#saved-what').textContent.includes('Poster.pdf') && $('#saved-where').textContent === 'in the Downloads folder' && $('#saved-path').textContent === '/home/me/Downloads' && !$('#saved-open').hidden, () => 'it says where: ' + $('#saved-card').textContent);
+    $('#saved-open').click(); $('#saved-show').click();
+    await until(() => window.shown?.length === 2, 'Open it and Show in folder');
+    step(window.shown[0].path === '/home/me/Downloads/Poster.pdf' && window.shown[0].folder === false && window.shown[1].folder === true, () => 'they open the file, then its folder: ' + JSON.stringify(window.shown));
+    $('#saved-close').click();
+    step($('#saved-card').hidden, 'the card closes');
+    window.saveCancel = true; delete window.outputs['Poster.pdf'];
+    $('#create-pdf').click();
+    await until(() => $('#create-saved').textContent === 'Not downloaded', 'cancelling the Save dialog saves nothing');
+    step(!window.outputs['Poster.pdf'] && $('#saved-card').hidden, 'and shows no card');
+    window.saveCancel = false;
+    // Print lays the sheets out for the printer (two copies of the tiled sheet) and opens the print dialog.
     $('#create-print').click();
-    await until(() => window.outputs['Poster.pdf'].open === 'true', 'Print opens the PDF');
+    await until(() => window.printed === 1, () => 'Print opens the print dialog: ' + $('#create-saved').textContent);
+    const sheets = [...document.querySelectorAll('#print-sheets .print-sheet')];
+    step(sheets.length === 2 && sheets.every(sh => sh.querySelectorAll('img').length === 4 && sh.querySelectorAll('svg line').length === 4) && sheets[0].style.width === '8.5in', () => 'two Letter sheets of four cards with cut marks: ' + sheets.length + ' ' + (sheets[0] && sheets[0].innerHTML.length));
+    step($('#print-size').textContent === '@page{size:8.5in 11in;margin:0}' && getComputedStyle($('#print-sheets')).display === 'none', 'on Letter paper, and never on screen');
     $('#create-png').click();
     await until(() => window.outputs['Poster.png'], 'PNG export');
     const img = await settle(createImageBitmap(new Blob([window.outputs['Poster.png'].bytes], { type: 'image/png' })), 'the PNG decodes');
@@ -1661,7 +1680,7 @@ const test = `<script>
     for (const name of ['Pages test page 1.png', 'Pages test page 2.png', 'Pages test page 3.png']) delete window.outputs[name];
     $('#create-png').click();
     await until(() => window.outputs['Pages test page 3.png'] && window.outputs['Pages test page 1.png'], () => 'a picture is saved per page: ' + $('#create-saved').textContent);
-    step($('#create-saved').textContent === 'Saved 3 pictures in the Exports folder', 'and it says so');
+    step($('#create-saved').textContent === 'Saved 3 pictures' && window.outputs['Pages test page 1.png'].ask === 'folder' && window.outputs['Pages test page 3.png'].ask === 'no' && $('#saved-what').textContent === 'Saved 3 pictures' && $('#saved-open').hidden, 'and it says so, choosing one folder for them all');
     put($('#create-copies'), '2', 'change');
     $('#create-pdf').click();
     await until(() => window.outputs['Pages test.pdf'], 'multi-page PDF');
@@ -1780,6 +1799,25 @@ const test = `<script>
     const clearOut = await filterPicture(clearCanvas.toDataURL('image/png'), { look: 'sepia' });
     const [leftPx, rightPx] = [await pixelOf(clearOut, 5, 5), await pixelOf(clearOut, 30, 5)];
     step(clearOut.startsWith('data:image/png') && leftPx[3] === 255 && rightPx[3] === 0, () => 'transparent parts stay transparent: ' + leftPx + ' / ' + rightPx);
+    // Auto fix: a dark, blue picture comes out brighter and less blue, through the ordinary sliders.
+    { const c = document.createElement('canvas'); c.width = 200; c.height = 150; const g = c.getContext('2d');
+      for (let y = 0; y < 150; y++) { g.fillStyle = 'rgb(' + (40 + y / 4) + ',' + (48 + y / 4) + ',' + (62 + y / 4) + ')'; g.fillRect(0, y, 200, 1); }
+      const dark = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/jpeg')), 'dusk'), 'a dark blue picture');
+      selectObjects([dark]); paintPanel(); $('#filters-open').click();
+      const before = await measurePicture(dark.getSrc());
+      $('#filter-auto').click();
+      await until(() => dark.kbFilter?.exposure > 0 && !adding.size, 'Auto fix');
+      const after = await measurePicture(dark.getSrc());
+      step(after.mid > before.mid + 0.1 && Math.abs(after.cast) < Math.abs(before.cast) * 0.6 && $('#filter-adjust [data-adjust=exposure]').value == dark.kbFilter.exposure, () => 'Auto fix brightens it and takes out the blue, on the sliders: ' + JSON.stringify(dark.kbFilter) + ' mid ' + before.mid.toFixed(2) + '→' + after.mid.toFixed(2) + ' cast ' + before.cast.toFixed(3) + '→' + after.cast.toFixed(3));
+      board.remove(dark); commitDesign();
+      // A picture that is already fine is left nearly alone.
+      const fine = document.createElement('canvas'); fine.width = 200; fine.height = 150; const fg = fine.getContext('2d');
+      for (let x = 0; x < 200; x++) { const v = Math.round(15 + x * 1.2); fg.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; fg.fillRect(x, 0, 1, 150); }
+      const okPic = await settle(addImageBlob(await new Promise(r => fine.toBlob(r, 'image/jpeg')), 'fine'), 'a well exposed picture');
+      const okFix = await autoFix(okPic);
+      step(Math.abs(okFix.exposure) <= 0.3 && Math.abs(okFix.temp) <= 5 && okFix.contrast <= 5 && !okFix.highlights && !okFix.shadows, () => 'Auto fix leaves a good picture nearly alone: ' + JSON.stringify(okFix));
+      board.remove(okPic); commitDesign();
+    }
     // 0.17: Import from Canva (PowerPoint, or a picture).
     await settle($('#create-home').onclick(), 'home for import');
     step(shown('#home-import'), 'the start screen offers Import from Canva');

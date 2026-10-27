@@ -32,6 +32,13 @@
   <div id="home-menu" role="menu" hidden></div>
   <dialog id="name-dialog"><form method="dialog"><h3 id="name-title"></h3><input id="name-input" type="text" maxlength="80" spellcheck="false" aria-labelledby="name-title"><p id="name-error" role="alert"></p><div class="row"><button value="ok" class="primary">OK</button><button value="cancel" formnovalidate>Cancel</button></div></form></dialog>
   <section id="create" aria-label="Create" hidden>
+    <div id="saved-card" role="status" hidden>
+      <span class="saved-tick" aria-hidden="true">✓</span>
+      <div class="saved-text"><strong id="saved-what"></strong> <span id="saved-where"></span><small id="saved-path"></small></div>
+      <button id="saved-open" type="button" class="primary">Open it</button>
+      <button id="saved-show" type="button">Show in folder</button>
+      <button id="saved-close" type="button" aria-label="Close">×</button>
+    </div>
     <div class="create-bar">
       <button id="create-home" type="button">⌂ Start</button>
       <button id="file-open" type="button" data-pop="pop-file">File</button>
@@ -268,6 +275,7 @@
       <div data-for="text" class="highlight-row"><label class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour"></div>
     </div>
     <div id="pop-filters" class="pop" hidden>
+      <button id="filter-auto" type="button" class="wide primary">✨ Auto fix</button>
       <h4>Looks from Develop</h4><div id="filter-looks" class="filter-grid"></div>
       <label>Strength <input id="filter-strength" type="range" min="0" max="100" value="100"></label>
       <h4 id="filter-presets-title">Your presets</h4><div id="filter-presets" class="filter-grid"></div>
@@ -328,11 +336,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Print</b> now opens the print window. <b>Download</b> asks where to save, then shows where it went with <b>Open it</b> and <b>Show in folder</b>. <b>✨ Auto fix</b> at the top of Filters fixes a dark or tinted picture in one click.</li>
         <li><b>Blur the background</b> in Cut out keeps the main thing sharp and makes the rest soft. <b>Straighten</b> now finds a page's corners for you.</li>
         <li><b>Straighten</b> and <b>Reshape</b> in Edit photo: drag four corners onto a worksheet or poster photographed at an angle to flatten it, or push, grow and shrink parts of a picture. <b>Filters</b> has Highlights, Shadows, Sharpen and Smooth grain.</li>
         <li><b>Photo layers</b>: Cut out now hides instead of deleting, with <b>Erase</b> and <b>Bring back</b> brushes. <b>Adjust this part</b> brightens or warms just what you choose, <b>Fade</b> melts a picture into the page, and <b>Blend</b> (under Transparency) mixes it with what's underneath. <b>Layers</b> shows each picture and can rename it.</li>
         <li><b>✂ Cut out</b> on a picture: <b>Remove the background</b> in one click, or choose what to keep with the Smart brush, a box, the Magic wand, a lasso or a brush. Keep only that part, erase it, or <b>make a sticker</b> of it.</li>
-        <li><b>📏 Rulers</b> in the top bar: drag from a ruler to add a guide line things snap to. <b>▦ All pages</b> shows every page at once; drag one to move it.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -405,5 +413,7 @@
   <script src="cutout.js"></script>
   <script src="straighten.js"></script>
   <script src="reshape.js"></script>
+  <div id="print-sheets" aria-hidden="true"></div>
+  <style id="print-size"></style>
 
 </body></html>

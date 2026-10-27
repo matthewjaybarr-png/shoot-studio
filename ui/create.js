@@ -1201,6 +1201,56 @@ function setFilter(image, filter) {
   filtering = run.catch(error => { $('#create-saved').textContent = 'Could not apply the filter: ' + error; });
   return track(filtering);
 }
+// Auto fix: brightness, colour cast, contrast and the ends of the tones, chosen by measuring. Each guess is tried on a
+// small copy through the same filter code and corrected from what comes out, so the result doesn't depend on how
+// strong a slider happens to be. It only sets the ordinary sliders, so everything stays adjustable; a look is kept.
+async function measurePicture(src) {
+  const img = await loadPicture(src), k = Math.min(1, 160 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k)), ctx = pictureCanvas(w, h).getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data, lumas = [];
+  let r = 0, b = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 128) continue; // clip art's see-through parts don't count
+    const y = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    lumas.push(y);
+    if (y > 0.15 && y < 0.9) { r += d[i]; b += d[i + 2]; } // the cast shows in the mid tones, as a share so brightness doesn't change it
+  }
+  lumas.sort((x, y) => x - y);
+  const at = p => lumas[Math.min(lumas.length - 1, Math.floor(p * lumas.length))] ?? 0.5;
+  return { mid: at(0.5), low: at(0.02), high: at(0.98), cast: r + b ? (r - b) / (r + b) : 0, bright: lumas.filter(y => y >= 0.99).length / Math.max(1, lumas.length) }; // bright: the share blown to white
+}
+async function autoFix(image) {
+  const original = image.kbOriginal || image.getSrc(), keep = image.kbFilter?.look ? { look: image.kbFilter.look, lookAmount: image.kbFilter.lookAmount } : {};
+  const start = await measurePicture(original), f = { ...keep, exposure: 0, temp: 0, contrast: 0, highlights: 0, shadows: 0 };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  // Brightness: a middle tone outside 0.38–0.55 is moved to the nearer end, so a bright but fine photo isn't darkened. sRGB is about linear to the 1/2.2, so one stop moves it by 2^(1/2.2).
+  // Colour: a cast is how much redder than blue the mid tones are, (r - b) / (r + b); only most of it is taken out, so a sunset stays warm.
+  let m = start, slope = null;
+  for (let round = 0; round < 3; round++) {
+    const aim = clamp(m.mid, 0.38, 0.55);
+    f.exposure = clamp(Math.round((f.exposure + clamp(2.2 * Math.log2(aim / Math.max(0.02, m.mid)), -1, 1) * 0.8) * 20) / 20, -2, 2);
+    const before = m.cast, tempBefore = f.temp;
+    if (slope === null) f.temp = clamp(Math.round(-Math.sign(m.cast) * Math.min(25, Math.abs(m.cast) * 150)), -60, 60);
+    else if (Math.abs(slope) > 1e-5) f.temp = clamp(Math.round(f.temp - m.cast * 0.7 / slope), -60, 60);
+    m = await measurePicture(await filterPicture(original, cleanFilter(f) || {}, 160));
+    if (f.temp !== tempBefore && Math.abs(f.temp - tempBefore) >= 1) slope = (m.cast - before) / (f.temp - tempBefore);
+        if (m.mid > 0.36 && m.mid < 0.57 && Math.abs(m.cast) < 0.03) break;
+  }
+  // Contrast for a flat picture; the ends of the tones brought in when they're crushed or blown.
+  const spread = m.high - m.low;
+  f.contrast = spread < 0.8 ? Math.round(clamp((0.8 - spread) * 90, 0, 30)) : 0;
+  f.highlights = m.bright > 0.03 ? -Math.round(clamp(m.bright * 300, 10, 40)) : 0;
+  f.shadows = m.low < 0.03 && start.mid < 0.4 ? Math.round(clamp((0.4 - start.mid) * 80, 5, 30)) : 0;
+  return f;
+}
+$('#filter-auto').onclick = async () => {
+  const image = filterTarget();
+  if (!image) return;
+  $('#create-saved').textContent = 'Looking at the picture…';
+  try { await setFilter(image, await autoFix(image)); $('#create-saved').textContent = 'Auto fixed. Move any slider to change it.'; }
+  catch (error) { $('#create-saved').textContent = 'Could not auto fix it: ' + error; }
+};
 const filterTarget = () => { const o = board?.getActiveObject(); return o?.type === 'image' && !o.kbLocked ? o : null; };
 function paintFilters() {
   const image = filterTarget();
@@ -1482,7 +1532,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 21;
+const WHATS_NEW = 22;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1678,25 +1728,88 @@ async function makePdf() {
   });
   return new Uint8Array(pdf.output('arraybuffer'));
 }
-async function output(kind, open = false) {
+// Download: a Save dialog (Downloads the first time, then wherever she saved last) with the name filled in; several
+// pictures ask for a folder instead. Then a card says where it went, with buttons to open it or show it.
+async function output(kind) {
   const status = $('#create-saved');
   try {
     await flush();
-    const many = kind !== 'pdf' && designPages.length > 1;
+    const pages = allPages(), many = kind !== 'pdf' && pages.length > 1, files = [];
     status.textContent = 'Making ' + (kind === 'pdf' ? 'the PDF' : many ? 'the pictures' : 'the picture') + '…';
-    const save = (bytes, name) => invoke('save_output', bytes, { headers: { name: encodeURIComponent(name), ext: kind === 'jpeg' ? 'jpg' : kind, open: String(open) } });
-    if (kind === 'pdf') { const file = await save(await makePdf(), design.title); status.textContent = (open ? 'Opened ' : 'Saved ') + file; return; }
+    const save = (bytes, name, ask) => invoke('save_output', bytes, { headers: { name: encodeURIComponent(name), ext: kind === 'jpeg' ? 'jpg' : kind, ask, title: encodeURIComponent(`Choose a folder for the ${pages.length} pictures`) } });
+    if (kind === 'pdf') files.push(await save(await makePdf(), design.title, 'file'));
     // A picture per page, numbered when there are several (an Instagram carousel, for one).
-    const pages = allPages();
-    let file;
-    for (const [i, page] of pages.entries()) file = await save(toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg', 0.92, kind === 'png' && typeof seeThrough === 'function' ? seeThrough(page) : page)), many ? `${design.title} page ${i + 1}` : design.title);
-    status.textContent = many ? `Saved ${pages.length} pictures in the Exports folder` : 'Saved ' + file;
+    else for (const [i, page] of pages.entries()) {
+      const file = await save(toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg', 0.92, kind === 'png' && typeof seeThrough === 'function' ? seeThrough(page) : page)), many ? `${design.title} page ${i + 1}` : design.title, i ? 'no' : many ? 'folder' : 'file');
+      if (!file) break;
+      files.push(file);
+    }
+    if (!files[0]) { status.textContent = 'Not downloaded'; return; }
+    status.textContent = files.length > 1 ? `Saved ${files.length} pictures` : 'Saved ' + fileName(files[0]);
+    showSaved(files);
   } catch (error) { status.textContent = 'Could not make it: ' + error; }
+}
+const fileName = path => path.slice(path.lastIndexOf('/') + 1);
+function showSaved(files) {
+  const folder = files[0].slice(0, files[0].lastIndexOf('/')) || '/';
+  $('#saved-what').textContent = files.length > 1 ? `Saved ${files.length} pictures` : `Saved “${fileName(files[0])}”`;
+  $('#saved-where').textContent = 'in the ' + fileName(folder) + ' folder';
+  $('#saved-path').textContent = folder;
+  $('#saved-open').hidden = files.length > 1;
+  const show = asFolder => invoke('show_output', { path: files[0], folder: asFolder }).catch(error => { $('#saved-path').textContent = 'Could not open it: ' + error; });
+  $('#saved-open').onclick = () => show(false);
+  $('#saved-show').onclick = () => show(true);
+  $('#saved-card').hidden = false;
+}
+$('#saved-close').onclick = () => { $('#saved-card').hidden = true; };
+
+// Print: each sheet laid out as it would be in the PDF (tiles, cut marks, copies), shown only to the printer, then
+// the system's print dialog.
+let printPictures = [];
+async function printDesign() {
+  const status = $('#create-saved');
+  try {
+    await flush();
+    status.textContent = 'Getting it ready to print…';
+    board.discardActiveObject();
+    const layout = pageLayout(design.page, design.tile, design.size), [sw, sh] = layout.sheet, [pw, ph] = design.size;
+    for (const url of printPictures) URL.revokeObjectURL(url);
+    printPictures = [];
+    for (const page of allPages()) printPictures.push(URL.createObjectURL(new Blob([toBytes(await render(DPI / PX, 'jpeg', 0.92, page))], { type: 'image/jpeg' })));
+    const box = $('#print-sheets'), svg = 'http://www.w3.org/2000/svg';
+    box.replaceChildren();
+    $('#print-size').textContent = `@page{size:${sw}in ${sh}in;margin:0}`;
+    for (let copy = 0; copy < design.copies; copy++) for (const url of printPictures) {
+      const sheet = document.createElement('div');
+      sheet.className = 'print-sheet';
+      sheet.style.cssText = `width:${sw}in;height:${sh}in`;
+      for (const t of layout.tiles) {
+        const img = new Image();
+        img.src = url;
+        img.style.cssText = `left:${t.x}in;top:${t.y}in;width:${pw}in;height:${ph}in`;
+        sheet.append(img);
+      }
+      if (layout.marks.length) {
+        const marks = document.createElementNS(svg, 'svg');
+        marks.setAttribute('viewBox', `0 0 ${sw} ${sh}`);
+        for (const [x1, y1, x2, y2] of layout.marks) {
+          const line = document.createElementNS(svg, 'line');
+          for (const [k, v] of Object.entries({ x1, y1, x2, y2, stroke: '#6e6e6e', 'stroke-width': 0.01 })) line.setAttribute(k, v);
+          marks.append(line);
+        }
+        sheet.append(marks);
+      }
+      box.append(sheet);
+    }
+    await Promise.all([...box.querySelectorAll('img')].map(img => img.decode()));
+    await invoke('print_page');
+    status.textContent = 'Opened the print window';
+  } catch (error) { status.textContent = 'Could not print: ' + error; }
 }
 $('#create-pdf').onclick = () => output('pdf');
 $('#create-png').onclick = () => output('png');
 $('#create-jpeg').onclick = () => output('jpeg');
-$('#create-print').onclick = () => output('pdf', true);
+$('#create-print').onclick = () => printDesign();
 
 function reorderSelected(by) {
   const objects = board.getActiveObjects().sort((a, b) => board.getObjects().indexOf(a) - board.getObjects().indexOf(b));

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.33.0
+
+- Print opens the print window, where you choose the printer and copies and click Print. It used to save a PDF and try to open it, which could silently do nothing.
+- Download asks where to save, with the name filled in, starting in Downloads (then wherever you saved last). PNG or JPEG of several pages asks for one folder for all the pictures. Afterwards a card says what was saved and in which folder, with **Open it** and **Show in folder** buttons.
+- ✨ Auto fix, at the top of Filters: one click brightens a dark picture, takes out a colour cast, and adds contrast, highlights and shadows only where they're needed. A picture that already looks right is left nearly alone, and the sliders show what it did.
+- The What's new card appears once more.
+
 ## 0.32.0
 
 - Blur the background, in Cut out: one click keeps the main thing in the picture sharp and makes what's behind it soft, like a portrait lens. Blur amount sets how soft. One Undo puts it back.

@@ -89,9 +89,11 @@ pub fn format_list(ids: &[String]) -> String {
     format!("[{}]", ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", "))
 }
 
-/// gsettings from the system, without the AppImage's bundled GLib schemas and modules in the way.
-fn gsettings() -> Command {
-    let mut command = Command::new("gsettings");
+/// A program from the system, without the AppImage's bundled GLib schemas, modules and libraries in the way:
+/// gsettings can't read the desktop's settings with them, and a PDF viewer or file manager started through
+/// xdg-open can fail to start at all.
+pub fn host(program: &str) -> Command {
+    let mut command = Command::new(program);
     for key in ["LD_LIBRARY_PATH", "LD_PRELOAD", "GSETTINGS_SCHEMA_DIR", "GIO_MODULE_DIR", "GI_TYPELIB_PATH", "GTK_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX", "GDK_PIXBUF_MODULE_FILE"] {
         command.env_remove(key);
     }
@@ -100,6 +102,10 @@ fn gsettings() -> Command {
         command.env("XDG_DATA_DIRS", system.join(":"));
     }
     command
+}
+
+fn gsettings() -> Command {
+    host("gsettings")
 }
 
 /// The title bar buttons the desktop asks for, such as "appmenu:minimize,maximize,close". The AppImage's own GLib

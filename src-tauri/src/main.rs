@@ -887,28 +887,101 @@ fn delete_creation(app: AppHandle, kind: String, name: String) -> Result<(), Str
     creations::delete(&creations::folder(&create_root(&app)?, &kind)?, &name)
 }
 
-/// Write a finished file (PDF, PNG or JPEG: the body) into Exports and return its path; `open` also shows it
-/// in the system viewer, which is how Print works.
+/// Where the last download went: the next one starts there, and a picture per page after the first goes beside it.
+#[derive(Default)]
+struct OutputFolder(Mutex<Option<PathBuf>>);
+
+/// Save a finished file (PDF, PNG or JPEG: the body) where she chooses, and return its full path, or "" when she
+/// cancels. `ask` is "file" for a Save dialog with the name filled in, "folder" to choose a folder for several
+/// pictures (`title` says so), or "no" to save beside the last one. The first Save starts in Downloads.
 #[tauri::command]
-async fn save_output(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+async fn save_output(app: AppHandle, last: State<'_, OutputFolder>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("save_output needs the file as its body".into());
     };
-    let (name, ext, open) = (header(&request, "name")?, header(&request, "ext")?, header(&request, "open")? == "true");
+    let (mut name, ext, ask) = (header(&request, "name")?, header(&request, "ext")?, header(&request, "ask")?);
     if !["pdf", "png", "jpg"].contains(&ext.as_str()) {
         return Err("PDF, PNG or JPEG only".into());
     }
-    let (dir, bytes) = (creations::folder(&create_root(&app)?, "exports")?, bytes.clone());
+    let remembered = last.0.lock().unwrap().clone();
+    let start = match remembered.clone().filter(|d| d.is_dir()) {
+        Some(dir) => dir,
+        None => app.path().download_dir().or_else(|_| creations::folder(&create_root(&app)?, "exports"))?,
+    };
+    let dir = match ask.as_str() {
+        "file" => {
+            let kind = if ext == "pdf" { "PDF" } else if ext == "png" { "PNG picture" } else { "JPEG picture" };
+            let Some(path) = app.dialog().file().set_title(format!("Save the {kind}")).set_directory(&start)
+                .set_file_name(format!("{name}.{ext}")).add_filter(kind, &[ext.as_str()]).blocking_save_file()
+                .and_then(|p| p.into_path().ok()) else { return Ok(String::new()) };
+            // Whatever ending was typed, the file gets the right one.
+            let typed = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            name = typed.strip_suffix(&format!(".{ext}")).unwrap_or(&typed).to_string();
+            path.parent().map(Path::to_path_buf).ok_or("choose a folder to save in")?
+        }
+        "folder" => {
+            let title = header(&request, "title").unwrap_or_else(|_| "Choose a folder".into());
+            let Some(dir) = app.dialog().file().set_title(title).set_directory(&start).blocking_pick_folder()
+                .and_then(|p| p.into_path().ok()) else { return Ok(String::new()) };
+            dir
+        }
+        "no" => remembered.ok_or("choose where to save first")?,
+        _ => return Err("ask must be file, folder or no".into()),
+    };
+    *last.0.lock().unwrap() = Some(dir.clone());
+    let bytes = bytes.clone();
     let path = tauri::async_runtime::spawn_blocking(move || creations::write(&dir, &name, &ext, &bytes))
         .await
         .map_err(|e| e.to_string())??;
-    if open {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("saved {}, but could not open it: {e}", path.display()))?;
-    }
     Ok(path.display().to_string())
+}
+
+/// After a download: open the file in its usual app, or show it in the file manager (`folder`), picked out when
+/// the file manager can do that. Started from the system, not the AppImage, or the other app may not start.
+#[tauri::command]
+fn show_output(path: String, folder: bool) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if !path.is_file() || !["pdf", "png", "jpg"].contains(&ext.as_str()) {
+        return Err("that file isn't there any more".into());
+    }
+    let started = if folder {
+        let shown = desktop::host("gdbus")
+            .args(["call", "--session", "--dest", "org.freedesktop.FileManager1", "--object-path", "/org/freedesktop/FileManager1",
+                "--method", "org.freedesktop.FileManager1.ShowItems", &format!("['{}']", file_uri(&path)), "''"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if shown {
+            return Ok(());
+        }
+        desktop::host("xdg-open").arg(path.parent().unwrap_or(&path)).spawn()
+    } else {
+        desktop::host("xdg-open").arg(&path).spawn()
+    };
+    let mut child = started.map_err(|e| format!("could not open it: {e}"))?;
+    std::thread::spawn(move || child.wait()); // reaped, so it doesn't linger
+    Ok(())
+}
+
+/// file:///… for a path, with everything but plain letters, digits and -._~/ percent-encoded.
+fn file_uri(path: &Path) -> String {
+    let mut uri = String::from("file://");
+    for b in path.to_string_lossy().bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
+            uri.push(b as char);
+        } else {
+            uri.push_str(&format!("%{b:02X}"));
+        }
+    }
+    uri
+}
+
+/// Print: the system's print dialog, with its preview, for what the page has laid out for printing.
+#[tauri::command]
+async fn print_page(webview: tauri::Webview) -> Result<(), String> {
+    webview.print().map_err(|e| e.to_string())
 }
 
 fn header(request: &tauri::ipc::Request<'_>, key: &str) -> Result<String, String> {
@@ -1050,6 +1123,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate::default())
         .manage(Retouching::default())
+        .manage(OutputFolder::default())
         .setup(|app| {
             // As an AppImage, ask the system which title bar buttons it wants (see desktop::button_layout).
             #[cfg(target_os = "linux")]
@@ -1097,6 +1171,8 @@ fn main() {
             save_creation,
             delete_creation,
             save_output,
+            show_output,
+            print_page,
             load_create_settings,
             save_create_settings,
             read_pptx
@@ -1108,6 +1184,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_uris_are_percent_encoded() {
+        assert_eq!(file_uri(Path::new("/home/me/Downloads/Spring poster’s #2.pdf")), "file:///home/me/Downloads/Spring%20poster%E2%80%99s%20%232.pdf");
+    }
 
     #[test]
     fn a_second_close_goes_through_only_once_the_page_has_had_time() {
