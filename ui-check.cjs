@@ -2237,7 +2237,9 @@ const test = `<script>
     const shapeGrid = $('#mine-in-shapes');
     step(shapeGrid && !shapeGrid.parentElement.hidden && shapeGrid.closest('details').dataset.fold === 'shapes' && shapeGrid.children.length === 1 && JSON.parse(disk['c:elements:' + shapeName]).place === 'shapes' && ![...$('#create-mine').children].some(t => t.textContent.includes(shapeName)), () => 'it shows at the top of Shapes, not in My elements: ' + shapeName);
     shapeGrid.querySelector('button.mine-move').click();
-    const movePick = shapeGrid.querySelector('select'); put(movePick, 'text', 'change');
+    const movePick = shapeGrid.querySelector('select'); movePick.dispatchEvent(new Event('blur'));
+    step(movePick.isConnected, 'the list stays open when WebKitGTK blurs it to show its choices');
+    put(movePick, 'text', 'change');
     await until(() => $('#mine-in-text')?.children.length === 1 && shapeGrid.parentElement.hidden, 'Move puts it in the Text drawer');
     step($('#mine-in-text').closest('section').dataset.panel === 'text' && JSON.parse(disk['c:elements:' + shapeName]).place === 'text', 'and remembers it');
     myElements.clear(); await settle(loadMine(), 'reload sorted elements');

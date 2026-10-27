@@ -120,13 +120,16 @@ function mineTile(name) {
   rename.title = 'Rename'; rename.setAttribute('aria-label', 'Rename ' + name);
   const del = button('×', () => { if (del.classList.contains('sure')) removeMine(name); else { del.classList.add('sure'); del.textContent = 'Delete?'; } });
   del.title = 'Delete'; del.setAttribute('aria-label', 'Delete ' + name);
-  // Move: a list of the sections in place of the name; choosing one moves it there.
+  // Move: a list of the sections in place of the name; choosing one moves it there, Move again or Esc puts the name
+  // back. Not closed on blur: WebKitGTK blurs a list as it opens it.
   const move = button('Move', () => {
+    const open = tile.querySelector('select');
+    if (open) return paintMine();
     const pick = document.createElement('select');
     pick.setAttribute('aria-label', 'Move ' + name + ' to');
     for (const [key, text] of Object.entries(MINE_PLACES)) pick.append(new Option(text, key, false, key === placeOf(myElements.get(name))));
     pick.onchange = () => moveMine(name, pick.value).catch(e => { $('#mine-hint').textContent = 'Could not move it: ' + e; $('#mine-hint').hidden = false; });
-    pick.onblur = () => { if (pick.isConnected) paintMine(); };
+    pick.onkeydown = e => { if (e.key === 'Escape') paintMine(); };
     label.replaceWith(pick); pick.focus();
   });
   move.className = 'mine-move'; move.title = 'Move to another section'; move.setAttribute('aria-label', 'Move ' + name + ' to another section');
