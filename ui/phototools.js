@@ -31,7 +31,7 @@ const touch = { tool: null, px: 20, strengths: { soften: 0.5, dodge: 0.25, burn:
 let touchQueue = Promise.resolve();
 const touchStrength = t => touch.strengths[t] ?? 1;
 const touchSay = text => { $('#create-saved').textContent = text; };
-let photoTab = 'retouch'; // which half of the Edit photo drawer shows: retouch or cutout
+let photoTab = 'retouch'; // which part of the Edit photo drawer shows: retouch, cutout, straighten or reshape
 const brushing = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'retouch' && !!touch.tool && !cropSession;
 const cuttingOut = () => typeof cutting === 'function' && cutting();
 
@@ -80,7 +80,7 @@ let touchMode = false;
 function setTouchMode(on) {
   if (!board || touchMode === on) return;
   touchMode = on;
-  if (on) board.discardActiveObject();
+  if (on) { touch.wasSelected = board.getActiveObject(); board.discardActiveObject(); } // Straighten still knows which picture was picked
   board.skipTargetFind = on || spacePan; board.selection = !on && !spacePan && !cropSession;
   board.defaultCursor = on ? 'crosshair' : spacePan ? 'grab' : 'default'; board.setCursor(board.defaultCursor);
   board.requestRenderAll(); paintPanel();
@@ -92,8 +92,10 @@ function pickTouchTool(name) {
 }
 function paintTouch() {
   for (const b of document.querySelectorAll('#photo-tabs [data-photo-tab]')) { b.classList.toggle('on', b.dataset.photoTab === photoTab); b.setAttribute('aria-pressed', b.dataset.photoTab === photoTab); }
-  $('#photo-retouch').hidden = photoTab !== 'retouch'; $('#photo-cutout').hidden = photoTab !== 'cutout';
+  $('#photo-retouch').hidden = photoTab !== 'retouch'; $('#photo-cutout').hidden = photoTab !== 'cutout'; $('#photo-straighten').hidden = photoTab !== 'straighten'; $('#photo-reshape').hidden = photoTab !== 'reshape';
   if (photoTab === 'cutout' && typeof paintCut === 'function') paintCut();
+  if (photoTab === 'straighten' && typeof paintStraighten === 'function') paintStraighten();
+  if (photoTab === 'reshape' && typeof paintReshape === 'function') paintReshape();
   const tools = $('#touch-tools');
   if (!tools.children.length) tools.append(...PHOTO_TOOLS.map(([key, label, icon]) => {
     const b = button('', () => pickTouchTool(key)); b.dataset.touch = key; b.title = label;
@@ -110,7 +112,7 @@ function paintTouch() {
   $('#touch-source').classList.toggle('on', touch.picking);
   $('#touch-source').textContent = touch.picking ? 'Now click where to copy from…' : touch.source ? 'Pick a different place to copy from' : 'Pick where to copy from';
   $('#touch-hint').textContent = touch.tool ? TOUCH_HINTS[touch.tool] : 'Pick a brush, then paint on any picture on the page.';
-  setTouchMode(brushing() || cuttingOut());
+  setTouchMode(brushing() || cuttingOut() || (typeof straightening === 'function' && straightening()) || (typeof reshaping === 'function' && reshaping()));
 }
 for (const b of document.querySelectorAll('#photo-tabs [data-photo-tab]')) b.onclick = () => { photoTab = b.dataset.photoTab; paintTouch(); board?.requestRenderAll(); };
 $('#touch-size').oninput = e => { touch.px = +e.target.value; paintTouch(); board?.requestRenderAll(); };

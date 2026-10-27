@@ -233,13 +233,13 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 .effect-grid button.on{outline:2px solid var(--accent);color:var(--text)}
 .effect-grid span{font:700 26px Lexend,sans-serif;color:var(--text);line-height:1.2}
 #touch-tools svg,#cut-tools svg,#cut-fix svg{width:28px;height:28px;margin:2px 0;color:var(--text)}#touch-tools button.on svg,#cut-tools button.on svg,#cut-fix button.on svg{color:var(--accent)}
-#photo-tabs{margin:10px 0 2px}#photo-tabs button{flex:1}
+#photo-tabs{margin:10px 0 2px;display:grid;grid-template-columns:repeat(4,1fr)}#photo-tabs button{min-width:0;padding-left:2px;padding-right:2px;font-size:12px;white-space:nowrap}
 #cut-tools{grid-template-columns:repeat(5,1fr);gap:4px}#cut-fix{grid-template-columns:repeat(2,1fr)}#cut-fix svg{width:24px;height:24px}
 .fade-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.fade-grid button{padding:6px 4px !important;font-size:12px}.fade-grid button.on{outline:2px solid var(--accent)}
 #cut-parts{display:flex;align-items:center;justify-content:space-between;gap:8px}
 #cut-adjust .cut-row{margin-top:8px}#cut-tools button{padding:6px 2px !important;line-height:1.15}#cut-tools svg{width:24px;height:24px}
 #cut-mode{margin:4px 0 2px}#cut-mode button{flex:1}
-#photo-cutout button.wide+button.wide,#cut-actions{margin-top:6px}#cut-done{margin-top:10px}
+#photo-cutout button.wide+button.wide,#cut-actions{margin-top:6px}#cut-done{margin-top:10px}#straight-actions{display:grid;gap:6px}#straight-done,#shape-done{margin-top:10px}#shape-tools{grid-template-columns:repeat(3,1fr)}
 #create-drawer label.check{justify-content:flex-start;gap:8px}
 .cut-row{display:flex;gap:6px}.cut-row button{flex:1}
 .effect-grid .effect-shadow{text-shadow:2px 2px 3px #0007}

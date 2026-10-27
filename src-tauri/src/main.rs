@@ -4,6 +4,8 @@
 #[allow(dead_code)] // copied whole; not every function is used yet
 mod creations;
 mod cutout;
+mod reshape;
+mod straighten;
 mod desktop;
 mod photocraft;
 mod photocraft_remove;
@@ -626,6 +628,49 @@ async fn cutout_picture(request: tauri::ipc::Request<'_>) -> Result<Response, St
 }
 
 /// Splits [w u32 LE][h u32 LE][RGBA] (plus `extra` bytes a pixel after it) into its parts.
+/// Straightens a Create picture: the body is retouch_picture's, and the four corners (top left, top
+/// right, bottom right, bottom left, as 0–1 places in the picture) travel as a percent-encoded JSON
+/// `corners` header. Returns the flat picture as width and height (LE u32s) then its RGBA.
+#[tauri::command]
+async fn straighten_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("straighten_picture needs the picture as its body".into());
+    };
+    let corners: [[f64; 2]; 4] = serde_json::from_str(&header(&request, "corners")?).map_err(|e| format!("bad corners: {e}"))?;
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ow, oh, px) = straighten::flatten(w, h, &rgba, corners)?;
+        let mut out = Vec::with_capacity(8 + px.len());
+        out.extend_from_slice(&(ow as u32).to_le_bytes());
+        out.extend_from_slice(&(oh as u32).to_le_bytes());
+        out.extend_from_slice(&px);
+        Ok(Response::new(out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Reshapes a Create picture: the body is [w][h][RGBA] then the displacement field as [gw][gh] (LE
+/// u32s) and gw × gh pairs of LE f32s. Returns the reshaped RGBA, the same size.
+#[tauri::command]
+async fn reshape_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("reshape_picture needs the picture as its body".into());
+    };
+    let size = |i: usize| body.get(i..i + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize);
+    let (Some(w), Some(h)) = (size(0), size(4)) else { return Err("no picture".into()) };
+    let end = w.checked_mul(h).and_then(|n| n.checked_mul(4)).and_then(|n| n.checked_add(8)).ok_or("the picture is too big")?;
+    let (Some(gw), Some(gh)) = (size(end), size(end + 4)) else { return Err("no reshape grid".into()) };
+    if gw.checked_mul(gh).and_then(|n| n.checked_mul(8)).and_then(|n| n.checked_add(end + 8)) != Some(body.len()) {
+        return Err(format!("the reshape grid is not {gw} × {gh}"));
+    }
+    let rgba = body[8..end].to_vec();
+    let d: Vec<f32> = body[end + 8..].as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+    tauri::async_runtime::spawn_blocking(move || reshape::warp(w, h, &rgba, &reshape::Field { gw, gh, d: &d }).map(Response::new))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 fn picture_body(body: &[u8], extra: usize) -> Result<(usize, usize, Vec<u8>), String> {
     if body.len() < 8 {
         return Err("no picture".into());
@@ -1006,7 +1051,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture,
+            cutout_picture, straighten_picture, reshape_picture,
             load_shoot,
             save_shoot,
             develop_source,

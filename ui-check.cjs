@@ -114,6 +114,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   // A 1×1 patch at the top left: x, y, width, height, then one pixel.
   if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
   if (command === 'spot_source') return [0.05, 0];
+  if (command === 'reshape_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([200, 40, 120, 255], i); return out.buffer; }
+  if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 120 * 90 * 4); new Uint32Array(b, 0, 2).set([120, 90]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
   if (command === 'select_picture') { const b = new ArrayBuffer(16 + 100 * 80); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); new Uint8Array(b, 16).fill(255); return b; }
   if (command === 'cutout_picture') { const b = new ArrayBuffer(16 + 100 * 80 * 4); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); const px = new Uint8Array(b, 16); for (let i = 0; i < px.length; i += 4) px.set([255, 0, 255, i < 400 ? 128 : 255], i); return b; }
@@ -1757,6 +1759,9 @@ const test = `<script>
     await until(() => filtered.kbFilter?.exposure === 1 && filtered.kbFilter?.look === 'bw', 'Brightness adds to the look');
     const brighterPx = await pixelOf(filtered.getSrc());
     step(brighterPx[1] > fadedPx[1] + 10, () => 'and brightens it: ' + brighterPx);
+    step(['highlights', 'shadows', 'sharpen', 'nrLuma'].every(k => $('#filter-adjust [data-adjust=' + k + ']')), 'Highlights, Shadows, Sharpen and Smooth grain are there too');
+    put($('#filter-adjust [data-adjust=sharpen]'), '60', 'change');
+    await until(() => filtered.kbFilter?.sharpen === 60 && filtered.kbFilter?.exposure === 1, 'Sharpen adds to the filter');
     await settle(flush(), 'filters save'); await settle(openDesign('Filters test'), 'filters reopen');
     const reopenedPic = board.getObjects()[0];
     step(reopenedPic.kbFilter?.look === 'bw' && reopenedPic.kbFilter.lookAmount === 40 && reopenedPic.kbOriginal === originalSrc, 'a filter and its original survive save and reopen');
@@ -2356,6 +2361,71 @@ const test = `<script>
       step(restored.kbName === 'Cat on the step' && [...$('#layers').children].some(r => r.textContent.startsWith('Cat on the step')), 'Rename names the layer');
       board.remove(restored); commitDesign();
     }
+    // Straighten: four corners dragged onto a tilted sheet, flattened by Rust, the flat picture where the sheet was.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillStyle = '#c95'; c.getContext('2d').fillRect(0, 0, 300, 200);
+      const pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/jpeg')), 'straighten'), 'a picture to straighten');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0, kbFilter: { exposure: 0.5 } }); pic.setCoords(); commitDesign(); selectObjects([pic]); paintPanel();
+      $('#prop-retouch').click(); $('#photo-tabs [data-photo-tab=straighten]').click();
+      step(photoTab === 'straighten' && seen('#photo-straighten') && !seen('#photo-cutout') && touchMode && straightTool.image === pic && seen('#straight-actions'), () => 'the Straighten tab takes the selected picture and shows its corners: ' + [photoTab, seen('#photo-straighten'), seen('#photo-cutout'), touchMode, straightTool.image === pic, !!straightTool.image, seen('#straight-actions'), drawer]);
+      const canvasRect = board.upperCanvasEl.getBoundingClientRect();
+      const screenAt = (x, y) => { const p = new fabric.Point(x, y).transform(board.viewportTransform); return { clientX: canvasRect.left + p.x, clientY: canvasRect.top + p.y }; };
+      const drag = (from, to) => {
+        board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { ...screenAt(...from), bubbles: true, button: 0, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt((from[0] + to[0]) / 2, (from[1] + to[1]) / 2), bubbles: true, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt(...to), bubbles: true, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { ...screenAt(...to), bubbles: true, button: 0 }));
+      };
+      const corner = i => fromPicture(pic, straightTool.corners[i]);
+      drag([corner(0).x, corner(0).y], [110, 105]);
+      step(Math.abs(straightTool.corners[0][0] - 10 / 300) < 0.02 && Math.abs(straightTool.corners[0][1] - 5 / 200) < 0.02 && !straightTool.drag, () => 'dragging a pink corner moves it: ' + straightTool.corners[0]);
+      const before = calls.length, dragged = straightTool.corners.map(c => c.slice());
+      $('#straight-go').click();
+      await until(() => !straightTool.busy && calls.slice(before).some(c => c.command === 'straighten_picture') && pic.width === 120, 'Straighten');
+      const sent = calls.slice(before).find(c => c.command === 'straighten_picture'), corners = JSON.parse(decodeURIComponent(sent.options.headers.corners));
+      step(sent.args.length === 8 + 300 * 200 * 4 && corners.length === 4 && JSON.stringify(corners) === JSON.stringify(dragged), 'Rust gets the original and the corners');
+      step(pic.width === 120 && pic.height === 90 && !pic.cropX && pic.kbFilter?.exposure === 0.5 && pic.kbOriginal, () => 'the picture becomes the flat one, filter kept: ' + [pic.width, pic.height, JSON.stringify(pic.kbFilter)]);
+      const mid = pic.getCenterPoint();
+      step(Math.abs(mid.x - (110 + 370 + 370 + 130) / 4) < 2 && Math.abs(mid.y - (105 + 120 + 280 + 280) / 4) < 2, () => 'it sits where the corners were: ' + [mid.x, mid.y]);
+      undoDesign(); await until(() => board.getObjects().find(o => o.kbName === "Photo straighten")?.width === 300, 'Undo puts the tilted picture back');
+      $('#straight-done').click();
+      step(drawer !== 'retouch' && !touchMode, 'Done puts Straighten away');
+      board.remove(board.getObjects().find(o => o.kbName === 'Photo straighten')); commitDesign();
+    }
+    // Reshape: Push drags the picture along, Grow and Shrink work while held; Rust warps the original once a stroke ends.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillStyle = '#7a9'; c.getContext('2d').fillRect(0, 0, 300, 200);
+      const pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/jpeg')), 'reshape'), 'a picture to reshape');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); pic.setCoords(); commitDesign(); selectObjects([pic]); paintPanel();
+      $('#prop-retouch').click(); $('#photo-tabs [data-photo-tab=reshape]').click();
+      step(photoTab === 'reshape' && seen('#photo-reshape') && !seen('#photo-straighten') && touchMode && shape.image === pic && $('#shape-tools').children.length === 3, 'the Reshape tab takes the selected picture, with Push, Grow and Shrink');
+      const canvasRect = board.upperCanvasEl.getBoundingClientRect();
+      const screenAt = (x, y) => { const p = new fabric.Point(x, y).transform(board.viewportTransform); return { clientX: canvasRect.left + p.x, clientY: canvasRect.top + p.y }; };
+      const down = (x, y) => board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { ...screenAt(x, y), bubbles: true, button: 0, buttons: 1 }));
+      const move = (x, y) => document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt(x, y), bubbles: true, buttons: 1 }));
+      const up = (x, y) => document.dispatchEvent(new MouseEvent('mouseup', { ...screenAt(x, y), bubbles: true, button: 0 }));
+      const reshapes = () => calls.filter(c => c.command === 'reshape_picture');
+      down(220, 200); move(235, 200); move(250, 200);
+      const f = shape.grid, mid = shapeAt(f, f.d, 145, 100), far = shapeAt(f, f.d, 10, 10);
+      step(shape.preview && mid[0] < -5 && Math.abs(mid[1]) < 1 && !far[0] && !far[1], () => 'Push makes the middle take its colour from behind the stroke, and leaves the rest alone: ' + mid + ' / ' + far);
+      let n = reshapes().length, src = pic.getSrc();
+      up(250, 200);
+      await until(() => reshapes().length === n + 1 && !shape.busy && pic.getSrc() !== src, 'a Push stroke');
+      const sent = reshapes().at(-1).args, sv = new DataView(sent.buffer, sent.byteOffset), gw = sv.getUint32(8 + 300 * 200 * 4, true), gh = sv.getUint32(12 + 300 * 200 * 4, true);
+      step(gw === 257 && gh === 172 && sent.length === 16 + 300 * 200 * 4 + gw * gh * 8 && !shape.grid && !shape.preview, () => 'Rust gets the original and the field: ' + [gw, gh, sent.length]);
+      step(pic.width === 300 && pic.kbOriginal === undefined, 'the reshaped picture takes the place of the old one');
+      $('#shape-tools [data-shape=grow]').click();
+      down(250, 200); await new Promise(r => setTimeout(r, 150));
+      const g = shapeAt(shape.grid, shape.grid.d, 150 + 20, 100);
+      step(shape.tool === 'grow' && g[0] < -0.5, () => 'Grow, held, pulls the colour in from nearer the middle: ' + g);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      n = reshapes().length; up(250, 200);
+      step(!shape.drag && !shape.grid && reshapes().length === n, 'Esc drops a stroke without reshaping');
+      undoDesign(); await until(() => board.getObjects().find(o => o.kbName === 'Photo reshape')?.getSrc() === src, 'Undo takes the Push back');
+      $('#shape-done').click();
+      step(drawer !== 'retouch' && !touchMode, 'Done puts Reshape away');
+      board.remove(board.getObjects().find(o => o.kbName === 'Photo reshape')); commitDesign();
+    }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
     { const titleBefore = design.title, c = document.createElement('canvas'); c.width = 1200; c.height = 900; c.getContext('2d').fillRect(0, 0, 1200, 900);
       await settle(editPhoto(new File([await new Promise(r => c.toBlob(r, 'image/jpeg'))], 'Beach day.jpg', { type: 'image/jpeg' })), 'Edit a photo opens it');
@@ -2469,8 +2539,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

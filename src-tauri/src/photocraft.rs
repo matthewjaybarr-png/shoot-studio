@@ -166,6 +166,7 @@ fn sor(w: usize, h: usize, unknown: &[bool], v: &mut [f32], max_iter: usize, ome
 }
 
 /// Reference solver for tests: plain Gauss–Seidel from a zero start until the update is below `tol`.
+#[cfg_attr(not(test), allow(dead_code))] // used by the tests
 pub fn solve_membrane_reference(w: usize, h: usize, unknown: &[bool], v: &mut [f32], tol: f32, max_iter: usize) {
     for (x, u) in v.iter_mut().zip(unknown) {
         if *u {
@@ -236,6 +237,7 @@ pub fn seamless_clone(w: usize, h: usize, ch: usize, src: &[f32], dst: &[f32], m
 }
 
 /// Membrane fill (no source texture): harmonic interpolation of the known pixels into `hole`.
+#[allow(dead_code)] // kept from upstream beside membrane_fill_with
 pub fn membrane_fill(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool]) -> Vec<f32> {
     per_channel(w, h, ch, |c| {
         let mut v: Vec<f32> = (0..w * h).map(|i| if hole[i] { 0.0 } else { img[i * ch + c] }).collect();

@@ -150,6 +150,8 @@ function startBoard() {
   if (typeof startViewTools === 'function') startViewTools();
   if (typeof startPhotoTools === 'function') startPhotoTools();
   if (typeof startCutTools === 'function') startCutTools();
+  if (typeof startStraightenTools === 'function') startStraightenTools();
+  if (typeof startReshapeTools === 'function') startReshapeTools();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
@@ -254,6 +256,8 @@ function drawPageOverlay() {
   if (typeof drawGuides === 'function') drawGuides(ctx);
   if (typeof drawTouch === 'function') drawTouch(ctx);
   if (typeof drawCut === 'function') drawCut(ctx);
+  if (typeof drawStraighten === 'function') drawStraighten(ctx);
+  if (typeof drawReshape === 'function') drawReshape(ctx);
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
@@ -1139,17 +1143,19 @@ async function developPicture(original, layers) {
 async function setPicture(image, changes) {
   const original = changes.original || image.kbOriginal || image.getSrc(), layers = {};
   for (const k of PICTURE_LAYERS) { const v = k in changes ? changes[k] : image[k]; layers[k] = v && !(Array.isArray(v) && !v.length) ? v : undefined; }
-  const plain = PICTURE_LAYERS.every(k => !layers[k]), keep = { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
+  // A new size (Straighten) shows the whole new picture, and `place` puts it where it belongs.
+  const plain = PICTURE_LAYERS.every(k => !layers[k]), keep = changes.resized ? { cropX: 0, cropY: 0 } : { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
   const src = plain ? original : await developPicture(original, layers);
   if (!board.getObjects().includes(image)) return false;
   await image.setSrc(src); image.set(keep); // same pixel size, so a crop stays put
   image.set({ kbOriginal: plain ? undefined : original, ...layers });
+  changes.place?.(image);
   image.setCoords(); board.requestRenderAll(); commitDesign();
   return true;
 }
 
 // ---- Filters: Develop's looks, her presets and a few adjustments, drawn by the same GPU code as Photos ----
-const ADJUST = [['exposure', 'Brightness', -2, 2, 0.05], ['contrast', 'Contrast', -100, 100, 1], ['saturation', 'Saturation', -100, 100, 1], ['temp', 'Warmth', -100, 100, 1], ['vignette', 'Vignette', -100, 100, 1]];
+const ADJUST = [['exposure', 'Brightness', -2, 2, 0.05], ['contrast', 'Contrast', -100, 100, 1], ['saturation', 'Saturation', -100, 100, 1], ['temp', 'Warmth', -100, 100, 1], ['highlights', 'Highlights', -100, 100, 1], ['shadows', 'Shadows', -100, 100, 1], ['sharpen', 'Sharpen', 0, 100, 1], ['nrLuma', 'Smooth grain', 0, 100, 1], ['vignette', 'Vignette', -100, 100, 1]];
 // 8-bit sRGB to linear light as half floats: the Developer's input, which it turns back into sRGB, so no filter means no change.
 const SRGB_HALF = (() => {
   const f = new Float32Array(1), u = new Uint32Array(f.buffer);
@@ -1476,7 +1482,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 19;
+const WHATS_NEW = 20;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1722,7 +1728,7 @@ document.addEventListener('keydown', event => {
   else if (key === '0') { event.preventDefault(); fitBoard(); }
   else if (key === ' ') { event.preventDefault(); setSpacePan(true); }
   else if (key === 'delete' || key === 'backspace') { event.preventDefault(); removeSelected(); }
-  else if (key === 'escape') board.discardActiveObject().requestRenderAll();
+  else if (key === 'escape') { board.discardActiveObject(); board.requestRenderAll(); paintPanel(); }
   else if (key.startsWith('arrow') && active && !board.getActiveObjects().some(o => o.kbLocked)) {
     event.preventDefault();
     const d = event.shiftKey ? 10 : 1;

@@ -126,7 +126,7 @@
           <p class="hint">Draw on the page with the mouse. Each stroke is its own item you can move, recolour or delete.</p>
         </section>
         <section data-panel="retouch" hidden>
-          <div id="photo-tabs" class="segmented" role="group" aria-label="Photo tools"><button type="button" data-photo-tab="retouch">Retouch</button><button type="button" data-photo-tab="cutout">Cut out</button></div>
+          <div id="photo-tabs" class="segmented" role="group" aria-label="Photo tools"><button type="button" data-photo-tab="retouch">Retouch</button><button type="button" data-photo-tab="cutout">Cut out</button><button type="button" data-photo-tab="straighten">Straighten</button><button type="button" data-photo-tab="reshape">Reshape</button></div>
           <div id="photo-retouch">
           <h3>Retouch a picture</h3>
           <div id="touch-tools" class="effect-grid" role="group" aria-label="Brushes"></div>
@@ -168,6 +168,23 @@
             <label>Fade length <output id="fade-size-out"></output><input id="fade-size" type="range" min="5" max="100" step="1"></label>
           </div>
           <button id="cut-done" type="button" class="wide">Done</button>
+          </div>
+          <div id="photo-straighten" hidden>
+          <h3>Straighten</h3>
+          <p class="hint" id="straight-hint"></p>
+          <div id="straight-actions" hidden>
+            <button id="straight-go" type="button" class="wide primary">Straighten</button>
+            <button id="straight-reset" type="button" class="wide">Put the corners back</button>
+          </div>
+          <button id="straight-done" type="button" class="wide">Done</button>
+          </div>
+          <div id="photo-reshape" hidden>
+          <h3>Reshape</h3>
+          <div id="shape-tools" class="effect-grid" role="group" aria-label="Reshape brushes"></div>
+          <label>Brush size <output id="shape-size-out"></output><input id="shape-size" type="range" min="10" max="240" step="1"></label>
+          <label>Strength <output id="shape-strength-out"></output><input id="shape-strength" type="range" min="5" max="100" step="1"></label>
+          <p class="hint" id="shape-hint"></p>
+          <button id="shape-done" type="button" class="wide">Done</button>
           </div>
         </section>
         <section data-panel="layers" hidden><h3>Layers</h3><p class="hint">Top of the list is in front.</p><ul id="layers"></ul></section>
@@ -308,11 +325,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Straighten</b> and <b>Reshape</b> in Edit photo: drag four corners onto a worksheet or poster photographed at an angle to flatten it, or push, grow and shrink parts of a picture. <b>Filters</b> has Highlights, Shadows, Sharpen and Smooth grain.</li>
         <li><b>Photo layers</b>: Cut out now hides instead of deleting, with <b>Erase</b> and <b>Bring back</b> brushes. <b>Adjust this part</b> brightens or warms just what you choose, <b>Fade</b> melts a picture into the page, and <b>Blend</b> (under Transparency) mixes it with what's underneath. <b>Layers</b> shows each picture and can rename it.</li>
         <li><b>✂ Cut out</b> on a picture: <b>Remove the background</b> in one click, or choose what to keep with the Smart brush, a box, the Magic wand, a lasso or a brush. Keep only that part, erase it, or <b>make a sticker</b> of it.</li>
         <li><b>Remove</b> things from any photo: <b>Edit a photo</b> on the start screen, or <b>✨ Retouch</b> on a picture in a design. Paint over what you want gone. Photos' heal, clone and skin brushes are there too.</li>
         <li><b>📏 Rulers</b> in the top bar: drag from a ruler to add a guide line things snap to. <b>▦ All pages</b> shows every page at once; drag one to move it.</li>
-        <li><b>Links</b> (🔗 in the toolbar) work in the downloaded PDF. <b>Find and replace</b> is in the File menu, which can now also <b>Open</b> your recent designs.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -383,5 +400,7 @@
   <script src="phototools.js"></script>
   <script src="photolayers.js"></script>
   <script src="cutout.js"></script>
+  <script src="straighten.js"></script>
+  <script src="reshape.js"></script>
 
 </body></html>
