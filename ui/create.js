@@ -364,7 +364,7 @@ async function open(doc, title, name) {
   design = { title, page: docPage(doc), size: docSize(doc), tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)), guides: typeof cleanGuides === 'function' ? cleanGuides(doc.guides) : undefined };
   diskName = name; dirty = false;
   designPages = docPages(doc); pageAt = 0;
-  await board.loadFromJSON(designPages[0]);
+  liveThumb = null; await board.loadFromJSON(designPages[0]);
   for (const o of board.getObjects()) applyLock(o);
   board.discardActiveObject();
   restoring = false;
@@ -472,7 +472,7 @@ async function stepHistory(by) {
   const doc = JSON.parse(history[to], (k, v) => SHARED_PICTURES.has(k) && v?.kbImage ? historyImages.get(v.kbImage) : v);
   design.page = docPage(doc); design.size = docSize(doc); design.tile = doc.tile; design.copies = doc.copies;
   designPages = docPages(doc); pageAt = Math.min(doc.at | 0, designPages.length - 1);
-  await board.loadFromJSON(designPages[pageAt]);
+  liveThumb = null; await board.loadFromJSON(designPages[pageAt]);
   for (const o of board.getObjects()) applyLock(o);
   restoring = false;
   here = to;
@@ -1471,7 +1471,7 @@ async function useTemplate(name, source) {
     restoring = true;
     try {
       designPages = docPages(doc); pageAt = 0;
-      await board.loadFromJSON(designPages[0]);
+      liveThumb = null; await board.loadFromJSON(designPages[0]);
       for (const o of board.getObjects()) applyLock(o);
       design.page = docPage(doc); design.size = docSize(doc);
       design.tile = doc.tile === 'sheet' && TILES[design.page] ? 'sheet' : 'single';
@@ -1530,7 +1530,7 @@ async function loadPage(i) {
   restoring = true;
   try {
     board.discardActiveObject();
-    await board.loadFromJSON(designPages[i]);
+    liveThumb = null; await board.loadFromJSON(designPages[i]);
     for (const o of board.getObjects()) applyLock(o);
   } finally { restoring = false; }
   pageAt = i; hovered = null;
@@ -1574,7 +1574,7 @@ $('#page-left').onclick = () => movePage(-1);
 $('#page-right').onclick = () => movePage(1);
 // Small pictures of the pages: the others are drawn once from their JSON, the one being edited shortly after each change.
 const pageThumbs = new WeakMap();
-let liveThumb = null, liveThumbTimer = null;
+let liveThumb = null, liveThumbTimer = null; // liveThumb is cleared whenever a page loads, so another design never shows the last one's
 const pageThumb = page => { if (!pageThumbs.has(page)) pageThumbs.set(page, drawThumb(design.size, c => c.loadFromJSON(page), 96).catch(() => '')); return pageThumbs.get(page); };
 function paintPagesSoon() { clearTimeout(liveThumbTimer); liveThumbTimer = setTimeout(() => { liveThumb = null; paintPages(); }, 700); }
 function paintPages() {

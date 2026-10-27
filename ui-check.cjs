@@ -1061,7 +1061,7 @@ const test = `<script>
       const opening = openDesign(title).then(() => { opened = true; });
       await tick(); step(!opened, 'opening waits for the other font requests after a rejection');
       releaseOthers(); await settle(opening, 'existing design opens with a failed unused font');
-      step(settledFonts === FONTS.length * 2 - 2 && !$('#create-font-warning').hidden && $('#create-font-warning').textContent.includes('text layout') && $('#create-font-warning').textContent.includes('restart KB Studio') && $('#create-font-warning').textContent.includes('reinstall'), 'font attempts all settle and fallback layout warning is visible');
+      step(settledFonts >= FONTS.length * 2 - 2 && /* the opened page's picture asks for them again */ !$('#create-font-warning').hidden && $('#create-font-warning').textContent.includes('text layout') && $('#create-font-warning').textContent.includes('restart KB Studio') && $('#create-font-warning').textContent.includes('reinstall'), () => 'font attempts all settle and fallback layout warning is visible: ' + settledFonts + ' of ' + (FONTS.length * 2 - 2));
       step(!dirty && count('save_creation') === savesBeforeOpen && disk['c:designs:' + title] === originalDisk, 'failed font loading alone neither dirties nor rewrites an opened design');
       const requestedText = board.getObjects().at(-1);
       selectObjects([requestedText]); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await flush();
@@ -1764,7 +1764,9 @@ const test = `<script>
     step(['highlights', 'shadows', 'sharpen', 'nrLuma'].every(k => $('#filter-adjust [data-adjust=' + k + ']')), 'Highlights, Shadows, Sharpen and Smooth grain are there too');
     put($('#filter-adjust [data-adjust=sharpen]'), '60', 'change');
     await until(() => filtered.kbFilter?.sharpen === 60 && filtered.kbFilter?.exposure === 1, 'Sharpen adds to the filter');
+    paintPages(); const thumbBefore = liveThumb;
     await settle(flush(), 'filters save'); await settle(openDesign('Filters test'), 'filters reopen');
+    step(liveThumb && liveThumb !== thumbBefore, 'opening a design draws its own page picture, not the last one');
     const reopenedPic = board.getObjects()[0];
     step(reopenedPic.kbFilter?.look === 'bw' && reopenedPic.kbFilter.lookAmount === 40 && reopenedPic.kbOriginal === originalSrc, 'a filter and its original survive save and reopen');
     selectObjects([reopenedPic]); $('#filters-open').click();
