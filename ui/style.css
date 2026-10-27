@@ -330,3 +330,6 @@ header,.create-bar{border-bottom-color:var(--pink)}
 .chart-row{display:grid;grid-template-columns:30px 1fr 74px 28px;gap:4px;align-items:center;margin-bottom:4px}
 #create .chart-row input{min-width:0;width:100%;padding:4px 6px;border:1px solid var(--edge);border-radius:6px;background:var(--deep);color:var(--text);font:inherit}
 #create .chart-row input[type=color]{height:28px;padding:1px}#create .chart-row button{padding:2px 0}
+#create .swatch.gradient{border:1px solid var(--edge)}
+.gradient-maker{display:flex;align-items:center;gap:6px;margin:6px 0}#grad-preview{flex:1;height:28px;border-radius:8px;border:1px solid var(--edge)}
+#create .gradient-maker input[type=color]{width:34px;height:30px;padding:1px}#create .gradient-maker button{padding:4px 8px}

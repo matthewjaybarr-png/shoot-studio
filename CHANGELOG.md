@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.23.0
+
+- Gradients in Colours: twelve ready-made ones (soft pinks, lavenders and blues among them) and a maker with two colours, a ⇄ swap and a direction (down, across, corner to corner or from the middle). They work on text, shapes and the page itself, and opening Colours on a gradient shows how it was made so it can be changed.
+- Set as background: a photo's toolbar (and its ⋯ menu) can make it fill the page behind everything, locked in place so it doesn't move while you work on top. Unlock it to move or resize it again.
+- See-through PNG: tick it under Download to leave out the page colour, for stickers, logos and anything you'll lay over something else.
+- Table and QR code in Elements fold away like the other sections.
+- The What's new card appears once more.
+
 ## 0.22.0
 
 - Charts in Elements: column, bar, line, pie and donut. Click one to add it, or drag it onto the page.

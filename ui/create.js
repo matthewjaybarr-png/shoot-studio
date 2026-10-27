@@ -989,6 +989,7 @@ function paintPanel() {
     $('#prop-fav').classList.toggle('on', text && settings.fonts.includes(o.fontFamily));
     if (typeof paintTextTools === 'function') paintTextTools(o);
   }
+  if (typeof paintGradient === 'function') paintGradient(o);
   paintLayers();
 }
 function hex(c) { return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : typeof c === 'string' && /^#[0-9a-f]{3}$/i.test(c) ? '#' + [...c.slice(1)].map(x => x + x).join('') : null; }
@@ -1293,7 +1294,8 @@ function openMenu(x, y) {
     item('Send backward', 'Ctrl+[', () => reorderSelected(-1), locked), item('Send to back', 'Ctrl+Shift+[', () => arrangeSelected('back'), locked), line(),
     item(locked ? 'Unlock' : 'Lock', '', toggleLock),
     ...(objects.length > 1 ? [item('Group', 'Ctrl+G', () => groupSelected(), locked)] : active.type === 'group' ? [item('Ungroup', 'Ctrl+Shift+G', () => groupSelected(true), locked)] : []),
-    item('Centre on the page', '', centreOnPage, locked)
+    item('Centre on the page', '', centreOnPage, locked),
+    ...(objects.length === 1 && active.type === 'image' && typeof setAsBackground === 'function' ? [item('Set as background', '', () => setAsBackground(active), locked)] : [])
   ] : [item('Paste', 'Ctrl+V', () => pasteSelected(), !designClipboard), item('Select all', 'Ctrl+A', selectAll, !board.getObjects().length)]));
   menu.hidden = false;
   const r = menu.getBoundingClientRect();
@@ -1379,7 +1381,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 11;
+const WHATS_NEW = 12;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1522,7 +1524,7 @@ function swatch(c) {
 }
 // The colours already in this design, from every page, most used first, as Canva's "Document colours".
 function documentColours() {
-  const counts = new Map(), add = c => { const h = hex(c); if (h) counts.set(h.toLowerCase(), (counts.get(h.toLowerCase()) || 0) + 1); };
+  const counts = new Map(), add = c => { if (c?.colorStops) return c.colorStops.forEach(s => add(s.color)); const h = hex(c); if (h) counts.set(h.toLowerCase(), (counts.get(h.toLowerCase()) || 0) + 1); };
   const walk = o => { add(o.fill); add(o.stroke); (o.objects || []).forEach(walk); };
   for (const page of allPages()) { add(page.background); (page.objects || []).forEach(walk); }
   return [...counts].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 18);
@@ -1582,7 +1584,7 @@ async function output(kind, open = false) {
     // A picture per page, numbered when there are several (an Instagram carousel, for one).
     const pages = allPages();
     let file;
-    for (const [i, page] of pages.entries()) file = await save(toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg', 0.92, page)), many ? `${design.title} page ${i + 1}` : design.title);
+    for (const [i, page] of pages.entries()) file = await save(toBytes(await render(pictureScale(), kind === 'png' ? 'png' : 'jpeg', 0.92, kind === 'png' && typeof seeThrough === 'function' ? seeThrough(page) : page)), many ? `${design.title} page ${i + 1}` : design.title);
     status.textContent = many ? `Saved ${pages.length} pictures in the Exports folder` : 'Saved ' + file;
   } catch (error) { status.textContent = 'Could not make it: ' + error; }
 }

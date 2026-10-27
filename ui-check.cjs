@@ -2022,7 +2022,35 @@ const test = `<script>
     closeMenus();
     dropItem(['chart', 'line'], new fabric.Point(400, 300));
     await until(() => board.getObjects().some(o => o.kbChart?.kind === 'line'), 'a chart can be dropped onto the page');
+    // Gradients, a photo as the background, and see-through PNGs.
+    selectObjects([square]); paintPanel(); $('#colours-open').click();
+    step($('#gradients').children.length === GRADIENTS.length && seen('#grad-apply'), 'Colours offers gradients');
+    $('#gradients').children[0].click();
+    step(square.fill?.colorStops?.length === 2 && square.fill.gradientUnits === 'percentage' && $('#prop-fill').value === GRADIENTS[0][0], () => 'a gradient fills the shape: ' + JSON.stringify(square.fill?.toObject?.()));
+    put($('#grad-dir'), 'round', 'input'); $('#grad-b').value = '#123456'; $('#grad-apply').click();
+    step(square.fill.type === 'radial' && gradientParts(square.fill).colours[1] === '#123456', 'the maker makes a gradient from the middle with chosen colours');
+    closeMenus(); board.discardActiveObject(); paintPanel(); $('#colours-open').click();
+    step($('#grad-dir').value === 'round', 'opening Colours again shows the gradient that is there');
+    $('#gradients').children[2].click();
+    step(board.backgroundColor?.colorStops && board.backgroundColor.gradientUnits === 'pixels' && documentColours().includes(GRADIENTS[2][0]), 'with nothing selected a gradient fills the page, and its colours join the design colours');
+    closeMenus();
+    const bgCanvas = Object.assign(document.createElement('canvas'), { width: 300, height: 200 }); bgCanvas.getContext('2d').fillRect(0, 0, 300, 200);
+    const photo = new fabric.FabricImage(bgCanvas, { left: 30, top: 30, scaleX: 0.3, scaleY: 0.3, angle: 10 }); board.add(photo); selectObjects([photo]); paintPanel();
+    step(seen('#prop-set-bg'), 'a photo shows Set as background');
+    openMenu(100, 100);
+    step([...$('#create-menu').children].some(b => b.textContent === 'Set as background'), 'and so does its ⋯ menu'); closeMenus();
+    $('#prop-set-bg').click();
+    const [pageW, pageH] = pagePx();
+    step(board.getObjects()[0] === photo && photo.kbLocked && photo.angle === 0 && photo.getScaledWidth() >= pageW - 0.5 && photo.getScaledHeight() >= pageH - 0.5 && Math.abs(photo.getCenterPoint().x - pageW / 2) < 0.5, () => 'the photo fills the page, at the back, locked: ' + [photo.getScaledWidth(), photo.getScaledHeight(), pageW, pageH]);
+    $('#create-transparent').checked = true;
+    const clear = await render(0.05, 'png', 0.92, seeThrough({ version: fabric.version, objects: [], background: '#ff0000' }));
+    const clearImg = await new Promise(done => { const i = new Image(); i.onload = () => done(i); i.src = clear; });
+    const clearCtx = Object.assign(document.createElement('canvas'), { width: clearImg.width, height: clearImg.height }).getContext('2d'); clearCtx.drawImage(clearImg, 0, 0);
+    step(clearCtx.getImageData(1, 1, 1, 1).data[3] === 0, 'a see-through PNG leaves out the page colour');
+    $('#create-transparent').checked = false;
+    step(seeThrough({ background: '#ff0000' }).background === '#ff0000', 'and an ordinary one keeps it');
     await settle(flush(), 'tools save'); await settle(openDesign(design.title), 'tools reopen');
+    step(board.backgroundColor?.colorStops && board.getObjects().some(o => o.fill?.type === 'radial') && board.getObjects()[0].kbName === 'Background photo', 'gradients and the background photo survive save and reopen');
     step(board.getObjects().some(o => o.kbChart?.kind === 'donut' && o.kbChart.title === 'Reading minutes' && o.kbChart.rows[0][1] === 20), 'a chart survives save and reopen');
     const reopenedWords = board.getObjects().find(o => o.type === 'textbox' && o.kbCurve);
     step(reopenedWords?.kbCurve === -40 && reopenedWords.text.includes('Music'), 'curved text survives save and reopen');
@@ -2046,8 +2074,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
