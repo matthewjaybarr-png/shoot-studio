@@ -67,6 +67,8 @@ async function moveMine(name, place) {
   const moved = { ...el, place };
   await writeMine(name, moved);
   myElements.set(name, moved); paintMine();
+  const fold = mineSection(place)?.closest('details');
+  if (fold) fold.open = true;
 }
 async function renameMine(name, wanted) {
   const el = myElements.get(name), next = wanted.trim() && wanted.trim() !== name ? freeName(wanted) : null;
@@ -87,7 +89,8 @@ function mineSection(place) {
   box.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Saved by you' }));
   grid = Object.assign(document.createElement('div'), { id: 'mine-in-' + place, className: 'mine-grid' });
   box.append(grid);
-  const after = host.querySelector(':scope > p.hint') || host.querySelector(':scope > summary, :scope > h3');
+  let after = host.querySelector(':scope > summary, :scope > h3');
+  while (after.nextElementSibling?.matches('p.hint')) after = after.nextElementSibling; // a hint right under the title stays with it
   after.after(box);
   return grid;
 }

@@ -2242,6 +2242,12 @@ const test = `<script>
     put(movePick, 'text', 'change');
     await until(() => $('#mine-in-text')?.children.length === 1 && shapeGrid.parentElement.hidden, 'Move puts it in the Text drawer');
     step($('#mine-in-text').closest('section').dataset.panel === 'text' && JSON.parse(disk['c:elements:' + shapeName]).place === 'text', 'and remembers it');
+    const graphicsFold = document.querySelector('details.fold[data-fold=graphics]'); graphicsFold.open = false;
+    $('#mine-in-text').querySelector('button.mine-move').click(); put($('#mine-in-text').querySelector('select'), 'graphics', 'change');
+    await until(() => $('#mine-in-graphics')?.children.length === 1, 'Move to Graphics');
+    step(graphicsFold.open && $('#mine-in-graphics').parentElement.previousElementSibling.tagName === 'SUMMARY', 'it shows at the top of Graphics, opened, not under the clip art credit');
+    $('#mine-in-graphics').querySelector('button.mine-move').click(); put($('#mine-in-graphics').querySelector('select'), 'text', 'change');
+    await until(() => $('#mine-in-text')?.children.length === 1, 'and back to Text');
     myElements.clear(); await settle(loadMine(), 'reload sorted elements');
     step($('#mine-in-text').children.length === 1 && $('#create-mine').children.length === 2, 'sections are kept when read back');
     await settle(removeMine(shapeName), 'tidy up'); put($('#mine-place'), 'mine', 'change');
