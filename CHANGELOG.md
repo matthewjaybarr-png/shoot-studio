@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.29.0
+
+- Cut out, in the Edit photo drawer (the rail's Retouch button is now Edit photo, with Retouch and Cut out inside), or ✂ Cut out when a picture is selected.
+- Remove the background: one click finds the main thing in the picture and makes everything else see-through.
+- Or choose what to keep yourself: the Smart brush grows out to the edges of what you paint over, Box finds the thing inside a box you drag, the Magic wand takes everything of the clicked colour around it (Colour match sets how alike), Lasso takes what you draw around, and Brush paints exactly. Add to it and Take away work with all of them; Step back and Start again undo choices.
+- What isn't chosen is dimmed, with a pink line along the edge.
+- Keep only this makes the rest see-through, Erase this part makes the chosen part see-through, and Make a sticker of it adds a new picture of just that part (with a white outline unless you untick it) on top, ready to drag or save to My elements. Soft edges lets an edge follow hair and other soft detail, and colour from the old background is taken out of the edge. Each is one Undo.
+- The What's new card appears once more.
+
 ## 0.28.0
 
 - Edit a photo, on the start screen: pick a photo and it opens as a page exactly its size, ready to retouch. Download & print gives it back at the photo's own size.

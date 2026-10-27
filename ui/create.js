@@ -148,6 +148,7 @@ function startBoard() {
   if (typeof startTables === 'function') startTables();
   if (typeof startViewTools === 'function') startViewTools();
   if (typeof startPhotoTools === 'function') startPhotoTools();
+  if (typeof startCutTools === 'function') startCutTools();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
@@ -251,6 +252,7 @@ function drawPageOverlay() {
   }
   if (typeof drawGuides === 'function') drawGuides(ctx);
   if (typeof drawTouch === 'function') drawTouch(ctx);
+  if (typeof drawCut === 'function') drawCut(ctx);
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
@@ -1424,7 +1426,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 17;
+const WHATS_NEW = 18;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

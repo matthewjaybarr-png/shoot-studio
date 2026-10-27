@@ -115,6 +115,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
   if (command === 'spot_source') return [0.05, 0];
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
+  if (command === 'select_picture') { const b = new ArrayBuffer(16 + 100 * 80); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); new Uint8Array(b, 16).fill(255); return b; }
+  if (command === 'cutout_picture') { const b = new ArrayBuffer(16 + 100 * 80 * 4); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); const px = new Uint8Array(b, 16); for (let i = 0; i < px.length; i += 4) px.set([255, 0, 255, 255], i); return b; }
   if (command === 'retouch_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255]); return b; }
   if (command === 'export_source') return rawImage(...exportSize, 0.18);
   if (command === 'save_export') {
@@ -2215,6 +2217,93 @@ const test = `<script>
       await until(() => !adding.size, 'retouching finishes');
       board.remove(board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo retouch')); commitDesign();
     }
+    // Cut out: choose part of a picture with each tool, then keep it, erase it or make a sticker of it.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillStyle = '#58c'; c.getContext('2d').fillRect(0, 0, 300, 200);
+      const pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/jpeg')), 'cutout'), 'a picture to cut out');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); pic.setCoords(); commitDesign(); selectObjects([pic]); paintPanel();
+      step(seen('#prop-cutout'), 'a picture shows a Cut out button');
+      $('#prop-cutout').click();
+      await until(() => cut.image === pic && cut.w === 300 && cut.h === 200, 'Cut out takes the selected picture');
+      step(drawer === 'retouch' && photoTab === 'cutout' && touchMode && seen('#photo-cutout') && !seen('#photo-retouch') && $('#cut-tools').children.length === 5, 'it opens the Edit photo drawer on Cut out, with five ways to choose, and the page paints');
+      step(!seen('#cut-actions') && seen('#cut-size-row') && !seen('#cut-tolerance-row'), 'nothing to do until something is chosen; the Smart brush shows its size');
+      const canvasRect = board.upperCanvasEl.getBoundingClientRect();
+      const screenAt = (x, y) => { const p = new fabric.Point(x, y).transform(board.viewportTransform); return { clientX: canvasRect.left + p.x, clientY: canvasRect.top + p.y }; };
+      const paint = points => {
+        board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { ...screenAt(...points[0]), bubbles: true, button: 0, buttons: 1 }));
+        for (const p of points.slice(1)) document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt(...p), bubbles: true, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { ...screenAt(...points.at(-1)), bubbles: true, button: 0 }));
+      };
+      const picks = () => calls.filter(c => c.command === 'select_picture'), lastPick = () => JSON.parse(decodeURIComponent(picks().at(-1).options.headers.pick));
+      const at = (x, y) => cut.mask[y * 300 + x];
+      let n = picks().length;
+      paint([[150, 150], [200, 150], [250, 160]]);
+      await until(() => picks().length === n + 1 && cut.any, 'a Smart brush stroke');
+      const smart = lastPick();
+      step(smart.kind === 'smart' && smart.points.length >= 2 && Math.abs(smart.size - Math.min(0.5, cut.px / board.getZoom() / 300)) < 0.002, () => 'Rust gets the stroke, its brush sized on screen: ' + JSON.stringify(smart));
+      step(picks().at(-1).args.length === 8 + 300 * 200 * 4 && at(60, 50) === 255 && at(0, 0) === 0, 'with the picture, and what it finds becomes the choice');
+      step(seen('#cut-actions') && !$('#cut-back').disabled && cut.view?.width === 300, 'now Keep, Erase, Sticker and Step back show, and the rest is dimmed');
+      $('#cut-mode [data-cut-mode=take]').click(); $('#cut-tools [data-cut=brush]').click();
+      step(cut.take && cut.tool === 'brush', 'Take away and the Brush can be picked');
+      paint([[160, 160]]);
+      step(at(60, 60) === 0 && at(140, 110) === 255, 'a brush click takes away just around it');
+      $('#cut-back').click();
+      step(at(60, 60) === 255, 'Step back undoes the last choice');
+      $('#cut-clear').click();
+      step(!cut.any && !seen('#cut-actions'), 'Start again clears it');
+      $('#cut-mode [data-cut-mode=add]').click(); $('#cut-tools [data-cut=lasso]').click();
+      paint([[110, 110], [190, 110], [190, 170], [110, 170]]);
+      step(at(50, 40) === 255 && at(5, 5) === 0 && at(95, 40) === 0 && at(50, 75) === 0, 'a lasso chooses what it goes around');
+      $('#cut-tools [data-cut=box]').click(); n = picks().length;
+      paint([[120, 120], [170, 140], [220, 200]]);
+      await until(() => picks().length === n + 1, 'a box');
+      const box = lastPick();
+      step(box.kind === 'box' && Math.abs(box.rect[0] - 20 / 300) < 0.01 && Math.abs(box.rect[3] - 0.5) < 0.01, () => 'the box goes to Rust: ' + JSON.stringify(box));
+      $('#cut-tools [data-cut=wand]').click();
+      step(seen('#cut-tolerance-row') && !seen('#cut-size-row'), 'the Magic wand shows Colour match instead of a size');
+      n = picks().length; paint([[150, 150]]);
+      await until(() => picks().length === n + 1, 'a wand click');
+      const wand = lastPick();
+      step(wand.kind === 'wand' && Math.abs(wand.at[0] - 50 / 300) < 0.01 && wand.tolerance === cut.tolerance, () => 'the wand picks the clicked colour: ' + JSON.stringify(wand));
+      // Keep only this: the rest becomes see-through, as one undo step.
+      const undoBefore = history[here], srcBefore = pic.getSrc();
+      $('#cut-keep').click();
+      await until(() => pic.getSrc() !== srcBefore && history[here] !== undoBefore && !adding.size, 'Keep only this, as one undo step');
+      const kept = calls.filter(c => c.command === 'cutout_picture').at(-1);
+      step(JSON.parse(decodeURIComponent(kept.options.headers.finish)).soft === cut.soft && kept.args.length === 8 + 300 * 200 * 5, 'Rust gets the picture, the choice and the soft edge');
+      const pixel = await new Promise(r => { const i = new Image(); i.onload = () => { const k = document.createElement('canvas'); k.width = i.width; k.height = i.height; const g = k.getContext('2d'); g.drawImage(i, 0, 0); r([...g.getImageData(60, 50, 1, 1).data, ...g.getImageData(5, 5, 1, 1).data, i.width]); }; i.src = pic.getSrc(); });
+      step(pixel[0] === 255 && pixel[1] === 0 && pixel[3] === 255 && pixel[7] === 0 && pixel[8] === 300 && pic.getSrc().startsWith('data:image/png'), () => 'what was kept shows and the rest is see-through: ' + pixel);
+      step(cut.image === pic && !cut.any, 'the choice is cleared, ready for more');
+      $('#create-undo').click();
+      await until(() => board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo cutout')?.getSrc() === srcBefore, 'Undo brings the background back');
+      const restored = board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo cutout');
+      // A sticker: a new picture of just the chosen part, with a white outline, placed over it and selected.
+      paintCut();
+      step(!cut.image && $('#cut-hint').textContent.includes('Click the picture'), 'after Undo it asks for the picture again');
+      $('#cut-tools [data-cut=smart]').click();
+      paint([[150, 150]]);
+      await until(() => cut.image === restored, 'clicking a picture chooses it');
+      n = picks().length; paint([[150, 150], [200, 160]]);
+      await until(() => picks().length === n + 1 && cut.any, 'a choice to make a sticker of');
+      const objectsBefore = board.getObjects().length;
+      $('#cut-sticker').click();
+      await until(() => board.getObjects().length === objectsBefore + 1 && !adding.size, 'Make a sticker');
+      const sticker = board.getObjects().at(-1), mid = sticker.getCenterPoint();
+      step(sticker.kbName === 'Sticker' && sticker.width === 106 && sticker.height === 86 && Math.abs(mid.x - 200) < 1 && Math.abs(mid.y - 180) < 1, () => 'the sticker has an outline and sits over the part it came from: ' + [sticker.width, sticker.height, mid.x, mid.y]);
+      step(board.getActiveObject() === sticker && drawer !== 'retouch' && !touchMode && board.selection, 'it is selected, ready to drag, and Cut out is put away');
+      // Remove the background in one click on a page with one picture.
+      board.remove(sticker); commitDesign();
+      photoTab = 'cutout'; showDrawer('retouch');
+      for (const o of board.getObjects().filter(o => o.type === 'image' && o !== restored)) o.visible = false;
+      const autoBefore = restored.getSrc(); n = picks().length;
+      $('#cut-auto').click();
+      await until(() => restored.getSrc() !== autoBefore && !adding.size, 'Remove the background');
+      step(lastPick().kind === 'subject' && picks().length === n + 1, 'it finds the subject and keeps only that');
+      for (const o of board.getObjects()) o.visible = true;
+      $('#cut-done').click();
+      step(drawer !== 'retouch' && photoTab === 'retouch' && !touchMode, 'Done puts Cut out away');
+      board.remove(restored); commitDesign();
+    }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
     { const titleBefore = design.title, c = document.createElement('canvas'); c.width = 1200; c.height = 900; c.getContext('2d').fillRect(0, 0, 1200, 900);
       await settle(editPhoto(new File([await new Promise(r => c.toBlob(r, 'image/jpeg'))], 'Beach day.jpg', { type: 'image/jpeg' })), 'Edit a photo opens it');
@@ -2328,8 +2417,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="cutout.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('cutout.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

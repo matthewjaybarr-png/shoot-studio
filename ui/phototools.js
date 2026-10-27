@@ -1,6 +1,7 @@
 // Retouch in Create: Photos' brushes, and Remove, painted onto any picture on the page and worked out by the same
 // Rust code as Develop. Each stroke changes the picture's pixels; Undo takes it back. Edit a photo on the start
-// screen opens a page that is just the photo. Needs create.js, and develop.js and app.js for the stroke rules.
+// screen opens a page that is just the photo. The Edit photo drawer also holds Cut out (cutout.js). Needs create.js,
+// and develop.js and app.js for the stroke rules.
 
 // ---- The brushes ----
 // Each with a line icon in the rail's style (24 × 24 paths).
@@ -30,7 +31,9 @@ const touch = { tool: null, px: 20, strengths: { soften: 0.5, dodge: 0.25, burn:
 let touchQueue = Promise.resolve();
 const touchStrength = t => touch.strengths[t] ?? 1;
 const touchSay = text => { $('#create-saved').textContent = text; };
-const brushing = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && !!touch.tool && !cropSession;
+let photoTab = 'retouch'; // which half of the Edit photo drawer shows: retouch or cutout
+const brushing = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'retouch' && !!touch.tool && !cropSession;
+const cuttingOut = () => typeof cutting === 'function' && cutting();
 
 // A picture's own pixels for a point on the page (0–1 across and down), and back again.
 const naturalSize = image => { const el = image.getElement(); return [el.naturalWidth || el.width, el.naturalHeight || el.height]; };
@@ -88,6 +91,9 @@ function pickTouchTool(name) {
   paintTouch();
 }
 function paintTouch() {
+  for (const b of document.querySelectorAll('#photo-tabs [data-photo-tab]')) { b.classList.toggle('on', b.dataset.photoTab === photoTab); b.setAttribute('aria-pressed', b.dataset.photoTab === photoTab); }
+  $('#photo-retouch').hidden = photoTab !== 'retouch'; $('#photo-cutout').hidden = photoTab !== 'cutout';
+  if (photoTab === 'cutout' && typeof paintCut === 'function') paintCut();
   const tools = $('#touch-tools');
   if (!tools.children.length) tools.append(...PHOTO_TOOLS.map(([key, label, icon]) => {
     const b = button('', () => pickTouchTool(key)); b.dataset.touch = key; b.title = label;
@@ -104,15 +110,16 @@ function paintTouch() {
   $('#touch-source').classList.toggle('on', touch.picking);
   $('#touch-source').textContent = touch.picking ? 'Now click where to copy from…' : touch.source ? 'Pick a different place to copy from' : 'Pick where to copy from';
   $('#touch-hint').textContent = touch.tool ? TOUCH_HINTS[touch.tool] : 'Pick a brush, then paint on any picture on the page.';
-  setTouchMode(brushing());
+  setTouchMode(brushing() || cuttingOut());
 }
+for (const b of document.querySelectorAll('#photo-tabs [data-photo-tab]')) b.onclick = () => { photoTab = b.dataset.photoTab; paintTouch(); board?.requestRenderAll(); };
 $('#touch-size').oninput = e => { touch.px = +e.target.value; paintTouch(); board?.requestRenderAll(); };
 $('#touch-strength').oninput = e => { if (touch.tool && touch.tool !== 'remove') touch.strengths[touch.tool] = +e.target.value / 100; paintTouch(); };
 $('#touch-source').onclick = () => { touch.picking = !touch.picking; paintTouch(); };
 $('#touch-done').onclick = () => { touch.tool = null; touch.picking = false; showDrawer('retouch'); };
 $('#prop-retouch').onclick = () => {
   const image = board.getActiveObject();
-  touch.tool ||= 'remove';
+  touch.tool ||= 'remove'; photoTab = 'retouch';
   if (drawer !== 'retouch') showDrawer('retouch'); else paintTouch();
   if (image?.type === 'image') touchSay('Paint on the picture with the brush.');
 };
@@ -240,7 +247,7 @@ function editPhoto(file) {
     const image = await fabric.FabricImage.fromURL(url), [w] = pagePx();
     image.set({ left: 0, top: 0, scaleX: w / image.width, scaleY: w / image.width, kbName: 'Photo ' + name });
     board.add(image); image.setCoords(); remember(); schedule();
-    touch.tool = 'remove'; touch.source = null;
+    touch.tool = 'remove'; touch.source = null; photoTab = 'retouch';
     if (drawer !== 'retouch') showDrawer('retouch'); else paintTouch();
     touchSay('Paint over anything you want gone, or pick another brush.');
   });

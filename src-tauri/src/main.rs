@@ -3,9 +3,11 @@
 // The one network call is the update check, made here in Rust; the webview stays offline.
 #[allow(dead_code)] // copied whole; not every function is used yet
 mod creations;
+mod cutout;
 mod desktop;
 mod photocraft;
 mod photocraft_remove;
+mod photocraft_select;
 mod pptx;
 mod retouch;
 
@@ -565,6 +567,77 @@ async fn retouch_picture(request: tauri::ipc::Request<'_>) -> Result<Response, S
     .map_err(|e| e.to_string())?
 }
 
+/// Chooses part of a Create picture for Cut out. Same body as retouch_picture; what to choose
+/// travels as a percent-encoded JSON `pick` header. Returns the chosen rectangle (x, y, w, h as LE
+/// u32s, all zero when nothing was found) then that rectangle's coverage, one byte a pixel.
+#[tauri::command]
+async fn select_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("select_picture needs the picture as its body".into());
+    };
+    let pick: cutout::Pick = serde_json::from_str(&header(&request, "pick")?).map_err(|e| format!("bad pick: {e}"))?;
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::new();
+        match cutout::select(w, h, &rgba, &pick)? {
+            Some(r) => {
+                for v in [r.bbox.x0, r.bbox.y0, r.bbox.width() as i32, r.bbox.height() as i32] {
+                    out.extend_from_slice(&(v as u32).to_le_bytes());
+                }
+                out.extend_from_slice(&r.mask);
+            }
+            None => out.resize(16, 0),
+        }
+        Ok(Response::new(out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Keeps the chosen part of a Create picture. The body is retouch_picture's followed by the
+/// selection (w × h bytes); the edge finish travels as a percent-encoded JSON `finish` header.
+/// Returns the rectangle that still shows (all zero when nothing does) then its RGBA.
+#[tauri::command]
+async fn cutout_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("cutout_picture needs the picture as its body".into());
+    };
+    let finish: cutout::Finish = serde_json::from_str(&header(&request, "finish")?).map_err(|e| format!("bad finish: {e}"))?;
+    let (w, h, mut rgba) = picture_body(body, 1)?;
+    let mask = rgba.split_off(w * h * 4);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::new();
+        match cutout::keep(w, h, &mut rgba, &mask, &finish)? {
+            Some(r) => {
+                let (x, y, rw, rh) = (r.x0 as usize, r.y0 as usize, r.width() as usize, r.height() as usize);
+                for v in [x, y, rw, rh] {
+                    out.extend_from_slice(&(v as u32).to_le_bytes());
+                }
+                for yy in y..y + rh {
+                    out.extend_from_slice(&rgba[(yy * w + x) * 4..(yy * w + x + rw) * 4]);
+                }
+            }
+            None => out.resize(16, 0),
+        }
+        Ok(Response::new(out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Splits [w u32 LE][h u32 LE][RGBA] (plus `extra` bytes a pixel after it) into its parts.
+fn picture_body(body: &[u8], extra: usize) -> Result<(usize, usize, Vec<u8>), String> {
+    if body.len() < 8 {
+        return Err("no picture".into());
+    }
+    let size = |i: usize| u32::from_le_bytes(body[i..i + 4].try_into().unwrap()) as usize;
+    let (w, h) = (size(0), size(4));
+    if w.checked_mul(h).and_then(|n| n.checked_mul(4 + extra)) != Some(body.len() - 8) {
+        return Err(format!("the picture is not {w} × {h}"));
+    }
+    Ok((w, h, body[8..].to_vec()))
+}
+
 /// Undo JavaScript's encodeURIComponent.
 fn percent_decode(s: &str) -> Option<String> {
     let (bytes, mut out, mut i) = (s.as_bytes(), Vec::with_capacity(s.len()), 0);
@@ -932,6 +1005,8 @@ fn main() {
             thumb,
             save_thumb,
             retouch_picture,
+            select_picture,
+            cutout_picture,
             load_shoot,
             save_shoot,
             develop_source,
