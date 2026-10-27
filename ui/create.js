@@ -59,7 +59,7 @@ const PASTEBOARD = '#ede5f2';
 let design = null;                                     // { title, page, size (inches), tile, copies }
 let designPages = [], pageAt = 0;                      // every page's canvas JSON; the one being edited lives on the board instead
 let designFonts = [];                                  // fonts that came inside an imported design: [{ family, src }], saved with it
-let settings = { colours: [], fonts: [], seen: 0, closed: ['frames', 'grids', 'graphics'], projects: { folders: [], placed: Object.create(null), trash: Object.create(null) } };
+let settings = { colours: [], fonts: [], seen: 0, rulers: false, closed: ['frames', 'grids', 'graphics'], projects: { folders: [], placed: Object.create(null), trash: Object.create(null) } };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => design.size.map(v => Math.round(v * PX));
@@ -146,6 +146,7 @@ function startBoard() {
   for (const e of ['object:modified', 'text:editing:exited']) board.on(e, commitDesign);
   if (typeof startTextTools === 'function') startTextTools();
   if (typeof startTables === 'function') startTables();
+  if (typeof startViewTools === 'function') startViewTools();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
@@ -219,7 +220,7 @@ function snapPage({ target: o }) {
   const [w, h] = pagePx(), r = o.getBoundingRect(), tolerance = 4 / board.getZoom();
   for (const [axis, start, span, size, prop] of [['x', r.left, r.width, w, 'left'], ['y', r.top, r.height, h, 'top']]) {
     let best = tolerance + 1, delta = 0, line;
-    for (const v of [0, size / 2, size]) for (const point of [start, start + span / 2, start + span]) {
+    for (const v of [0, size / 2, size, ...(typeof guideStops === 'function' ? guideStops(axis) : [])]) for (const point of [start, start + span / 2, start + span]) {
       if (Math.abs(v - point) < best) { best = Math.abs(v - point); delta = v - point; line = v; }
     }
     if (best <= tolerance) { o.set(prop, o[prop] + delta); pageGuides.push([axis, line]); }
@@ -247,6 +248,7 @@ function drawPageOverlay() {
     dropHover.getCoords().forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
     ctx.lineWidth = 1 / board.getZoom();
   }
+  if (typeof drawGuides === 'function') drawGuides(ctx);
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
@@ -315,7 +317,7 @@ function fitBoard() {
 const pageJSON = i => i === pageAt ? board.toObject(KEEP) : designPages[i];
 const allPages = () => designPages.map((_, i) => pageJSON(i));
 function blob() {
-  const list = allPages(), base = { page: design.page, tile: design.tile, copies: design.copies };
+  const list = allPages(), base = { page: design.page, tile: design.tile, copies: design.copies, guides: design.guides?.x.length || design.guides?.y.length ? design.guides : undefined };
   const fonts = designFonts.length ? designFonts : undefined; // older versions ignore them and show a bundled font
   return list.length === 1 && design.page !== 'custom' ? { format: 1, ...base, fonts, canvas: list[0] } : { format: 2, ...base, fonts, size: design.page === 'custom' ? design.size : undefined, pages: list };
 }
@@ -349,7 +351,7 @@ async function open(doc, title, name) {
   designFonts = await addDesignFonts(doc.fonts);
   await fonts().catch(() => {}); // Editing can use fallback fonts; output remains strict.
   restoring = true;
-  design = { title, page: docPage(doc), size: docSize(doc), tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)) };
+  design = { title, page: docPage(doc), size: docSize(doc), tile: doc.tile === 'sheet' ? 'sheet' : 'single', copies: Math.min(20, Math.max(1, doc.copies | 0 || 1)), guides: typeof cleanGuides === 'function' ? cleanGuides(doc.guides) : undefined };
   diskName = name; dirty = false;
   designPages = docPages(doc); pageAt = 0;
   await board.loadFromJSON(designPages[0]);
@@ -1418,7 +1420,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 15;
+const WHATS_NEW = 16;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1536,7 +1538,7 @@ function paintBw() { $('#create-stage').classList.toggle('bw', $('#create-bw').c
 
 async function loadSettings() {
   const s = await invoke('load_create_settings').catch(() => null);
-  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects) };
+  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, rulers: s.rulers === true, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects) };
   paintWhatsNew();
   if (typeof paintFolds === 'function') paintFolds();
 }

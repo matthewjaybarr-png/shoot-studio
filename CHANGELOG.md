@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.0
+
+- 📏 Rulers in the top bar shows rulers along the top and left of the page: inches (with eighths) for print sizes, pixels for social posts. Your choice is remembered.
+- Guide lines: drag from a ruler onto the page to add one. Things you move snap to them, as they do to the page's edges and middle. Drag a guide's pink mark on the ruler to move it, or off the page to remove it; Clear guides removes them all. Guides are saved with the design and never print.
+- ▦ All pages, next to the page strip, shows every page at once: click one to go to it, or drag one to a new place. Done or Esc goes back.
+- The What's new card appears once more.
+
 ## 0.26.0
 
 - Links: 🔗 Link in the toolbar makes any text, picture or shape open a web page or an email from the downloaded PDF. Type www.example.com or name@school.org; anything that isn't a link is refused with a reason.

@@ -39,7 +39,7 @@
       <button id="create-undo" type="button" title="Undo (Ctrl+Z)" >↶ Undo</button><button id="create-redo" type="button" title="Redo (Ctrl+Y)" >↷ Redo</button>
       <button type="button" data-pop="pop-resize">Resize</button>
       <span id="create-saved" role="status"></span>
-      <span class="zoom"><button id="create-zoom-out" type="button" aria-label="Zoom out">−</button><output id="create-zoom">100%</output><button id="create-zoom-in" type="button" aria-label="Zoom in">+</button><button id="create-fit" type="button">Fit</button></span>
+      <span class="zoom"><button id="create-zoom-out" type="button" aria-label="Zoom out">−</button><output id="create-zoom">100%</output><button id="create-zoom-in" type="button" aria-label="Zoom in">+</button><button id="create-fit" type="button">Fit</button><button id="create-rulers" type="button" title="Show rulers; drag from one onto the page for a guide line">📏 Rulers</button><button id="create-guides-clear" type="button" hidden>Clear guides</button></span>
       <button type="button" class="primary" data-pop="pop-share">Download &amp; print</button>
     </div>
     <div id="create-context" role="toolbar" aria-label="Change the selection">
@@ -130,6 +130,7 @@
           <div id="page-list"></div>
           <button id="page-add" type="button" title="Add a blank page after this one">+ Add page</button>
           <span class="page-tools">
+            <button id="page-grid-open" type="button" title="See every page at once">▦ All pages</button>
             <output id="page-count"></output>
             <button id="page-left" type="button" title="Move this page earlier" aria-label="Move page earlier">◀</button>
             <button id="page-right" type="button" title="Move this page later" aria-label="Move page later">▶</button>
@@ -224,6 +225,10 @@
       <div class="grid2"><button id="table-select" type="button">Select the whole table</button><button id="table-delete" type="button">Delete the table</button></div>
     </div>
     <div id="pop-more" class="pop" hidden></div>
+    <div id="page-grid" role="dialog" aria-labelledby="page-grid-title" hidden>
+      <div class="page-grid-head"><h3 id="page-grid-title">All pages</h3><span id="page-grid-count" class="hint"></span><span class="hint">Click a page to go to it, or drag it to a new place.</span><button id="page-grid-close" type="button" class="primary">Done</button></div>
+      <div id="page-grid-list"></div>
+    </div>
     <div id="pop-link" class="pop" hidden>
       <form id="link-form"><label>Link <input id="link-url" type="text" placeholder="www.example.com or name@school.org" spellcheck="false"></label>
       <div class="row"><button type="submit" class="primary">Use this link</button><button id="link-remove" type="button">Remove link</button></div></form>
@@ -255,11 +260,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>📏 Rulers</b> in the top bar: drag from a ruler to add a guide line things snap to. <b>▦ All pages</b> shows every page at once; drag one to move it.</li>
         <li><b>Links</b> (🔗 in the toolbar) work in the downloaded PDF. <b>Find and replace</b> is in the File menu, which can now also <b>Open</b> your recent designs.</li>
         <li><b>My elements</b>: select anything on the page, even pieces of a Canva design, and save it to the top of Elements to use again in any design.</li>
         <li><b>Tables</b> you can change: click a cell, then <b>Table</b> to add or remove rows and columns, colour a cell or change the borders. Rows grow to fit what you type.</li>
         <li><b>Gradients</b> in Colours, for words, shapes and the page. A photo's <b>Set as background</b> fills the page with it. PNGs can be <b>see-through</b>.</li>
-        <li>Text can <b>curve</b> (Effects), become a bulleted or numbered <b>list</b>, go to capitals or get a strikethrough. <b>Copy style</b> paints one thing's look onto another.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -326,5 +331,6 @@
   <script src="tables.js"></script>
   <script src="myelements.js"></script>
   <script src="doctools.js"></script>
+  <script src="viewtools.js"></script>
 
 </body></html>

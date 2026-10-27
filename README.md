@@ -87,6 +87,7 @@ The start screen offers Create next to Photos: a small Canva-style maker for pos
 - **Tables** keep working after they're added: rows and columns added or taken away, cell colours, borders, and rows that grow with their words (Canva tables too).
 - **My elements**: save anything from a page (including pieces of Canva designs) to the Elements drawer and use it again in any design.
 - **Links** that work in the downloaded PDF, and **Find and replace** across every page.
+- **Rulers** and **guide lines** to line things up (drag a guide out of a ruler), and **All pages**, a grid of every page to find one or drag it to a new place.
 - Text can curve (Effects → Curve), become a bulleted or numbered list, switch to capitals or get a strikethrough. **Copy style** paints one thing's look onto another, and Position takes an exact size and rotation.
 - **Filters** on a selected picture offers the looks from Photos and your Develop presets as previews, with a strength slider and Brightness, Contrast, Saturation, Warmth and Vignette. The original is kept, so filters can be changed or removed later.
 - Click something on the page and its options appear along the top: font, size − / +, colour, bold, alignment, spacing, border, corners, crop, frame, flip, effects, transparency and Position (arrange, align, equal gaps). With nothing selected it offers the background colour. A small toolbar above the selection duplicates, locks and deletes; ⋯ or a right-click opens a menu with copy, paste, layer order, lock, group and centre on the page.

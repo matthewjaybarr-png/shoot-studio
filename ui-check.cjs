@@ -2142,22 +2142,62 @@ const test = `<script>
     del.click(); await until(() => !myElements.has('My element') && !disk['c:elements:My element'], 'the second deletes it');
     myElements.clear(); await settle(loadMine(), 'reload saved elements');
     step(myElements.size === 2 && myElements.has('Autumn leaf') && $('#create-mine').children.length === 2, 'saved elements are read back from their files');
+    // Rulers, guide lines and snapping to them; every page in a grid.
+    { step(rulers.top.hidden && !settings.rulers, 'rulers start hidden');
+      $('#create-rulers').click(); board.requestRenderAll(); await new Promise(r => setTimeout(r, 50));
+      step(!rulers.top.hidden && !rulers.left.hidden && settings.rulers === true && JSON.parse(disk.createSettings).rulers === true, 'Rulers shows them, and it is remembered');
+      const stageBox = $('#create-stage').getBoundingClientRect(), vt0 = board.viewportTransform;
+      const screenOf = (x, y) => ({ clientX: stageBox.left + vt0[4] + x * vt0[0], clientY: stageBox.top + vt0[5] + y * vt0[3] });
+      const fire = (el, type, at) => el.dispatchEvent(new PointerEvent(type, { ...at, button: 0, pointerId: 7, bubbles: true }));
+      fire(rulers.top, 'pointerdown', { clientX: stageBox.left + 300, clientY: stageBox.top + 10 });
+      fire(rulers.top, 'pointermove', screenOf(200, 400)); fire(rulers.top, 'pointerup', screenOf(200, 400));
+      step(design.guides.y.length === 1 && Math.abs(design.guides.y[0] - 400) <= 1, () => 'dragging from the top ruler adds a guide across: ' + JSON.stringify(design.guides));
+      fire(rulers.left, 'pointerdown', { clientX: stageBox.left + 10, clientY: stageBox.top + 300 });
+      fire(rulers.left, 'pointermove', screenOf(300, 200)); fire(rulers.left, 'pointerup', screenOf(300, 200));
+      step(design.guides.x.length === 1 && Math.abs(design.guides.x[0] - 300) <= 1 && !$('#create-guides-clear').hidden, 'and from the left ruler a guide down');
+      const gy = design.guides.y[0];
+      square.set({ angle: 0 }); square.setCoords(); square.set({ top: square.top + (gy + 3 - square.getBoundingRect().top) }); square.setCoords();
+      snapPage({ target: square });
+      step(Math.abs(square.getBoundingRect().top - gy) < 0.5, () => 'objects snap to guides: ' + square.getBoundingRect().top + ' vs ' + gy);
+      const markY = screenOf(0, gy).clientY;
+      fire(rulers.left, 'pointerdown', { clientX: stageBox.left + 4, clientY: markY });
+      fire(rulers.left, 'pointermove', screenOf(100, 500)); fire(rulers.left, 'pointerup', screenOf(100, 500));
+      step(design.guides.y.length === 1 && Math.abs(design.guides.y[0] - 500) <= 1, () => 'dragging a guide mark moves the guide: ' + JSON.stringify(design.guides.y));
+      const markX = screenOf(design.guides.x[0], 0).clientX;
+      fire(rulers.top, 'pointerdown', { clientX: markX, clientY: stageBox.top + 4 });
+      fire(rulers.top, 'pointermove', { clientX: markX, clientY: stageBox.top + 5 }); fire(rulers.top, 'pointerup', { clientX: markX, clientY: stageBox.top + 5 });
+      step(design.guides.x.length === 0, 'dropping a guide back on its ruler removes it');
+      await settle(flush(), 'guides save');
+      step(JSON.parse(disk['c:designs:' + design.title]).guides?.y?.length === 1, 'guides are saved with the design');
+      $('#create-guides-clear').click();
+      step(!design.guides.y.length && $('#create-guides-clear').hidden, 'Clear guides removes them all');
+      $('#create-rulers').click(); step(rulers.top.hidden, 'Rulers again hides them');
+      await addPage(); await addPage(); await showPage(0);
+      const firstPage = board.toObject(KEEP);
+      $('#page-grid-open').click(); await new Promise(r => setTimeout(r, 50));
+      step(seen('#page-grid') && $('#page-grid-list').children.length === 3 && $('#page-grid-list').children[0].classList.contains('on'), 'All pages shows every page, this one marked');
+      const cards = () => [...$('#page-grid-list').children], fake = { preventDefault() {}, dataTransfer: { setData() {}, effectAllowed: '' } };
+      cards()[0].ondragstart(fake); cards()[2].ondragover(fake); cards()[2].ondrop(fake);
+      step(pageAt === 2 && JSON.stringify(designPages[2].objects.length) === JSON.stringify(firstPage.objects.length) && cards()[2].classList.contains('on'), () => 'dragging a page moves it, and it stays the one being edited: ' + pageAt);
+      cards()[0].click(); await until(() => pageAt === 0 && $('#page-grid').hidden, 'clicking a page goes to it');
+      while (designPages.length > 1) { designPages[pageAt] = board.toObject(KEEP); const blank = designPages.findIndex(pg => !pg.objects.length); if (blank < 0) break; if (blank !== pageAt) await showPage(blank); await deletePage(); }
+      step(designPages.length === 1 && board.getObjects().length === firstPage.objects.length, 'back to the one page'); }
     // Links in the PDF, and Find and replace across pages.
-    { const linkWords = addText('body'); linkWords.exitEditing(); linkWords.set({ text: 'Fall fun for all' }); selectObjects([linkWords]); paintPanel();
+    { const linkShape = board.getObjects().find(o => o.type === 'rect' && !o.kbTable && !o.kbLocked); const linkWords = addText('body'); linkWords.exitEditing(); linkWords.set({ text: 'Fall fun for all' }); selectObjects([linkWords]); paintPanel();
       $('#link-open').click(); step(seen('#pop-link'), 'Link opens its panel');
       $('#link-url').value = 'hello there'; $('#link-form').requestSubmit();
       step(!linkWords.kbLink && $('#link-note').textContent.includes('web address'), 'something that is not a link is refused, with a reason');
       $('#link-url').value = 'www.school.org'; $('#link-form').requestSubmit();
       step(linkWords.kbLink === 'https://www.school.org' && $('#link-open').textContent.includes('Linked'), 'a web address becomes a link');
-      selectObjects([square]); paintPanel(); $('#link-url').value = 'office@school.org'; $('#link-form').requestSubmit();
-      step(square.kbLink === 'mailto:office@school.org', 'an email address becomes an email link');
+      selectObjects([linkShape]); paintPanel(); $('#link-url').value = 'office@school.org'; $('#link-form').requestSubmit();
+      step(linkShape.kbLink === 'mailto:office@school.org', 'an email address becomes an email link');
       closeMenus();
       const links = await linksOf(board.toObject(KEEP));
       step(links.length === 2 && links.some(l => l.url === 'https://www.school.org' && Math.abs(l.x - linkWords.getBoundingRect().left) < 1), () => 'links are found where they sit on the page: ' + JSON.stringify(links));
       const pdfText = new TextDecoder('latin1').decode(await makePdf());
       step(pdfText.includes('https://www.school.org') && pdfText.includes('mailto:office@school.org') && pdfText.includes('/Link'), 'the PDF carries both links');
-      selectObjects([square]); paintPanel(); $('#link-remove').click();
-      step(!square.kbLink, 'Remove link takes it off');
+      selectObjects([linkShape]); paintPanel(); $('#link-remove').click();
+      step(!linkShape.kbLink, 'Remove link takes it off');
       await addPage(); await until(() => pageAt === designPages.length - 1, 'a second page for Find');
       const page2 = addText('body'); page2.exitEditing(); page2.set({ text: 'Fall leaves fall' }); commitDesign();
       await showPage(0);
@@ -2204,8 +2244,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
