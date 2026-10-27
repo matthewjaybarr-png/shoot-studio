@@ -99,8 +99,14 @@ pub fn find_corners(w: usize, h: usize, rgba: &[u8]) -> Result<Option<[[f64; 2];
     if (count as f64) < 0.04 * (w * h) as f64 {
         return Ok(None);
     }
-    let corners = best.map(|(_, [x, y])| [x / w as f64, y / h as f64]);
-    Ok(convex(&corners.map(|[x, y]| [x * w as f64, y * h as f64])).then_some(corners))
+    // Only something page-shaped counts: the four corners must take in about as much as was found, as a
+    // sheet's do. A flower's furthest points make a thin sliver that leaves most of its petals outside.
+    let q = best.map(|(_, p)| p);
+    let area = 0.5 * (0..4).map(|i| q[i][0] * q[(i + 1) % 4][1] - q[(i + 1) % 4][0] * q[i][1]).sum::<f64>().abs();
+    if !(0.85..=1.15).contains(&(area / count as f64)) || !convex(&q) {
+        return Ok(None);
+    }
+    Ok(Some(q.map(|[x, y]| [x / w as f64, y / h as f64])))
 }
 
 /// Bilinear sample at a pixel-centre place, premultiplied so see-through neighbours don't darken
@@ -209,6 +215,18 @@ mod tests {
         for (g, c) in got.iter().zip(want.iter()) {
             assert!((g[0] - c[0]).abs() < 0.04 && (g[1] - c[1]).abs() < 0.04, "{got:?} vs {want:?}");
         }
+    }
+
+    #[test]
+    fn find_the_edges_ignores_something_that_is_not_page_shaped() {
+        // A big disc stands out well, but no four corners make a page of it.
+        let (w, h) = (240, 160);
+        let mut px = vec![0u8; w * h * 4];
+        for (i, p) in px.chunks_mut(4).enumerate() {
+            let (x, y) = ((i % w) as f32, (i / w) as f32);
+            p.copy_from_slice(&if (x - 120.0).hypot(y - 80.0) < 60.0 { [220, 40, 40, 255] } else { [70, 110, 160, 255] });
+        }
+        assert_eq!(find_corners(w, h, &px).unwrap(), None);
     }
 
     #[test]
