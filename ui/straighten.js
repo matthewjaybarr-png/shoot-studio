@@ -4,6 +4,7 @@
 
 const straightTool = { image: null, corners: null, drag: null, busy: false };
 const STRAIGHT_START = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]; // top left, top right, bottom right, bottom left
+const STRAIGHT_EDGES = [[0, 0], [1, 0], [1, 1], [0, 1]]; // after straightening: nothing dimmed
 const straightening = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'straighten' && !cropSession;
 const straightGone = () => !straightTool.image || !board.getObjects().includes(straightTool.image);
 const straightSay = text => { $('#straight-hint').textContent = text; };
@@ -19,8 +20,8 @@ function paintStraighten() {
   $('#straight-go').disabled = straightTool.busy;
   if (!straightTool.busy) straightSay(straightTool.image ? 'Drag the four pink corners onto the corners of the page, poster or board in the photo, then click Straighten.' : 'Click the picture you want to straighten.');
 }
-function chooseStraighten(image) {
-  Object.assign(straightTool, { image, corners: STRAIGHT_START.map(c => c.slice()), drag: null });
+function chooseStraighten(image, corners = STRAIGHT_START) {
+  Object.assign(straightTool, { image, corners: corners.map(c => c.slice()), drag: null });
   board.requestRenderAll();
 }
 
@@ -75,9 +76,19 @@ async function straightenPicture() {
     for (let i = 8 + 3; i < out.length && !clear; i += 4) clear = out[i] < 255;
     const next = canvas.toDataURL(clear ? 'image/png' : 'image/jpeg', 0.92);
     // Where the corners were on the page becomes the flat picture's middle; the pixel scale stays the same.
+    // A photo that is the whole page (as Edit a photo makes) gets a page the flat picture's size instead.
     const middle = straightPoints().reduce((m, p) => ({ x: m.x + p.x / 4, y: m.y + p.y / 4 }), { x: 0, y: 0 });
-    const done = await setPicture(image, { original: next, kbMask: undefined, kbLocal: undefined, resized: true, place: o => o.setPositionByOrigin(new fabric.Point(middle.x, middle.y), 'center', 'center') });
-    if (done) { chooseStraighten(image); straightSay('Straightened. Click Undo to put it back, or drag the corners again.'); }
+    const box = image.getBoundingRect(), [pw, ph] = pagePx();
+    const whole = designPages.length === 1 && design.page === 'custom' && !image.angle && Math.abs(box.left) < 1 && Math.abs(box.top) < 1 && Math.abs(box.width - pw) < 1 && Math.abs(box.height - ph) < 1;
+    const place = o => {
+      if (!whole) return o.setPositionByOrigin(new fabric.Point(middle.x, middle.y), 'center', 'center');
+      design.size = [ow, oh].map(v => Math.min(MAX_SIDE, Math.max(1, Math.round(v / DPI * 1000) / 1000)));
+      const k = pagePx()[0] / ow;
+      o.set({ left: 0, top: 0, scaleX: k, scaleY: k });
+    };
+    const done = await setPicture(image, { original: next, kbMask: undefined, kbLocal: undefined, resized: true, place });
+    if (whole) paintAll();
+    if (done) { chooseStraighten(image, STRAIGHT_EDGES); straightSay('Straightened. Click Undo to put it back, or drag the corners again.'); }
   } catch (error) {
     straightSay(`Couldn't straighten it: ${error}`);
   } finally {

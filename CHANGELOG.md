@@ -2,7 +2,7 @@
 
 ## 0.31.0
 
-- Straighten, a new tab in Edit photo: drag four pink corners onto the corners of a worksheet, poster or whiteboard photographed at an angle, click Straighten, and it comes out flat, as if photographed from straight in front. A magnifier shows what's under a corner while you drag it. The flat picture stays where the sheet was and keeps its filter; one Undo puts it back. Put the corners back starts again.
+- Straighten, a new tab in Edit photo: drag four pink corners onto the corners of a worksheet, poster or whiteboard photographed at an angle, click Straighten, and it comes out flat, as if photographed from straight in front. A magnifier shows what's under a corner while you drag it. The flat picture stays where the sheet was and keeps its filter; on a photo opened with Edit a photo, the page becomes the flat picture's size. One Undo puts it back. Put the corners back starts again.
 - Reshape, a new tab in Edit photo: Push drags part of a picture along like smudging wet paint, and Grow and Shrink make what's under the brush bigger or smaller while you hold the mouse down. Brush size and Strength set how much; Esc drops a stroke you don't want, and each stroke is one Undo.
 - Filters has four more sliders: Highlights, Shadows, Sharpen and Smooth grain. Adjust this part has them too.
 - Esc in Create clears the selection straight away (it could leave the selection box showing).

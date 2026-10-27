@@ -110,7 +110,7 @@ function shapeDown({ e }) {
 }
 function shapeTick() {
   if (!shape.drag) return;
-  const [cx, cy] = shape.drag.last, r = shapeRadius(shape.image), k = shape.tool === 'grow' ? -0.06 : 0.06;
+  const [cx, cy] = shape.drag.last, r = shapeRadius(shape.image), k = shape.tool === 'grow' ? -0.02 : 0.02;
   shapeDab(cx, cy, r, (x, y) => [(x - cx) * k, (y - cy) * k]);
   queueShapePreview();
 }

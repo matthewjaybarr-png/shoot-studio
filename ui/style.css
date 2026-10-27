@@ -203,7 +203,7 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 #create-whatsnew,#create-import-note{position:absolute;z-index:25;left:92px;bottom:16px;width:340px;padding:14px 16px;background:var(--panel);border:1px solid var(--accent);border-radius:10px;box-shadow:0 8px 28px var(--shadow)}
 #create-whatsnew h3,#create-import-note h3{margin:0 0 6px;font-size:15px}#create-whatsnew ul,#create-import-note ul{margin:0 0 12px;padding-left:18px;color:var(--muted)}#create-whatsnew li,#create-import-note li{margin:4px 0}
 #create-import-note{left:auto;right:16px;width:380px;z-index:26}
-#create-whatsnew,#create-import-note{max-height:calc(100% - 32px);overflow:auto;box-sizing:border-box}
+#create-whatsnew,#create-import-note{max-height:calc(100% - 32px);overflow:auto;box-sizing:border-box}#whatsnew-ok{position:sticky;bottom:0;box-shadow:0 0 0 10px var(--panel)}
 #create-crop-dialog[open]{display:flex;flex-direction:column;width:90vw;height:85vh;background:var(--panel);color:inherit;border:1px solid var(--edge)}
 #create-crop-dialog::backdrop{background:var(--backdrop)}
 #home-status{color:var(--warning)}#home-status:empty{display:none}

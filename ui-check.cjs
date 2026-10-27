@@ -115,7 +115,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
   if (command === 'spot_source') return [0.05, 0];
   if (command === 'reshape_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([200, 40, 120, 255], i); return out.buffer; }
-  if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 120 * 90 * 4); new Uint32Array(b, 0, 2).set([120, 90]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
+  if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 900 * 600 * 4); new Uint32Array(b, 0, 2).set([900, 600]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
   if (command === 'select_picture') { const b = new ArrayBuffer(16 + 100 * 80); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); new Uint8Array(b, 16).fill(255); return b; }
   if (command === 'cutout_picture') { const b = new ArrayBuffer(16 + 100 * 80 * 4); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); const px = new Uint8Array(b, 16); for (let i = 0; i < px.length; i += 4) px.set([255, 0, 255, i < 400 ? 128 : 255], i); return b; }
@@ -2381,10 +2381,10 @@ const test = `<script>
       step(Math.abs(straightTool.corners[0][0] - 10 / 300) < 0.02 && Math.abs(straightTool.corners[0][1] - 5 / 200) < 0.02 && !straightTool.drag, () => 'dragging a pink corner moves it: ' + straightTool.corners[0]);
       const before = calls.length, dragged = straightTool.corners.map(c => c.slice());
       $('#straight-go').click();
-      await until(() => !straightTool.busy && calls.slice(before).some(c => c.command === 'straighten_picture') && pic.width === 120, 'Straighten');
+      await until(() => !straightTool.busy && calls.slice(before).some(c => c.command === 'straighten_picture') && pic.width === 900, 'Straighten');
       const sent = calls.slice(before).find(c => c.command === 'straighten_picture'), corners = JSON.parse(decodeURIComponent(sent.options.headers.corners));
       step(sent.args.length === 8 + 300 * 200 * 4 && corners.length === 4 && JSON.stringify(corners) === JSON.stringify(dragged), 'Rust gets the original and the corners');
-      step(pic.width === 120 && pic.height === 90 && !pic.cropX && pic.kbFilter?.exposure === 0.5 && pic.kbOriginal, () => 'the picture becomes the flat one, filter kept: ' + [pic.width, pic.height, JSON.stringify(pic.kbFilter)]);
+      step(pic.width === 900 && pic.height === 600 && !pic.cropX && pic.kbFilter?.exposure === 0.5 && pic.kbOriginal, () => 'the picture becomes the flat one, filter kept: ' + [pic.width, pic.height, JSON.stringify(pic.kbFilter)]);
       const mid = pic.getCenterPoint();
       step(Math.abs(mid.x - (110 + 370 + 370 + 130) / 4) < 2 && Math.abs(mid.y - (105 + 120 + 280 + 280) / 4) < 2, () => 'it sits where the corners were: ' + [mid.x, mid.y]);
       undoDesign(); await until(() => board.getObjects().find(o => o.kbName === "Photo straighten")?.width === 300, 'Undo puts the tilted picture back');
@@ -2417,7 +2417,7 @@ const test = `<script>
       $('#shape-tools [data-shape=grow]').click();
       down(250, 200); await new Promise(r => setTimeout(r, 150));
       const g = shapeAt(shape.grid, shape.grid.d, 150 + 20, 100);
-      step(shape.tool === 'grow' && g[0] < -0.5, () => 'Grow, held, pulls the colour in from nearer the middle: ' + g);
+      step(shape.tool === 'grow' && g[0] < -0.2, () => 'Grow, held, pulls the colour in from nearer the middle: ' + g);
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       n = reshapes().length; up(250, 200);
       step(!shape.drag && !shape.grid && reshapes().length === n, 'Esc drops a stroke without reshaping');
@@ -2434,6 +2434,16 @@ const test = `<script>
       step(board.getObjects().length === 1 && Math.abs(photo.getScaledWidth() - pw) < 0.5 && Math.abs(photo.getScaledHeight() - ph) < 0.5 && photo.left === 0 && photo.top === 0, 'the photo fills the page');
       step(Math.round(pictureScale() * pw) === 1200, 'so a download is the photo size again');
       step(drawer === 'retouch' && touch.tool === 'remove' && touchMode, 'with Remove ready to paint');
+      // Straightened, a photo that is the whole page gets a page the flat picture's size; Undo puts the page back.
+      $('#photo-tabs [data-photo-tab=straighten]').click();
+      step(straightTool.image === photo, 'Straighten takes the photo');
+      straightTool.corners = [[0.1, 0.1], [0.9, 0.12], [0.88, 0.9], [0.12, 0.88]];
+      await settle(straightenPicture(), 'straighten the whole-page photo');
+      const [fw, fh] = pagePx();
+      step(design.size[0] === 3 && design.size[1] === 2 && photo.left === 0 && photo.top === 0 && Math.abs(photo.getScaledWidth() - fw) < 0.5 && Math.abs(photo.getScaledHeight() - fh) < 0.5, () => 'the page becomes the flat picture: ' + design.size + ' / ' + [photo.getScaledWidth(), fw]);
+      step(JSON.stringify(straightTool.corners) === JSON.stringify([[0, 0], [1, 0], [1, 1], [0, 1]]), 'and the corners go to its edges, so nothing is dimmed');
+      undoDesign(); await until(() => design.size[0] === 4 && design.size[1] === 3, 'Undo puts the page size back');
+      photoTab = 'retouch'; paintTouch();
       $('#touch-done').click();
       await settle(openDesign(titleBefore), 'back to the design being tested');
     }
