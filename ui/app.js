@@ -886,7 +886,11 @@ function paintDeliver() {
   $('#deliver-quality-value').textContent = s.quality;
   $('#deliver-client-row').hidden = s.names !== 'client';
   $('#deliver-mark').disabled = !s.watermark;
-  $('#deliver-preview').textContent = list.length && (s.names !== 'client' || fileSafe(s.client)) ? list.slice(0, 2).map((p, i) => deliverName(s, p, i)).join(', ') + (list.length > 2 ? ' …' : '') : '';
+  // The file names it will make, or why Deliver can't run yet.
+  const why = !list.length ? (s.which === 'picks' ? 'No picks yet: pick some photos, or choose another option above.' : 'There are no photos to deliver.')
+    : s.names === 'client' && !fileSafe(s.client) ? 'Type the client\'s name: it starts every file name.' : '';
+  $('#deliver-preview').textContent = why || list.slice(0, 2).map((p, i) => deliverName(s, p, i)).join(', ') + (list.length > 2 ? ' …' : '');
+  $('#deliver-preview').classList.toggle('needs', !!why);
   $('#deliver-folder').textContent = '\u200e' + deliverFolder(s) + '\u200e'; // keeps the slashes in place in the right-aligned ellipsis
   $('#deliver-folder').title = deliverFolder(s);
   $('#deliver-form').disabled = busy;
@@ -902,7 +906,8 @@ function openDeliver() {
   $('#deliver-size').value = s.size === 'web' ? 'web' : 'full';
   $('#deliver-quality').value = Number.isFinite(s.quality) ? s.quality : 90;
   $('#deliver-names').value = s.names === 'original' ? 'original' : 'client';
-  $('#deliver-client').value = typeof s.client === 'string' ? s.client : '';
+  // A first delivery is for the client the shoot is named after.
+  $('#deliver-client').value = typeof s.client === 'string' ? s.client : dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
   deliverBox.dataset.folder = typeof s.folder === 'string' ? s.folder : '';
   $('#deliver-watermark').checked = !!s.watermark;
   $('#deliver-mark').value = typeof s.mark === 'string' ? s.mark : localStorage.getItem('deliver-mark') || 'PROOF';

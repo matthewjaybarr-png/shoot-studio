@@ -22,7 +22,7 @@ function freeName(base) {
 // The selection as it sits on the page, moved so its top left corner is 0, 0, with a small picture of it.
 async function saveMine() {
   const objects = board?.getActiveObjects() || [];
-  if (!objects.length) { $('#mine-hint').textContent = 'Select something on the page first, then click Save.'; return null; }
+  if (!objects.length) { $('#mine-hint').textContent = 'Select something on the page first, then click Save.'; $('#mine-hint').hidden = false; return null; }
   board.discardActiveObject(); // pieces of a selection only know where they are inside it until it's let go
   const boxes = objects.map(o => o.getBoundingRect());
   const left = Math.min(...boxes.map(b => b.left)), top = Math.min(...boxes.map(b => b.top));
@@ -88,6 +88,7 @@ function paintMine() {
     return tile;
   }));
   $('#mine-empty').hidden = names.length > 0;
+  $('#mine-hint').hidden = !names.length; // with nothing saved, one line says it all
 }
 $('#mine-save').onclick = () => saveMine().catch(e => { $('#mine-hint').textContent = 'Could not save it: ' + e; });
 loadMine();

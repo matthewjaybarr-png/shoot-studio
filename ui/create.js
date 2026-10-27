@@ -85,7 +85,7 @@ async function paintHome() {
   const tell = name => error => { status.textContent = `Could not open “${name}”: ${error.message || error}`; };
   paintFolders(all);
   const designs = all.filter(shownHere);
-  recent.replaceChildren(...designs.map((d, i) => {
+  const card = (d, i) => {
     const when = inTrash(d.name) ? 'In the trash' : new Date(d.modified * 1000).toLocaleDateString();
     const b = designCard(button(d.name, () => openDesign(d.name).catch(tell(d.name)), when), d.name);
     // The newest designs show their first page, drawn once per saved version.
@@ -98,10 +98,16 @@ async function paintHome() {
       }).then(url => { img.src = url; }, () => img.remove());
     }
     return b;
-  }));
+  };
+  recent.replaceChildren(...designs.map(card));
+  // Her newest work first, above the templates, so it's there without scrolling.
+  const latest = all.filter(d => !inTrash(d.name)).slice(0, 8);
+  $('#home-latest-list').replaceChildren(...latest.map(card));
+  $('#home-latest').hidden = !latest.length;
   $('#home-designs').hidden = !all.length && !projects().folders.length;
   starters.replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, () => newDesign(n, 'starter').catch(tell(n)))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, () => newDesign(t.name, 'mine').catch(tell(t.name)))));
 }
+$('#home-see-all').onclick = () => $('#home-designs').scrollIntoView({ behavior: 'smooth', block: 'start' });
 function button(text, onclick, small) {
   const b = document.createElement('button');
   b.type = 'button'; b.textContent = text; b.onclick = onclick;
@@ -109,6 +115,8 @@ function button(text, onclick, small) {
   return b;
 }
 $('#home-photos').onclick = () => setMode('photos');
+// This shoot, with no shoot open: straight to Photos and its Open shoot.
+$('#shoot-go').onclick = () => navigateDesign(() => { setMode('photos'); $('#open').click(); }).catch(() => {});
 $('#home-create').onclick = () => newDesign();
 $('#create-home').onclick = () => navigateDesign(() => setMode('home')).catch(() => {});
 $('#photos-home').onclick = () => setMode('home');
@@ -993,7 +1001,22 @@ function paintPanel() {
   }
   if (typeof paintGradient === 'function') paintGradient(o);
   paintLayers();
+  fitToolbar();
 }
+// When the toolbar is wider than the window, its last buttons move into More ▾ (in order), and come back when there's room.
+function fitToolbar() {
+  const bar = $('#create-context'), more = $('#ctx-more'), list = $('#pop-more');
+  for (const el of [...list.children]) el.kbMark ? el.kbMark.replaceWith(el) : el.remove();
+  more.hidden = true;
+  if (bar.scrollWidth <= bar.clientWidth + 1) { if (openPop?.el === list) closeMenus(); return; }
+  more.hidden = false;
+  const items = [...bar.children].filter(el => el !== more && !el.hidden && el.getClientRects().length);
+  while (bar.scrollWidth > bar.clientWidth + 1 && items.length > 1) {
+    const el = items.pop(), mark = document.createComment('more');
+    el.replaceWith(mark); el.kbMark = mark; list.prepend(el);
+  }
+}
+addEventListener('resize', () => { if (board) fitToolbar(); });
 function hex(c) { return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : typeof c === 'string' && /^#[0-9a-f]{3}$/i.test(c) ? '#' + [...c.slice(1)].map(x => x + x).join('') : null; }
 function change(props) {
   const targets = board.getActiveObjects();
@@ -1275,7 +1298,8 @@ function togglePop(anchor) {
   closeMenus();
   if (same) return;
   el.hidden = false; anchor.classList.add('open'); openPop = { el, anchor };
-  const a = anchor.getBoundingClientRect(), host = $('#create').getBoundingClientRect();
+  const shownAt = anchor.getClientRects().length && !anchor.closest('[hidden]') ? anchor : $('#ctx-more'); // a button in More opens under More
+  const a = shownAt.getBoundingClientRect(), host = $('#create').getBoundingClientRect();
   el.style.left = Math.max(8, Math.min(a.left - host.left, host.width - el.offsetWidth - 8)) + 'px';
   el.style.top = a.bottom - host.top + 6 + 'px';
 }

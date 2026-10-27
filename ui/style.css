@@ -344,3 +344,8 @@ header,.create-bar{border-bottom-color:var(--pink)}
 #mine-save{margin:4px 0}
 #pop-file .file-recent{display:flex;flex-direction:column;gap:2px}#create .file-recent button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:none}#create .file-recent button:hover{background:var(--deep)}
 #pop-file hr{border:0;border-top:1px solid var(--edge);margin:6px 0}
+#deliver-preview.needs{color:var(--accent);font-weight:600}
+#home .one-row{flex-wrap:nowrap;overflow:hidden;padding-bottom:2px}#home .one-row>button{flex:none}
+#home h2 .link{margin-left:10px;padding:2px 8px;border:0;background:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer}#home h2 .link:hover{text-decoration:underline}
+.highlight-row{display:flex;align-items:center;gap:10px}#shoot-go{margin-top:8px}
+#pop-more{display:flex;flex-wrap:wrap;gap:6px;max-width:340px}#pop-more>span{display:inline-flex;gap:2px}#pop-more label{display:inline-flex;gap:6px;align-items:center}

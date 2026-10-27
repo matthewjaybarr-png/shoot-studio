@@ -688,8 +688,9 @@ const test = `<script>
     step($('#deliver-count').textContent === want + ' photos', () => 'count shows the picks: ' + $('#deliver-count').textContent);
     const savesBefore = count('save_shoot'); press('x');
     step(count('save_shoot') === savesBefore, 'keys do not rate behind the dialog');
+    step($('#deliver-client').value === dir.split('/').pop() && !$('#deliver-go').disabled, () => 'a first delivery is named after the shoot: ' + $('#deliver-client').value);
     set($('#deliver-client'), '');
-    step($('#deliver-go').disabled, 'no delivering without a client name');
+    step($('#deliver-go').disabled && $('#deliver-preview').textContent.includes('client') && $('#deliver-preview').classList.contains('needs'), 'no delivering without a client name, and it says so');
     set($('#deliver-client'), ' Smith & Wedding! ');
     step($('#deliver-preview').textContent.startsWith('Smith-Wedding-0001.jpg, Smith-Wedding-0002.jpg'), () => 'names are filename safe: ' + $('#deliver-preview').textContent);
     step($('#deliver-folder').textContent.replaceAll('\u200e', '') === dir + '/Delivered/Smith-Wedding', () => 'default folder: ' + $('#deliver-folder').textContent);
@@ -1824,6 +1825,7 @@ const test = `<script>
     const placedIn = name => settings.projects.placed[name];
     await settle($('#create-home').onclick(), 'home for projects');
     await until(() => cardOf('Fall flyer'), 'designs are listed under All designs');
+    step(!$('#home-latest').hidden && $('#home-latest-list').children.length >= 1 && $('#home-latest-list').children.length <= 8 && [...$('#home-latest-list').children].every(c => !inTrash(c.querySelector('strong, span')?.textContent || '')), 'the newest designs sit above the templates');
     step($('#home-folders').textContent.includes('All designs') && $('#home-folders').textContent.includes('+ New folder'), 'the folder bar offers All designs and New folder');
     const folderMade = await answer(newFolder(), 'Classroom');
     step(folderMade === 'Classroom' && settings.projects.folders.includes('Classroom') && !$('#name-dialog').open, 'New folder names and makes a folder');
@@ -2066,6 +2068,16 @@ const test = `<script>
       words.set('textAlign', 'left'); paintPanel();
       const order = []; for (let i = 0; i < 4; i++) { $('#prop-align').click(); order.push(board.getActiveObject().textAlign); }
       step(order.join() === 'center,right,justify,left' && $('#prop-align').textContent === '⇤', () => 'one button steps through the alignments: ' + order); board.remove(words); }
+    { const words = addText('body'); words.exitEditing(); selectObjects([words]);
+      const bar = $('#create-context'); bar.style.width = '560px'; bar.style.flex = 'none'; paintPanel();
+      const moved = [...$('#pop-more').children];
+      step(seen('#ctx-more') && moved.length > 0 && bar.scrollWidth <= bar.clientWidth + 1, () => 'a narrow toolbar moves its last buttons into More: ' + moved.length);
+      $('#ctx-more').click(); step(seen('#pop-more'), 'More opens');
+      const positionBtn = $('#pop-more [data-pop=pop-position]'); positionBtn?.click();
+      step(positionBtn && seen('#pop-position') && !seen('#pop-more'), 'a panel button inside More opens its panel');
+      closeMenus(); bar.style.width = ''; bar.style.flex = ''; paintPanel();
+      step(!seen('#ctx-more') && !$('#pop-more').children.length && bar.querySelector('[data-pop=pop-position]'), 'with room again, everything is back in the toolbar');
+      board.remove(words); }
     // Tables: rows and columns added and taken away, cell colours, borders, rows that grow with their words.
     addTable(2, 3);
     const tableId = board.getObjects().at(-1).kbTable, tableNow = () => readTable(tableId);

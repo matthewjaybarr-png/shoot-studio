@@ -25,6 +25,7 @@
     <div class="home-hero"><div><h1>KB Studio</h1><p class="hero-line">Teach · Create · Inspire</p><p class="hero-ask">What are we making today?</p></div></div>
     <p id="home-status" role="status"></p>
     <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button><button id="home-import" type="button"><strong>Import from Canva</strong><small>In Canva: Share → Download → PowerPoint</small></button><input id="import-file" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" hidden></div>
+    <div id="home-latest" hidden><h2>Recent designs <button id="home-see-all" type="button" class="link">All designs and folders ↓</button></h2><div id="home-latest-list" class="home-list one-row"></div></div>
     <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
     <div id="home-designs" hidden><h2>Your designs</h2><div id="home-folders" class="folder-bar" role="toolbar" aria-label="Folders"></div><p id="home-folder-note" class="hint"></p><div id="home-recent" class="home-list"></div></div>
   </section>
@@ -68,6 +69,7 @@
       <button data-for="object" type="button" data-pop="pop-transparency">Transparency</button>
       <button data-for="object" type="button" data-pop="pop-position">Position</button>
       <button data-for="multi" id="prop-group" type="button">Group</button><button data-for="group" id="prop-ungroup" type="button">Ungroup</button>
+      <button id="ctx-more" type="button" data-pop="pop-more" hidden>More ▾</button>
     </div>
     <p id="create-font-warning" role="status" hidden>Some fonts could not load. Fallback fonts may change text layout. Export and Print are unavailable. Save your work and restart KB Studio; if this keeps happening, reinstall it.</p>
     <div class="create-body">
@@ -83,7 +85,7 @@
       <aside id="create-drawer" hidden>
         <section data-panel="templates" hidden><h3>Templates</h3><p class="hint">On a blank page a template fills it; otherwise it opens as a new design.</p><div id="drawer-templates" class="template-grid"></div></section>
         <section data-panel="elements" hidden>
-          <details class="fold" data-fold="mine" open><summary>My elements</summary><p id="mine-hint" class="hint">Select something on the page, then Save, to keep it here for any design.</p><button id="mine-save" type="button" class="wide">Save the selection to My elements</button><p id="mine-empty" class="hint">Nothing saved yet. Things from Canva files work too.</p><div id="create-mine" class="mine-grid"></div></details>
+          <details class="fold" data-fold="mine" open><summary>My elements</summary><p id="mine-hint" class="hint">Select something on the page, then Save, to keep it here for any design.</p><p id="mine-empty" class="hint">Select anything on the page, even from a Canva file, and save it here.</p><button id="mine-save" type="button" class="wide">Save the selection to My elements</button><div id="create-mine" class="mine-grid"></div></details>
           <details class="fold" data-fold="shapes" open><summary>Shapes</summary><div id="create-tools" class="shape-grid"></div></details>
           <details class="fold" data-fold="frames" open><summary>Frames</summary><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div></details>
           <details class="fold" data-fold="grids" open><summary>Photo grids</summary><p class="hint">Fill the page with frames, then drop photos into them.</p><div id="create-grids" class="shape-grid frames"></div></details>
@@ -108,7 +110,7 @@
         </section>
         <section data-panel="shoot" hidden>
           <h3>This shoot</h3>
-          <p id="shoot-empty" class="hint">Open a shoot in Photos and its photos appear here, with your edits. Picks come first; rejects are left out.</p>
+          <div id="shoot-empty"><p class="hint">Open a shoot in Photos and its photos appear here, with your edits. Picks come first; rejects are left out.</p><button id="shoot-go" type="button" class="wide">Open a shoot in Photos</button></div>
           <div id="shoot-list" class="photo-grid"></div>
           <p class="hint">Click a photo to add it, or drag it onto the page. Drop it on a frame or a picture to fill it.</p>
         </section>
@@ -192,7 +194,7 @@
       <div data-for="text" id="text-effects" class="effect-grid"></div>
       <label data-for="text">Curve <input id="prop-curve" type="range" min="-100" max="100" step="1" value="0" aria-label="Curve"><output id="prop-curve-value">0</output></label>
       <label data-for="shape image line group multi" class="check"><input id="prop-shadow" type="checkbox"> Shadow</label>
-      <label data-for="text" class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input data-for="text" id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
+      <div data-for="text" class="highlight-row"><label class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour"></div>
     </div>
     <div id="pop-filters" class="pop" hidden>
       <h4>Looks from Develop</h4><div id="filter-looks" class="filter-grid"></div>
@@ -219,6 +221,7 @@
       <h4>Borders</h4><div class="row"><label>Colour <input id="table-border-colour" type="color"></label><label>Thickness <input id="table-border-width" type="number" min="0" max="20"></label></div>
       <div class="grid2"><button id="table-select" type="button">Select the whole table</button><button id="table-delete" type="button">Delete the table</button></div>
     </div>
+    <div id="pop-more" class="pop" hidden></div>
     <div id="pop-position" class="pop" hidden>
       <h4>Arrange</h4>
       <div class="grid2"><button id="prop-front" type="button">To front</button><button id="prop-forward" type="button">Forward</button><button id="prop-back" type="button">To back</button><button id="prop-backward" type="button">Backward</button></div>
