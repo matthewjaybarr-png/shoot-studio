@@ -34,7 +34,8 @@ const validSize = s => Array.isArray(s) && s.length === 2 && s.every(v => Number
 const docPage = doc => doc.page === 'custom' && validSize(doc.size) ? 'custom' : PAGES[doc.page] ? doc.page : 'letter';
 const docSize = doc => docPage(doc) === 'custom' ? doc.size.map(Number) : sizeIn(docPage(doc));
 const docPages = doc => Array.isArray(doc.pages) && doc.pages.length ? doc.pages.slice(0, MAX_PAGES) : [doc.canvas || blankPage()];
-const KEEP = ['kbName', 'kbLocked', 'kbFrame', 'kbEffect', 'kbOriginal', 'kbFilter']; // our own fields, saved with every object
+const KEEP = ['kbName', 'kbLocked', 'kbFrame', 'kbEffect', 'kbOriginal', 'kbFilter', 'kbLocal', 'kbMask', 'kbFade']; // our own fields, saved with every object
+const SHARED_PICTURES = new Set(['src', 'kbOriginal', 'kbMask']); // picture data kept once however many undo steps use it
 const TILES = { half: { sheet: 'letter-landscape', cols: 2, rows: 1 }, quarter: { sheet: 'letter', cols: 2, rows: 2 } };
 
 const sizeIn = key => PAGES[key] || PAGES.letter;
@@ -444,14 +445,14 @@ $('#create-save-template').onclick = async () => {
 // ---- Undo and redo: whole-design snapshots, at most 50 and about 250 MB ----
 function remember() {
   const text = JSON.stringify({ ...blob(), at: pageAt }, (key, value) => {
-    if ((key !== 'src' && key !== 'kbOriginal') || typeof value !== 'string') return value; // pictures and their unfiltered originals are shared
+    if (!SHARED_PICTURES.has(key) || typeof value !== 'string') return value; // pictures, their originals and masks are shared
     if (!imageIds.has(value)) { const id = ++nextImageId; imageIds.set(value, id); historyImages.set(id, value); }
     return { kbImage: imageIds.get(value) };
   });
   history = history.slice(0, here + 1); history.push(text);
   const recount = () => {
     const used = new Set();
-    for (const snapshot of history) JSON.parse(snapshot, (k, v) => { if ((k === 'src' || k === 'kbOriginal') && v?.kbImage) used.add(v.kbImage); return v; });
+    for (const snapshot of history) JSON.parse(snapshot, (k, v) => { if (SHARED_PICTURES.has(k) && v?.kbImage) used.add(v.kbImage); return v; });
     for (const [id, src] of historyImages) if (!used.has(id)) { historyImages.delete(id); imageIds.delete(src); }
     historyBytes = 2 * (history.reduce((n, v) => n + v.length, 0) + [...historyImages.values()].reduce((n, v) => n + v.length, 0));
   };
@@ -464,7 +465,7 @@ async function stepHistory(by) {
   const to = here + by;
   if (to < 0 || to >= history.length || restoring) return;
   restoring = true;
-  const doc = JSON.parse(history[to], (k, v) => (k === 'src' || k === 'kbOriginal') && v?.kbImage ? historyImages.get(v.kbImage) : v);
+  const doc = JSON.parse(history[to], (k, v) => SHARED_PICTURES.has(k) && v?.kbImage ? historyImages.get(v.kbImage) : v);
   design.page = docPage(doc); design.size = docSize(doc); design.tile = doc.tile; design.copies = doc.copies;
   designPages = docPages(doc); pageAt = Math.min(doc.at | 0, designPages.length - 1);
   await board.loadFromJSON(designPages[pageAt]);
@@ -937,6 +938,26 @@ function moveLayer(from, to, above) {
   board.moveObjectTo(o, Math.max(0, Math.min(objects.length - 1, at)));
   board.requestRenderAll(); commitDesign();
 }
+// A picture's row shows a small copy of it, and tags for what Edit photo has done to it.
+const layerThumbs = new WeakMap(); // picture element → small data URL
+function layerThumb(o) {
+  const el = o.getElement();
+  if (!layerThumbs.has(el)) {
+    const k = 40 / Math.max(el.naturalWidth || el.width || 1, el.naturalHeight || el.height || 1), c = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round((el.naturalWidth || el.width) * k)), height: Math.max(1, Math.round((el.naturalHeight || el.height) * k)) });
+    c.getContext('2d').drawImage(el, 0, 0, c.width, c.height);
+    layerThumbs.set(el, c.toDataURL('image/png'));
+  }
+  return Object.assign(new Image(), { src: layerThumbs.get(el), className: 'layer-thumb', alt: '' });
+}
+const layerTags = o => [o.kbMask && 'Cut out', o.kbFade && 'Fade', o.kbLocal && 'Adjusted', o.kbFilter && 'Filter', o.globalCompositeOperation && o.globalCompositeOperation !== 'source-over' && document.querySelector(`#prop-blend option[value="${o.globalCompositeOperation}"]`)?.textContent].filter(Boolean);
+function renameLayer(o, name) {
+  const box = Object.assign(document.createElement('input'), { value: kindOf(o), className: 'layer-rename', maxLength: 60 });
+  box.setAttribute('aria-label', 'Layer name');
+  const done = keep => { if (!box.isConnected) return; if (keep) { o.kbName = box.value.trim() || undefined; commitDesign(); } else paintLayers(); };
+  box.onkeydown = e => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); };
+  box.onblur = () => done(true);
+  name.replaceWith(box); box.focus(); box.select();
+}
 function paintLayers() {
   const list = $('#layers'), objects = board.getObjects(), active = board.getActiveObject();
   list.replaceChildren(...objects.map((o, i) => {
@@ -945,6 +966,14 @@ function paintLayers() {
     row.classList.toggle('off', o.visible === false);
     const name = button(o.type === 'textbox' && o.text ? `Text: ${o.text.slice(0, 18)}` : kindOf(o), () => { if (o.visible !== false) board.setActiveObject(o); board.requestRenderAll(); paintPanel(); });
     name.className = 'layer-name';
+    const tags = layerTags(o);
+    if (o.type === 'image' || tags.length) {
+      const label = Object.assign(document.createElement('span'), { className: 'layer-label' });
+      label.append(...name.childNodes);
+      if (tags.length) label.append(Object.assign(document.createElement('small'), { className: 'layer-tags', textContent: tags.join(' · ') }));
+      name.append(label); row.classList.add('rich');
+      if (o.type === 'image') { try { name.prepend(layerThumb(o)); } catch { /* a picture still loading */ } }
+    }
     const act = (label, title, run) => { const b = button(label, () => { run(); }); b.title = title; return b; };
     // Rows drag to reorder, like Canva's layers: drop above a row to put it in front of that one.
     row.draggable = true; row.dataset.index = i;
@@ -968,6 +997,7 @@ function paintLayers() {
       act(o.visible === false ? 'Show' : 'Hide', 'Show or hide', () => { o.set({ visible: o.visible === false }); if (o.visible === false) board.discardActiveObject(); commitDesign(); }),
       act(o.kbLocked ? 'Unlock' : 'Lock', 'Lock or unlock', () => { o.kbLocked = !o.kbLocked; applyLock(o); commitDesign(); })
     );
+    if (o.type !== 'textbox') row.insertBefore(act('✎', 'Rename', () => renameLayer(o, name)), name.nextSibling);
     return row;
   }).reverse());
   list.dataset.count = objects.length;
@@ -993,6 +1023,7 @@ function paintPanel() {
     $('#prop-stroke').value = hex(o.stroke) || '#000000';
     if (text) { $('#prop-font').value = o.fontFamily; $('#prop-size').value = Math.round(o.fontSize * (o.scaleY || 1)); $('#prop-bold').classList.toggle('on', o.fontWeight === 'bold' || o.fontWeight === 700); }
     $('#prop-opacity').value = Math.round(o.opacity * 100); $('#prop-width').value = o.strokeWidth;
+    $('#prop-blend').value = o.globalCompositeOperation || 'source-over';
     $('#prop-dash').value = o.strokeDashArray ? (o.strokeDashArray[0] === 1 ? 'dot' : 'dash') : 'solid';
     $('#prop-corners').value = o.rx || 0; $('#prop-shadow').checked = !!o.shadow;
     $('#prop-frame').disabled = o.type !== 'image';
@@ -1055,6 +1086,8 @@ $('#prop-fav').onclick = () => {
 };
 const bounded = (e, min, max, fallback = min) => Math.min(max, Math.max(min, Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : fallback));
 $('#prop-opacity').onchange = e => change({ opacity: bounded(e, 0, 100, 100) / 100 });
+$('#prop-blend').onchange = e => change({ globalCompositeOperation: BLENDS.includes(e.target.value) ? e.target.value : 'source-over' });
+const BLENDS = [...document.querySelectorAll('#prop-blend option')].map(o => o.value);
 $('#prop-width').onchange = e => change(o => ({ strokeWidth: bounded(e, 0, 100), stroke: o.stroke || $('#prop-stroke').value, paintFirst: 'stroke' }));
 $('#prop-dash').onchange = e => change({ strokeDashArray: e.target.value === 'solid' ? null : e.target.value === 'dot' ? [1, 5] : [8, 5] });
 $('#prop-corners').onchange = e => change(o => o.type === 'rect' ? { rx: bounded(e, 0, 200), ry: bounded(e, 0, 200) } : {});
@@ -1093,8 +1126,29 @@ function pictureFrame(image, kind) {
 }
 $('#prop-frame').onchange = e => change(o => o.type === 'image' ? { clipPath: pictureFrame(o, e.target.value) } : {});
 
+// ---- A picture's layers: its original, then a filter, adjusted parts, and a mask and fade (photolayers.js) ----
+// A picture with any of them keeps its original in kbOriginal, so every change starts again from the original.
+const PICTURE_LAYERS = ['kbFilter', 'kbLocal', 'kbMask', 'kbFade'];
+async function developPicture(original, layers) {
+  let src = layers.kbFilter ? await filterPicture(original, layers.kbFilter) : original;
+  if (layers.kbLocal && typeof adjustParts === 'function') src = await adjustParts(src, layers.kbLocal);
+  if ((layers.kbMask || layers.kbFade) && typeof maskPicture === 'function') src = await maskPicture(src, layers.kbMask, layers.kbFade);
+  return src;
+}
+// Changes some of a picture's layers (or its original) and draws it again from the original, as one undo step.
+async function setPicture(image, changes) {
+  const original = changes.original || image.kbOriginal || image.getSrc(), layers = {};
+  for (const k of PICTURE_LAYERS) { const v = k in changes ? changes[k] : image[k]; layers[k] = v && !(Array.isArray(v) && !v.length) ? v : undefined; }
+  const plain = PICTURE_LAYERS.every(k => !layers[k]), keep = { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
+  const src = plain ? original : await developPicture(original, layers);
+  if (!board.getObjects().includes(image)) return false;
+  await image.setSrc(src); image.set(keep); // same pixel size, so a crop stays put
+  image.set({ kbOriginal: plain ? undefined : original, ...layers });
+  image.setCoords(); board.requestRenderAll(); commitDesign();
+  return true;
+}
+
 // ---- Filters: Develop's looks, her presets and a few adjustments, drawn by the same GPU code as Photos ----
-// A filtered picture keeps its original in kbOriginal and its settings in kbFilter, so every change starts from the original.
 const ADJUST = [['exposure', 'Brightness', -2, 2, 0.05], ['contrast', 'Contrast', -100, 100, 1], ['saturation', 'Saturation', -100, 100, 1], ['temp', 'Warmth', -100, 100, 1], ['vignette', 'Vignette', -100, 100, 1]];
 // 8-bit sRGB to linear light as half floats: the Developer's input, which it turns back into sRGB, so no filter means no change.
 const SRGB_HALF = (() => {
@@ -1135,12 +1189,8 @@ function setFilter(image, filter) {
   filter = cleanFilter(filter);
   const run = filtering.then(async () => {
     if (!board.getObjects().includes(image)) return;
-    const original = image.kbOriginal || image.getSrc(), keep = { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
     $('#create-saved').textContent = 'Applying the filter…';
-    const src = filter ? await filterPicture(original, filter) : original;
-    await image.setSrc(src); image.set(keep); // same pixel size, so a crop stays put
-    image.kbOriginal = filter ? original : undefined; image.kbFilter = filter || undefined;
-    image.setCoords(); board.requestRenderAll(); commitDesign(); paintFilters();
+    await setPicture(image, { kbFilter: filter || undefined }); paintFilters();
   });
   filtering = run.catch(error => { $('#create-saved').textContent = 'Could not apply the filter: ' + error; });
   return track(filtering);
@@ -1426,7 +1476,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 18;
+const WHATS_NEW = 19;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

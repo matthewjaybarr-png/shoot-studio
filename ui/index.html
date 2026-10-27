@@ -149,9 +149,23 @@
             <label>Soft edges <output id="cut-soft-out"></output><input id="cut-soft" type="range" min="0" max="16" step="1"></label>
             <button id="cut-keep" type="button" class="wide primary">Keep only this</button>
             <button id="cut-erase" type="button" class="wide">Erase this part</button>
+            <button id="cut-adjust-open" type="button" class="wide">Adjust this part</button>
             <button id="cut-sticker" type="button" class="wide">Make a sticker of it</button>
             <label class="check"><input id="cut-outline" type="checkbox" checked> White outline on the sticker</label>
             <div class="cut-row"><button id="cut-back" type="button">Step back</button><button id="cut-clear" type="button">Start again</button></div>
+          </div>
+          <div id="cut-adjust" hidden>
+            <h3>Adjust this part</h3>
+            <div id="cut-adjust-sliders"></div>
+            <div class="cut-row"><button id="cut-adjust-done" type="button" class="primary">Finished</button><button id="cut-adjust-remove" type="button">Undo this part</button></div>
+          </div>
+          <div id="cut-picture" hidden>
+            <p id="cut-parts" class="hint" hidden><span id="cut-parts-count"></span> <button id="cut-parts-clear" type="button">Remove adjustments</button></p>
+            <h3>Touch up</h3>
+            <div id="cut-fix" class="effect-grid" role="group" aria-label="Touch-up brushes"></div>
+            <h3>Fade</h3>
+            <div id="fade-sides" class="fade-grid" role="group" aria-label="Fade the picture"></div>
+            <label>Fade length <output id="fade-size-out"></output><input id="fade-size" type="range" min="5" max="100" step="1"></label>
           </div>
           <button id="cut-done" type="button" class="wide">Done</button>
           </div>
@@ -241,7 +255,7 @@
       <button id="filter-remove" type="button" class="wide">Remove filter</button>
       <p class="hint">Filters use the same looks as Photos. The original picture is kept, so you can change or remove a filter any time.</p>
     </div>
-    <div id="pop-transparency" class="pop" hidden><label>Transparency <input id="prop-opacity" type="range" min="0" max="100" value="100"></label></div>
+    <div id="pop-transparency" class="pop" hidden><label>Transparency <input id="prop-opacity" type="range" min="0" max="100" value="100"></label><label>Blend <select id="prop-blend"><option value="source-over">Normal</option><option value="multiply">Multiply</option><option value="screen">Screen</option><option value="overlay">Overlay</option><option value="darken">Darken</option><option value="lighten">Lighten</option><option value="color-burn">Colour burn</option><option value="soft-light">Soft light</option><option value="difference">Difference</option><option value="color">Colour</option><option value="luminosity">Luminosity</option></select></label><p class="hint">Blend mixes it with what's underneath: Multiply lets white disappear, Screen lets black disappear.</p></div>
     <div id="pop-chart" class="pop" hidden>
       <label>Kind <select id="chart-kind"><option value="column">Column</option><option value="bar">Bar</option><option value="line">Line</option><option value="pie">Pie</option><option value="donut">Donut</option></select></label>
       <label>Title <input id="chart-title" type="text" maxlength="80" placeholder="No title"></label>
@@ -294,11 +308,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Photo layers</b>: Cut out now hides instead of deleting, with <b>Erase</b> and <b>Bring back</b> brushes. <b>Adjust this part</b> brightens or warms just what you choose, <b>Fade</b> melts a picture into the page, and <b>Blend</b> (under Transparency) mixes it with what's underneath. <b>Layers</b> shows each picture and can rename it.</li>
         <li><b>✂ Cut out</b> on a picture: <b>Remove the background</b> in one click, or choose what to keep with the Smart brush, a box, the Magic wand, a lasso or a brush. Keep only that part, erase it, or <b>make a sticker</b> of it.</li>
         <li><b>Remove</b> things from any photo: <b>Edit a photo</b> on the start screen, or <b>✨ Retouch</b> on a picture in a design. Paint over what you want gone. Photos' heal, clone and skin brushes are there too.</li>
         <li><b>📏 Rulers</b> in the top bar: drag from a ruler to add a guide line things snap to. <b>▦ All pages</b> shows every page at once; drag one to move it.</li>
         <li><b>Links</b> (🔗 in the toolbar) work in the downloaded PDF. <b>Find and replace</b> is in the File menu, which can now also <b>Open</b> your recent designs.</li>
-        <li><b>My elements</b>: select anything on the page, even pieces of a Canva design, and save it to the top of Elements to use again in any design.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -367,6 +381,7 @@
   <script src="doctools.js"></script>
   <script src="viewtools.js"></script>
   <script src="phototools.js"></script>
+  <script src="photolayers.js"></script>
   <script src="cutout.js"></script>
 
 </body></html>

@@ -101,11 +101,11 @@ pub fn select(w: usize, h: usize, rgba: &[u8], pick: &Pick) -> Result<Option<Reg
     })
 }
 
-/// Keeps the selected part of the picture: alpha becomes the picture's own alpha times the
-/// selection, its edge follows soft detail up to `finish.soft` pixels from where it was (the
-/// guided filter, as PhotoCraft's Refine Edge does it), and colour bleeding in from the old
-/// background is taken out of the edge. Returns the rectangle that still shows; the RGBA
-/// outside it is cleared.
+/// Finishes a selection for keeping: its edge follows soft detail up to `finish.soft` pixels from
+/// where it was (the guided filter, as PhotoCraft's Refine Edge does it), and colour bleeding in
+/// from the old background is taken out of the edge. `rgba` comes back as the cleaned colours with
+/// that coverage as alpha (the page multiplies it into the picture's mask), cleared outside the
+/// returned rectangle, which holds every pixel with any coverage.
 pub fn keep(w: usize, h: usize, rgba: &mut [u8], mask: &[u8], finish: &Finish) -> Result<Option<Rect>, String> {
     check(w, h, rgba)?;
     if mask.len() != w * h {
@@ -132,7 +132,7 @@ pub fn keep(w: usize, h: usize, rgba: &mut [u8], mask: &[u8], finish: &Finish) -
     for y in 0..ah {
         for x in 0..aw {
             let (i, o) = (y * aw + x, at(x, y) * 4);
-            let alpha = (a[i].clamp(0.0, 1.0) * rgba[o + 3] as f32).round() as u8;
+            let alpha = (a[i].clamp(0.0, 1.0) * 255.0).round() as u8;
             if alpha == 0 {
                 continue;
             }
@@ -299,6 +299,20 @@ mod tests {
         let t = std::time::Instant::now();
         keep(w, h, &mut img, &mask, &Finish { soft: 8.0 }).unwrap();
         println!("subject {picked:?}, keep {:?}", t.elapsed());
+    }
+
+    #[test]
+    fn coverage_comes_back_whatever_the_picture_alpha() {
+        let (w, h) = (60, 40);
+        let mut img: Vec<u8> = disc(w, h).chunks(4).flat_map(|p| [p[0], p[1], p[2], 128]).collect();
+        let mut mask = vec![0u8; w * h];
+        for y in 10..30 {
+            for x in 20..40 {
+                mask[y * w + x] = 255;
+            }
+        }
+        keep(w, h, &mut img, &mask, &Finish { soft: 0.0 }).unwrap().unwrap();
+        assert_eq!(img[(20 * w + 30) * 4 + 3], 255, "the page multiplies the picture's own alpha back in");
     }
 
     #[test]

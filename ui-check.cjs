@@ -116,7 +116,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'spot_source') return [0.05, 0];
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
   if (command === 'select_picture') { const b = new ArrayBuffer(16 + 100 * 80); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); new Uint8Array(b, 16).fill(255); return b; }
-  if (command === 'cutout_picture') { const b = new ArrayBuffer(16 + 100 * 80 * 4); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); const px = new Uint8Array(b, 16); for (let i = 0; i < px.length; i += 4) px.set([255, 0, 255, 255], i); return b; }
+  if (command === 'cutout_picture') { const b = new ArrayBuffer(16 + 100 * 80 * 4); new Uint32Array(b, 0, 4).set([50, 40, 100, 80]); const px = new Uint8Array(b, 16); for (let i = 0; i < px.length; i += 4) px.set([255, 0, 255, i < 400 ? 128 : 255], i); return b; }
   if (command === 'retouch_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255]); return b; }
   if (command === 'export_source') return rawImage(...exportSize, 0.18);
   if (command === 'save_export') {
@@ -2265,14 +2265,18 @@ const test = `<script>
       await until(() => picks().length === n + 1, 'a wand click');
       const wand = lastPick();
       step(wand.kind === 'wand' && Math.abs(wand.at[0] - 50 / 300) < 0.01 && wand.tolerance === cut.tolerance, () => 'the wand picks the clicked colour: ' + JSON.stringify(wand));
-      // Keep only this: the rest becomes see-through, as one undo step.
+      // Keep only this: the rest is hidden by the picture's mask, not lost, as one undo step.
+      const shownPx = (o, pts, src = o.getSrc()) => new Promise(r => { const i = new Image(); i.onload = () => { const k = document.createElement('canvas'); k.width = i.width; k.height = i.height; const g = k.getContext('2d'); g.drawImage(i, 0, 0); r(pts.map(([x, y]) => [...g.getImageData(x, y, 1, 1).data])); }; i.src = src; });
       const undoBefore = history[here], srcBefore = pic.getSrc();
       $('#cut-keep').click();
       await until(() => pic.getSrc() !== srcBefore && history[here] !== undoBefore && !adding.size, 'Keep only this, as one undo step');
       const kept = calls.filter(c => c.command === 'cutout_picture').at(-1);
       step(JSON.parse(decodeURIComponent(kept.options.headers.finish)).soft === cut.soft && kept.args.length === 8 + 300 * 200 * 5, 'Rust gets the picture, the choice and the soft edge');
-      const pixel = await new Promise(r => { const i = new Image(); i.onload = () => { const k = document.createElement('canvas'); k.width = i.width; k.height = i.height; const g = k.getContext('2d'); g.drawImage(i, 0, 0); r([...g.getImageData(60, 50, 1, 1).data, ...g.getImageData(5, 5, 1, 1).data, i.width]); }; i.src = pic.getSrc(); });
-      step(pixel[0] === 255 && pixel[1] === 0 && pixel[3] === 255 && pixel[7] === 0 && pixel[8] === 300 && pic.getSrc().startsWith('data:image/png'), () => 'what was kept shows and the rest is see-through: ' + pixel);
+      const [inside, outside, softEdge] = await shownPx(pic, [[60, 50], [5, 5], [60, 40]]);
+      step(inside[2] > 150 && inside[0] < 130 && inside[3] === 255 && outside[3] === 0 && softEdge[3] > 100 && softEdge[3] < 160 && pic.getSrc().startsWith('data:image/png') && pic.width === 300, () => 'what was kept shows as it was and the rest is see-through: ' + [inside, outside, softEdge]);
+      step(!!pic.kbMask && !!pic.kbOriginal && pic.kbOriginal !== srcBefore, 'the cut is a mask over the original');
+      const [edgeColour] = await shownPx(pic, [[60, 40]], pic.kbOriginal);
+      step(edgeColour[0] > 110 && edgeColour[1] < 100 && edgeColour[3] === 255, () => 'and the soft edge of the original takes the cleaned colour (a JPEG blurs one row): ' + edgeColour);
       step(cut.image === pic && !cut.any, 'the choice is cleared, ready for more');
       $('#create-undo').click();
       await until(() => board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo cutout')?.getSrc() === srcBefore, 'Undo brings the background back');
@@ -2298,10 +2302,58 @@ const test = `<script>
       const autoBefore = restored.getSrc(); n = picks().length;
       $('#cut-auto').click();
       await until(() => restored.getSrc() !== autoBefore && !adding.size, 'Remove the background');
-      step(lastPick().kind === 'subject' && picks().length === n + 1, 'it finds the subject and keeps only that');
+      step(lastPick().kind === 'subject' && picks().length === n + 1 && !!restored.kbMask, 'it finds the subject and keeps only that');
+      await until(() => cut.image === restored && !adding.size, 'ready to carry on');
+      // Touch up: Erase hides part of the picture and Bring back shows it again, straight into its mask.
+      $('#cut-size').value = 4; $('#cut-size').dispatchEvent(new Event('input'));
+      $('#cut-fix [data-cut=erase]').click();
+      step(cutRadius() < 30, () => 'a small brush for the test: ' + cutRadius());
+      step(seen('#cut-picture') && cut.tool === 'erase' && seen('#cut-size-row'), 'Touch up has an Erase brush with a size');
+      let maskBefore = restored.kbMask;
+      paint([[160, 160], [180, 160]]);
+      await until(() => restored.kbMask !== maskBefore && !adding.size, 'an Erase stroke');
+      let [erased, untouched] = await shownPx(restored, [[70, 60], [120, 100]]);
+      step(erased[3] === 0 && untouched[3] === 255, () => 'Erase hides just where it paints: ' + [erased, untouched]);
+      $('#cut-fix [data-cut=restore]').click(); maskBefore = restored.kbMask;
+      paint([[105, 105]]);
+      await until(() => restored.kbMask !== maskBefore && !adding.size, 'a Bring back stroke');
+      const [back] = await shownPx(restored, [[5, 5]]);
+      step(back[3] === 255 && back[2] > 150, () => 'Bring back shows the original again where the background was cut away: ' + back);
+      // Fade: the picture melts into the page from a side.
+      $('#fade-sides [data-fade=bottom]').click();
+      await until(() => restored.kbFade?.side === 'bottom' && !adding.size, 'Fade bottom');
+      const [top, bottom] = await shownPx(restored, [[100, 50], [100, 199]]);
+      step(top[3] === 255 && bottom[3] < 20 && $('#fade-sides [data-fade=bottom]').classList.contains('on'), () => 'the bottom fades out, the rest stays: ' + [top, bottom]);
+      $('#fade-sides [data-fade=""]').click();
+      await until(() => !restored.kbFade && !adding.size, 'No fade');
+      // Adjust this part: a filter seen only through the chosen part.
+      $('#cut-tools [data-cut=brush]').click(); paint([[200, 180]]);
+      const [plain] = await shownPx(restored, [[100, 80]]);
+      $('#cut-adjust-open').click();
+      await until(() => cut.adjust && seen('#cut-adjust') && !seen('#cut-actions'), 'Adjust this part shows its sliders');
+      const brighter = $('#cut-adjust-sliders [data-part=exposure]'); brighter.value = 1; brighter.dispatchEvent(new Event('change'));
+      await until(() => restored.kbLocal?.length === 1 && !adding.size, 'a brighter part');
+      const [lit, notLit] = await shownPx(restored, [[100, 80], [5, 5]]);
+      step(lit[2] > plain[2] + 10 && Math.abs(notLit[2] - back[2]) < 12, () => 'only the chosen part gets brighter: ' + [plain, lit, notLit]);
+      $('#cut-adjust-done').click();
+      step(!cut.adjust && seen('#cut-parts') && $('#cut-parts-count').textContent.includes('1 part'), 'Finished leaves a note that a part is adjusted');
+      $('#cut-parts-clear').click();
+      await until(() => !restored.kbLocal && !adding.size, 'Remove adjustments');
       for (const o of board.getObjects()) o.visible = true;
       $('#cut-done').click();
       step(drawer !== 'retouch' && photoTab === 'retouch' && !touchMode, 'Done puts Cut out away');
+      // Blend modes mix a picture with what's underneath, and are saved with it.
+      selectObjects([restored]); paintPanel();
+      $('#prop-blend').value = 'multiply'; $('#prop-blend').dispatchEvent(new Event('change'));
+      step(restored.globalCompositeOperation === 'multiply' && board.toObject(KEEP).objects.find(o => o.kbName === 'Photo cutout')?.globalCompositeOperation === 'multiply', 'Blend Multiply is set and saved');
+      // The Layers drawer shows the picture small, what Edit photo did to it, and renames it.
+      paintLayers();
+      const prow = [...$('#layers').children].find(r => r.textContent.startsWith('Photo cutout'));
+      step(prow && prow.querySelector('.layer-thumb') && /Cut out/.test(prow.querySelector('.layer-tags')?.textContent) && /Multiply/i.test(prow.textContent), () => 'the picture row has a thumbnail and tags: ' + prow?.textContent);
+      prow.querySelector('[title="Rename"]').click();
+      const rbox = $('#layers .layer-rename');
+      rbox.value = 'Cat on the step'; rbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      step(restored.kbName === 'Cat on the step' && [...$('#layers').children].some(r => r.textContent.startsWith('Cat on the step')), 'Rename names the layer');
       board.remove(restored); commitDesign();
     }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
@@ -2417,8 +2469,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="cutout.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('cutout.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

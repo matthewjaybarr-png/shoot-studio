@@ -193,10 +193,7 @@ async function retouchPicture(image, stroke) {
   work.ctx.putImageData(new ImageData(new Uint8ClampedArray(out.subarray(16, 16 + rw * rh * 4)), rw, rh), x, y);
   const next = work.canvas.toDataURL(work.clear || base.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.95);
   work.src = next;
-  const keep = { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
-  await image.setSrc(image.kbFilter ? await filterPicture(next, image.kbFilter) : next); image.set(keep); // same pixel size, so a crop stays put
-  if (image.kbFilter) image.kbOriginal = next;
-  image.setCoords(); board.requestRenderAll(); commitDesign();
+  await setPicture(image, { original: next }); // filtered, adjusted and masked again from the new pixels
   touchSay(stroke.tool === 'remove' ? 'Removed. Undo brings it back.' : 'Retouched. Undo takes it back.');
 }
 

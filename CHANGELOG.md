@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.30.0
+
+- Cut out no longer throws anything away: Keep only this and Erase this part hide pixels instead of deleting them, so they can always come back.
+- Touch up, in Cut out once a picture is chosen: the Erase brush hides more, and the Bring back brush paints hidden parts back (a faint copy shows where they were).
+- Adjust this part: choose part of a picture as usual, then change its brightness, contrast, saturation or warmth without touching the rest. Finished keeps it; Undo this part takes it away, and Remove adjustments clears every adjusted part.
+- Fade: a picture melts into the page from the bottom, top, left, right or all round, with Fade length setting how far.
+- Blend, under Transparency: Multiply, Screen, Overlay and other modes mix a picture or shape with what's underneath. Multiply lets white disappear, Screen lets black disappear.
+- Layers shows a small copy of each picture and what Edit photo has done to it (Cut out, Fade, Adjusted, Filter, the blend). ✎ renames a layer.
+- The What's new card appears once more.
+
 ## 0.29.0
 
 - Cut out, in the Edit photo drawer (the rail's Retouch button is now Edit photo, with Retouch and Cut out inside), or ✂ Cut out when a picture is selected.

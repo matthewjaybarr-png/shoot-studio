@@ -1,8 +1,9 @@
 // Cut out in Create: choose part of a picture (the subject, a box, a colour, a painted area, a lasso) and keep only
-// that part, erase it, or make a sticker of it. Choosing by colour and edges, and the soft clean edge at the end, are
-// worked out in Rust (PhotoCraft's selection code); lassos and plain brush strokes are drawn here. The choice is a
-// mask the picture's size, shown by dimming everything not chosen. Needs phototools.js for the picture under the
-// pointer, its pixels and the page's paint mode.
+// that part, erase it, adjust it, or make a sticker of it; touch up with the Erase and Bring back brushes; fade the
+// picture into the page. Choosing by colour and edges, and the soft clean edge at the end, are worked out in Rust
+// (PhotoCraft's selection code); lassos and plain brush strokes are drawn here. The choice is a mask the picture's
+// size, shown by dimming everything not chosen. What is cut away goes into the picture's own mask (photolayers.js),
+// never out of its pixels. Needs phototools.js for the picture under the pointer, its pixels and the paint mode.
 
 // ---- Ways to choose ----
 const CUT_TOOLS = [
@@ -17,36 +18,47 @@ const CUT_HINTS = {
   box: 'Drag a box around the thing you want; it finds the thing inside.',
   wand: 'Click a colour to choose everything that colour around it, like a plain sky or wall. Colour match sets how alike.',
   lasso: 'Hold the mouse button down and draw around what you want.',
-  brush: 'Paint exactly what to add or take away, to fix an edge.'
+  brush: 'Paint exactly what to add or take away, to fix an edge.',
+  erase: 'Paint over the picture to hide part of it.',
+  restore: 'Paint to bring back what was cut away; it shows faintly while this brush is picked.'
 };
+// Brushes that change the picture's mask straight away, rather than the choice.
+const FIX_TOOLS = [
+  ['erase', 'Erase', '<path d="M15 4l5 5-9 9H7l-3-3z"/><path d="M9.5 9.5l5 5M4 21h16"/>'],
+  ['restore', 'Bring back', '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/>']
+];
+const BRUSHED = ['smart', 'brush', 'erase', 'restore']; // the tools with a brush size
 const CUT_STEPS = 6; // Step back remembers this many choices (each is a copy of the mask)
-const cut = { loading: false, tool: 'smart', take: false, px: 30, tolerance: 32, soft: 3, image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, pointer: null, view: null };
+const cut = { loading: false, adjust: null, ghost: null, tool: 'smart', take: false, px: 30, tolerance: 32, soft: 3, image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, pointer: null, view: null };
 let cutQueue = Promise.resolve();
 const cutting = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'cutout' && !cropSession;
 const cutPictureGone = () => !cut.image || !board.getObjects().includes(cut.image) || (cut.image.kbOriginal || cut.image.getSrc()) !== cut.base;
 
 function paintCut() {
-  const tools = $('#cut-tools');
-  if (!tools.children.length) tools.append(...CUT_TOOLS.map(([key, label, icon]) => {
-    const b = button('', () => { cut.tool = key; cut.drag = null; paintCut(); }); b.dataset.cut = key; b.title = label;
-    b.insertAdjacentHTML('afterbegin', `<svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>`); b.append(label);
-    return b;
-  }));
-  for (const b of tools.children) { b.classList.toggle('on', b.dataset.cut === cut.tool); b.setAttribute('aria-pressed', b.dataset.cut === cut.tool); }
+  for (const [grid, list] of [[$('#cut-tools'), CUT_TOOLS], [$('#cut-fix'), FIX_TOOLS]]) {
+    if (!grid.children.length) grid.append(...list.map(([key, label, icon]) => {
+      const b = button('', () => { cut.tool = key; cut.drag = null; paintCut(); board?.requestRenderAll(); }); b.dataset.cut = key; b.title = label;
+      b.insertAdjacentHTML('afterbegin', `<svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>`); b.append(label);
+      return b;
+    }));
+    for (const b of grid.children) { b.classList.toggle('on', b.dataset.cut === cut.tool); b.setAttribute('aria-pressed', b.dataset.cut === cut.tool); }
+  }
   for (const b of document.querySelectorAll('#cut-mode [data-cut-mode]')) { const on = (b.dataset.cutMode === 'take') === cut.take; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }
   $('#cut-size').value = cut.px; $('#cut-size-out').textContent = cut.px + ' px';
   $('#cut-tolerance').value = cut.tolerance; $('#cut-tolerance-out').textContent = cut.tolerance;
   $('#cut-soft').value = cut.soft; $('#cut-soft-out').textContent = cut.soft ? cut.soft + ' px' : 'Off';
-  $('#cut-size-row').hidden = !['smart', 'brush'].includes(cut.tool);
+  $('#cut-size-row').hidden = !BRUSHED.includes(cut.tool);
   $('#cut-tolerance-row').hidden = cut.tool !== 'wand';
   if (cut.image && cutPictureGone()) resetCut();
   if (!cut.image && !cut.loading && cutting()) { // a page with one picture, as Edit a photo makes, needs no click to choose it
     const pictures = board.getObjects().filter(o => o.type === 'image' && o.visible !== false);
     if (pictures.length === 1) { cut.loading = true; cutQueued(() => chooseCutPicture(pictures[0]).finally(() => { cut.loading = false; })); }
   }
-  $('#cut-actions').hidden = !cut.any;
+  $('#cut-actions').hidden = !cut.any || !!cut.adjust;
   $('#cut-back').disabled = !cut.steps.length;
   $('#cut-hint').textContent = !cut.image ? 'Click the picture you want to cut out.' : CUT_HINTS[cut.tool];
+  $('#cut-picture').hidden = !cut.image;
+  paintAdjustPart(); paintFade();
 }
 for (const b of document.querySelectorAll('#cut-mode [data-cut-mode]')) b.onclick = () => { cut.take = b.dataset.cutMode === 'take'; paintCut(); };
 $('#cut-size').oninput = e => { cut.px = +e.target.value; paintCut(); board?.requestRenderAll(); };
@@ -55,7 +67,7 @@ $('#cut-soft').oninput = e => { cut.soft = +e.target.value; paintCut(); };
 
 // ---- The picture being cut out, and its mask ----
 function resetCut() {
-  Object.assign(cut, { image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, view: null });
+  Object.assign(cut, { image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, view: null, adjust: null });
 }
 async function chooseCutPicture(image) {
   const base = image.kbOriginal || image.getSrc(), work = await touchPixels(base);
@@ -164,8 +176,8 @@ function cutQueued(job) {
 
 function cutDown({ e }) {
   if (!cutting() || spacePan || e.button !== 0) return;
-  const at = board.getScenePoint(e), image = pictureAt(at, cut.px / board.getZoom());
   if (cut.image && cutPictureGone()) resetCut();
+  const at = board.getScenePoint(e), image = cut.image?.containsPoint(at) ? cut.image : pictureAt(at, cut.px / board.getZoom()); // the chosen picture counts where it's cut away too
   if (!image) return cutSay('Click on a picture to cut it out.');
   if (image !== cut.image) {
     const started = !!cut.image;
@@ -182,7 +194,7 @@ function cutMove({ e }) {
   const at = board.getScenePoint(e), d = cut.drag;
   cut.pointer = at;
   if (d && cut.image && d.points.length < 2000) {
-    const uv = toPicture(cut.image, at).map(round), last = d.points.at(-1), step = ['smart', 'brush'].includes(cut.tool) ? Math.max(1, cutRadius() / 4) : 2;
+    const uv = toPicture(cut.image, at).map(round), last = d.points.at(-1), step = BRUSHED.includes(cut.tool) ? Math.max(1, cutRadius() / 4) : 2;
     if (Math.hypot((uv[0] - last[0]) * cut.w, (uv[1] - last[1]) * cut.h) >= step) { d.points.push(uv); d.scene.push(at); }
   }
   board.requestRenderAll();
@@ -201,6 +213,7 @@ function cutUp() {
     if (d.points.length < 3) return cutSay('Hold the mouse button down and draw right around it.');
     cutDraw(d.points, 0);
   } else if (cut.tool === 'brush') cutDraw(d.points, cutRadius());
+  else if (cut.tool === 'erase' || cut.tool === 'restore') { const r = cutRadius(), restore = cut.tool === 'restore'; cutQueued(() => cutBrushMask(d.points, r, restore)); }
   else if (cut.tool === 'smart') {
     const size = Math.min(0.5, Math.max(0.001, cutRadius() / Math.max(cut.w, cut.h)));
     cutQueued(() => cutPick({ kind: 'smart', points: d.points.map(p => p.map(v => Math.min(1, Math.max(0, v)))), size: round(size) }));
@@ -208,22 +221,31 @@ function cutUp() {
 }
 
 // ---- Using the choice ----
-// Rust keeps what the mask covers, with a soft clean edge, and sends back the part that still shows.
+// Rust finishes the choice with a soft clean edge: back come the cleaned colours, with how much shows as alpha.
 async function cutKeep(mask) {
   const base = cut.base, out = new Uint8Array(await invoke('cutout_picture', await cutBody(mask), { headers: { finish: encodeURIComponent(JSON.stringify({ soft: cut.soft })) } }));
   if (cutPictureGone() || cut.base !== base) return null;
   const view = new DataView(out.buffer, out.byteOffset), [x, y, w, h] = [0, 4, 8, 12].map(i => view.getUint32(i, true));
   return { x, y, w, h, pixels: w && h ? new ImageData(new Uint8ClampedArray(out.subarray(16, 16 + w * h * 4)), w, h) : null };
 }
-// The picture's pixels replaced by what was kept, refiltered, as one undo step.
-async function cutReplace(kept, done) {
-  const image = cut.image, canvas = Object.assign(document.createElement('canvas'), { width: cut.w, height: cut.h });
-  if (kept.pixels) canvas.getContext('2d').putImageData(kept.pixels, kept.x, kept.y);
-  const next = canvas.toDataURL('image/png'), keep = { width: image.width, height: image.height, cropX: image.cropX, cropY: image.cropY };
-  await image.setSrc(image.kbFilter ? await filterPicture(next, image.kbFilter) : next); image.set(keep); // same pixel size, so a crop stays put
-  if (image.kbFilter) image.kbOriginal = next;
-  image.setCoords(); commitDesign();
-  await chooseCutPicture(image); // carry on cutting the new pixels
+// What was kept goes into the picture's mask (times what it already hid), and the cleaned colours into the soft edge of
+// its original, as one undo step.
+async function cutApply(kept, done) {
+  const image = cut.image, { w, h } = cut, old = image.kbMask ? await maskBytes(image.kbMask, w, h) : null, next = new Uint8Array(w * h);
+  const work = await touchPixels(cut.base), edge = kept.pixels && work.ctx.getImageData(kept.x, kept.y, kept.w, kept.h);
+  let recoloured = false;
+  for (let yy = 0; yy < kept.h; yy++) for (let xx = 0; xx < kept.w; xx++) {
+    const k = (yy * kept.w + xx) * 4, c = kept.pixels.data[k + 3], i = (kept.y + yy) * w + kept.x + xx;
+    next[i] = old ? Math.round(old[i] * c / 255) : c;
+    if (c > 0 && c < 255) { edge.data.set(kept.pixels.data.subarray(k, k + 3), k); recoloured = true; }
+  }
+  const changes = { kbMask: next.every(v => v === 255) ? undefined : maskUrl(next, w, h) };
+  if (recoloured) {
+    work.ctx.putImageData(edge, kept.x, kept.y);
+    changes.original = work.src = work.canvas.toDataURL(work.clear || cut.base.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.95);
+  }
+  await setPicture(image, changes);
+  await chooseCutPicture(image); // carry on with the new picture
   cutSay(done);
 }
 function cutInverse() { return cut.mask.map(v => 255 - v); }
@@ -231,16 +253,31 @@ $('#cut-keep').onclick = () => cutQueued(async () => {
   if (!cut.any) return;
   cutSay('Cutting out…');
   const kept = await cutKeep(cut.mask);
-  if (kept) await cutReplace(kept, 'Only the chosen part is left. Undo brings the rest back.');
+  if (kept) await cutApply(kept, 'Only the chosen part shows. Bring back or Undo returns the rest.');
 });
 $('#cut-erase').onclick = () => cutQueued(async () => {
   if (!cut.any) return;
   cutSay('Erasing…');
   const kept = await cutKeep(cutInverse());
-  if (kept) await cutReplace(kept, 'Erased. Undo brings it back.');
+  if (kept) await cutApply(kept, 'Erased. Bring back or Undo returns it.');
 });
-// A sticker is a new picture of just the chosen part (as much as the crop shows), placed exactly over it, with an
-// optional white outline as Canva gives stickers.
+// The Erase and Bring back brushes paint straight into the picture's mask, one stroke an undo step.
+async function cutBrushMask(points, r, restore) {
+  const image = cut.image, { w, h } = cut, canvas = pictureCanvas(w, h), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (image.kbMask) ctx.drawImage(await loadPicture(image.kbMask), 0, 0, w, h); else { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); }
+  ctx.globalCompositeOperation = restore ? 'source-over' : 'destination-out';
+  ctx.fillStyle = ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * r; ctx.lineCap = ctx.lineJoin = 'round'; ctx.beginPath();
+  const pts = points.map(([u, v]) => [u * w, v * h]);
+  pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  if (pts.length === 1) { ctx.arc(pts[0][0], pts[0][1], r, 0, 2 * Math.PI); ctx.fill(); } else ctx.stroke();
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let whole = true;
+  for (let i = 3; i < data.length && whole; i += 4) whole = data[i] === 255;
+  await setPicture(image, { kbMask: whole ? undefined : canvas.toDataURL('image/png') });
+  cutSay(restore ? 'Brought back. Undo hides it again.' : 'Erased. Bring back or Undo returns it.');
+}
+// A sticker is a new picture of just the chosen part as it looks on the page (as much as the crop shows), placed
+// exactly over it, with an optional white outline as Canva gives stickers.
 $('#cut-sticker').onclick = () => cutQueued(async () => {
   if (!cut.any) return;
   cutSay('Making a sticker…');
@@ -249,10 +286,17 @@ $('#cut-sticker').onclick = () => cutQueued(async () => {
   const kept = await cutKeep(mask);
   if (!kept) return;
   if (!kept.pixels) return cutSay('That part is outside the crop.');
+  const piece = pictureCanvas(kept.w, kept.h), pctx = piece.getContext('2d', { willReadFrequently: true });
+  pctx.drawImage(image.getElement(), -kept.x, -kept.y, cut.w, cut.h); // what shows: filters, adjustments and mask included
+  const shown = pctx.getImageData(0, 0, kept.w, kept.h), plainColours = !image.kbFilter && !image.kbLocal;
+  for (let i = 0; i < shown.data.length; i += 4) {
+    const c = kept.pixels.data[i + 3];
+    if (plainColours && c > 0 && c < 255) shown.data.set(kept.pixels.data.subarray(i, i + 3), i); // the cleaned edge colours
+    shown.data[i + 3] = Math.round(shown.data[i + 3] * c / 255);
+  }
+  pctx.putImageData(shown, 0, 0);
   const outline = $('#cut-outline').checked ? Math.max(2, Math.round(Math.max(kept.w, kept.h) * 0.025)) : 0;
-  const piece = Object.assign(document.createElement('canvas'), { width: kept.w, height: kept.h });
-  piece.getContext('2d').putImageData(kept.pixels, 0, 0);
-  const sheet = Object.assign(document.createElement('canvas'), { width: kept.w + 2 * outline, height: kept.h + 2 * outline }), ctx = sheet.getContext('2d');
+  const sheet = pictureCanvas(kept.w + 2 * outline, kept.h + 2 * outline), ctx = sheet.getContext('2d');
   if (outline) {
     for (let i = 0; i < 24; i++) ctx.drawImage(piece, outline + outline * Math.cos(i * Math.PI / 12), outline + outline * Math.sin(i * Math.PI / 12));
     ctx.globalCompositeOperation = 'source-in'; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, sheet.width, sheet.height);
@@ -267,6 +311,75 @@ $('#cut-sticker').onclick = () => cutQueued(async () => {
   board.setActiveObject(sticker); board.requestRenderAll(); commitDesign(); paintPanel();
   cutSay('Sticker added on top. Drag it anywhere, or save it to My elements.');
 });
+
+// ---- Adjust this part: brightness, contrast, colour and warmth for just the chosen part ----
+const PART_ADJUST = ADJUST.filter(([key]) => key !== 'vignette');
+$('#cut-adjust-open').onclick = () => cutQueued(async () => {
+  if (!cut.any) return;
+  cutSay('Getting the part ready…');
+  const kept = await cutKeep(cut.mask);
+  if (!kept?.pixels) return;
+  const bytes = new Uint8Array(cut.w * cut.h);
+  for (let yy = 0; yy < kept.h; yy++) for (let xx = 0; xx < kept.w; xx++) bytes[(kept.y + yy) * cut.w + kept.x + xx] = kept.pixels.data[(yy * kept.w + xx) * 4 + 3];
+  cut.adjust = { image: cut.image, kbMask: maskUrl(bytes, cut.w, cut.h), filter: {}, index: null };
+  paintCut(); $('#cut-adjust').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  cutSay('Move the sliders to change just that part.');
+});
+function paintAdjustPart() {
+  const a = cut.adjust, live = a && a.image === cut.image;
+  if (a && !live) cut.adjust = null;
+  $('#cut-adjust').hidden = !live;
+  const parts = cut.image?.kbLocal?.length || 0;
+  $('#cut-parts').hidden = !parts || live;
+  $('#cut-parts-count').textContent = parts === 1 ? '1 part is adjusted.' : parts + ' parts are adjusted.';
+  if (!live) return;
+  const sliders = $('#cut-adjust-sliders');
+  if (!sliders.children.length) sliders.append(...PART_ADJUST.map(([key, label, min, max, step]) => {
+    const row = document.createElement('label'), input = Object.assign(document.createElement('input'), { type: 'range', min, max, step, value: 0 });
+    input.dataset.part = key;
+    input.onchange = () => setPartFilter({ ...cut.adjust.filter, [key]: +input.value });
+    row.append(label, input);
+    return row;
+  }));
+  for (const input of sliders.querySelectorAll('input')) input.value = a.filter[input.dataset.part] || 0;
+}
+function setPartFilter(filter) {
+  const a = cut.adjust;
+  if (!a) return;
+  a.filter = filter;
+  cutQueued(async () => {
+    const parts = (a.image.kbLocal || []).slice(), clean = cleanFilter(a.filter);
+    if (a.index === null && clean) { a.index = parts.length; parts.push(null); }
+    if (a.index !== null) clean ? (parts[a.index] = { kbMask: a.kbMask, filter: clean }) : (parts.splice(a.index, 1), a.index = null);
+    cutSay('Adjusting…');
+    await setPicture(a.image, { kbLocal: parts });
+    cutSay('Adjusted. Undo takes it back.');
+  });
+}
+$('#cut-adjust-done').onclick = () => { cut.adjust = null; paintCut(); };
+$('#cut-adjust-remove').onclick = () => { if (cut.adjust) { setPartFilter({}); cut.adjust = null; paintCut(); } };
+$('#cut-parts-clear').onclick = () => cutQueued(async () => { if (cut.image?.kbLocal) { await setPicture(cut.image, { kbLocal: undefined }); paintCut(); cutSay('Adjustments removed. Undo brings them back.'); } });
+
+// ---- Fade: the chosen picture melts into the page ----
+let fadeSize = 30; // percent of the picture the fade covers, for the next fade picked
+function paintFade() {
+  const fades = $('#fade-sides'), current = cut.image?.kbFade;
+  if (!fades.children.length) fades.append(...FADES.map(([side, label]) => { const b = button(label, () => setFade(side)); b.dataset.fade = side; return b; }));
+  for (const b of fades.children) { const on = (current?.side || '') === b.dataset.fade; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }
+  if (current) fadeSize = Math.round(current.size * 100);
+  $('#fade-size').value = fadeSize; $('#fade-size-out').textContent = fadeSize + '%';
+}
+function setFade(side) {
+  const image = cut.image;
+  if (!image) return;
+  cutQueued(async () => {
+    await setPicture(image, { kbFade: side ? { side, size: fadeSize / 100 } : undefined });
+    paintCut(); cutSay(side ? 'Faded. Undo takes it back.' : 'No fade.');
+  });
+}
+$('#fade-size').oninput = e => { fadeSize = +e.target.value; $('#fade-size-out').textContent = fadeSize + '%'; };
+$('#fade-size').onchange = () => { if (cut.image?.kbFade) setFade(cut.image.kbFade.side); };
+
 $('#cut-back').onclick = () => { if (cut.steps.length) { cut.mask = cut.steps.pop(); cutChanged(); } };
 $('#cut-clear').onclick = () => { if (cut.mask) { mergeCut(0, 0, 0, 0, [], true); cutSay('Cleared. Choose again.'); } };
 function cutDone() { cut.drag = null; resetCut(); photoTab = 'retouch'; if (drawer === 'retouch') showDrawer('retouch'); }
@@ -286,7 +399,7 @@ $('#cut-auto').onclick = () => cutQueued(async () => {
   if (!found) return;
   cutSay('Removing the background…');
   const kept = await cutKeep(cut.mask);
-  if (kept) await cutReplace(kept, 'Background removed. Undo brings it back.');
+  if (kept) await cutApply(kept, 'Background removed. Bring back or Undo returns any of it.');
 });
 $('#prop-cutout').onclick = () => {
   const image = board.getActiveObject();
@@ -303,6 +416,10 @@ function drawCut(ctx) {
     const [nw, nh] = naturalSize(image);
     ctx.save(); ctx.transform(...image.calcTransformMatrix());
     ctx.beginPath(); ctx.rect(-image.width / 2, -image.height / 2, image.width, image.height); ctx.clip();
+    if (cut.tool === 'restore' && image.kbMask) { // what can be brought back shows faintly
+      if (cut.ghost?.src !== cut.base) { const img = new Image(); img.onload = () => board.requestRenderAll(); img.src = cut.base; cut.ghost = { src: cut.base, img }; }
+      if (cut.ghost.img.complete) { ctx.globalAlpha = 0.3; ctx.drawImage(cut.ghost.img, -image.width / 2 - (image.cropX || 0), -image.height / 2 - (image.cropY || 0), nw, nh); ctx.globalAlpha = 1; }
+    }
     if (cut.view && Math.abs(Math.log(z / cut.view.kbZoom)) > 0.4) cut.view = cutView();
     if (cut.view) ctx.drawImage(cut.view, -image.width / 2 - (image.cropX || 0), -image.height / 2 - (image.cropY || 0), nw, nh);
     ctx.restore();
@@ -310,7 +427,7 @@ function drawCut(ctx) {
     ctx.save(); ctx.strokeStyle = '#d0489b'; ctx.lineWidth = 2 / z; ctx.setLineDash([6 / z, 4 / z]); ctx.beginPath();
     corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke(); ctx.restore();
   }
-  const d = cut.drag, colour = cut.take ? 'rgba(60,60,70,.45)' : 'rgba(208,72,155,.45)';
+  const d = cut.drag, colour = cut.tool === 'erase' || (cut.take && cut.tool !== 'restore') ? 'rgba(60,60,70,.45)' : 'rgba(208,72,155,.45)';
   if (d && image) {
     ctx.save(); ctx.lineWidth = 2 / z; ctx.strokeStyle = '#d0489b';
     if (cut.tool === 'box' && cut.pointer) { ctx.setLineDash([6 / z, 4 / z]); ctx.strokeRect(d.start.x, d.start.y, cut.pointer.x - d.start.x, cut.pointer.y - d.start.y); }
@@ -323,7 +440,7 @@ function drawCut(ctx) {
     }
     ctx.restore();
   }
-  if (cut.pointer && ['smart', 'brush'].includes(cut.tool) && image) {
+  if (cut.pointer && BRUSHED.includes(cut.tool) && image) {
     for (const [c, wd] of [['rgba(0,0,0,.55)', 3], ['#ffffff', 1.5]]) { ctx.strokeStyle = c; ctx.lineWidth = wd / z; ctx.beginPath(); ctx.arc(cut.pointer.x, cut.pointer.y, cut.px / z, 0, 2 * Math.PI); ctx.stroke(); }
   }
 }
