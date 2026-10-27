@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0
+
+- A new light look across the whole app: soft blush and lavender panels, white cards, orchid and pink-to-purple buttons, and light blue touches.
+- The start screen has the KB Studio artwork as its background, a welcome card, and rounded cards for Photos, Create and Import from Canva.
+- Photos, the grid, the filmstrip and Develop keep a neutral grey behind every photo, so colours and exposure are judged fairly against the lighter app around them.
+- In Create the page sits on a soft lavender pasteboard, and the snapping guides are pink.
+- The What's new card appears once more.
+
 ## 0.19.0
 
 - Photos works with the mouse alone. A bar above the photos has Pick, Reject, Unflag and one to five stars for the current photo (click the same star again to clear it), Copy settings and Paste settings, and in the grid Select all.

@@ -1367,7 +1367,7 @@ const test = `<script>
     fitBoard(); board.renderAll();
     const pixelAt = (x, y) => [...board.contextContainer.getImageData(Math.round(x), Math.round(y), 1, 1).data.slice(0, 3)].join();
     const v0 = board.viewportTransform, z0 = board.getZoom();
-    step(pixelAt(3, 3).split(',').every((v, i) => Math.abs(v - [58, 60, 68][i]) <= 2) && pixelAt(v0[4] + 408 * z0, v0[5] + 528 * z0) === '255,255,255', () => 'the page is drawn white on a grey pasteboard: ' + pixelAt(3, 3) + ' / ' + pixelAt(v0[4] + 408 * z0, v0[5] + 528 * z0));
+    step(pixelAt(3, 3).split(',').every((v, i) => Math.abs(v - [237, 229, 242][i]) <= 2) && pixelAt(v0[4] + 408 * z0, v0[5] + 528 * z0) === '255,255,255', () => 'the page is drawn white on a lavender pasteboard: ' + pixelAt(3, 3) + ' / ' + pixelAt(v0[4] + 408 * z0, v0[5] + 528 * z0));
     addShape('rect'); const hanging = board.getActiveObject(); hanging.set({ left: -120, top: 40 }); hanging.setCoords(); commitDesign(); board.renderAll();
     step(board.getObjects().includes(hanging) && JSON.parse(JSON.stringify(blob())).canvas.objects[0].left === -120, 'an object can hang off the page and is saved where it is');
     const before = [...board.viewportTransform];

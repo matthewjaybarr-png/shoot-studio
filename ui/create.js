@@ -55,7 +55,7 @@ const historyImages = new Map(), imageIds = new Map();
 let nextImageId = 0, pageGuides = [];
 let board = null;                                      // the Fabric canvas
 let cropSession = null, guidelines, transforming = false, openPop = null, fitted = true, boardPan = null, spacePan = false, hovered = null;
-const PASTEBOARD = '#3a3c44';
+const PASTEBOARD = '#ede5f2';
 let design = null;                                     // { title, page, size (inches), tile, copies }
 let designPages = [], pageAt = 0;                      // every page's canvas JSON; the one being edited lives on the board instead
 let designFonts = [];                                  // fonts that came inside an imported design: [{ family, src }], saved with it
@@ -125,7 +125,7 @@ function startBoard() {
     if (!design) return;
     const [w, h] = pagePx();
     ctx.save(); ctx.transform(...board.viewportTransform);
-    ctx.shadowColor = '#0009'; ctx.shadowBlur = 16; ctx.fillStyle = board.backgroundColor || '#ffffff'; ctx.fillRect(0, 0, w, h);
+    ctx.shadowColor = 'rgba(90, 40, 100, 0.25)'; ctx.shadowBlur = 16; ctx.fillStyle = board.backgroundColor || '#ffffff'; ctx.fillRect(0, 0, w, h);
     ctx.restore();
   };
   board._renderOverlay = ctx => {
@@ -133,7 +133,7 @@ function startBoard() {
     const [w, h] = pagePx();
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, board.width, board.height);
     ctx.transform(...board.viewportTransform); ctx.rect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(58, 60, 68, 0.72)'; ctx.fill('evenodd'); ctx.restore();
+    ctx.fillStyle = 'rgba(237, 229, 242, 0.78)'; ctx.fill('evenodd'); ctx.restore();
   };
   for (const e of ['object:modified', 'text:editing:exited']) board.on(e, commitDesign);
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
@@ -227,13 +227,13 @@ function drawPageOverlay() {
   ctx.setLineDash([]);
   // A thin outline under the pointer shows what a click would pick, as in Canva.
   if (hovered && !transforming && !board.getActiveObjects().includes(hovered) && hovered.visible !== false && board.getObjects().includes(hovered)) {
-    ctx.strokeStyle = '#8ab4ff'; ctx.lineWidth = 2 / board.getZoom(); ctx.beginPath();
+    ctx.strokeStyle = '#d0489b'; ctx.lineWidth = 2 / board.getZoom(); ctx.beginPath();
     hovered.getCoords().forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
     ctx.lineWidth = 1 / board.getZoom();
   }
   for (const o of board.getObjects()) if (emptyFrame(o) && o.visible !== false) drawFrameHint(ctx, o);
   if (dropHover && board.getObjects().includes(dropHover)) {
-    ctx.strokeStyle = '#8ab4ff'; ctx.lineWidth = 4 / board.getZoom(); ctx.beginPath();
+    ctx.strokeStyle = '#d0489b'; ctx.lineWidth = 4 / board.getZoom(); ctx.beginPath();
     dropHover.getCoords().forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
     ctx.lineWidth = 1 / board.getZoom();
   }
@@ -1375,7 +1375,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 8;
+const WHATS_NEW = 9;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

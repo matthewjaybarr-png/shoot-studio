@@ -484,7 +484,7 @@ class Developer {
     const bw = Math.max(1, Math.round(c.clientWidth * dpr)), bh = Math.max(1, Math.round(c.clientHeight * dpr));
     if (c.width !== bw || c.height !== bh) Object.assign(c, { width: bw, height: bh });
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.clearColor(0.043, 0.047, 0.063, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearColor(0.196, 0.192, 0.212, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     const p = this.placement();
     if (!p) return;
     // Draw only what the canvas shows: a zoomed photo can be far bigger than the GPU's viewport limit.
