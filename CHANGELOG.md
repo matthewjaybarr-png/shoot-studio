@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.0
+
+- Tables can be changed after they're added: click any cell and use Table in the toolbar to add a row above or below, a column left or right, or delete a row or column. New rows make the table taller; new columns share the table's width.
+- Each cell can have its own colour (No colour clears it), and the borders' colour and thickness change for the whole table at once.
+- A row grows taller when its words no longer fit, as in Canva.
+- Select the whole table, to move or resize it in one go, and Delete the table.
+- Tables from Canva files can be changed the same way, merged cells included.
+- Text alignment is one button now, as in Canva: each click moves from left to centre, right and justified. It frees room in the toolbar.
+- The What's new card appears once more.
+
 ## 0.23.0
 
 - Gradients in Colours: twelve ready-made ones (soft pinks, lavenders and blues among them) and a maker with two colours, a ⇄ swap and a direction (down, across, corner to corner or from the middle). They work on text, shapes and the page itself, and opening Colours on a gradient shows how it was made so it can be changed.

@@ -350,6 +350,7 @@ function tableOf(tbl, box, ctx) {
   const cols = KIDS(kid(tbl, 'tblGrid')).map(c => num(c, 'w') * box.scale), rows = KIDS(tbl).filter(c => c.localName === 'tr');
   const heights = rows.map(r => num(r, 'h') * box.scale), objects = [];
   const xs = cols.map((_, i) => cols.slice(0, i).reduce((a, b) => a + b, 0)), ys = heights.map((_, i) => heights.slice(0, i).reduce((a, b) => a + b, 0));
+  const kbTable = typeof newTableId === 'function' ? newTableId() : undefined; // so the table can be changed like one made here
   rows.forEach((tr, r) => KIDS(tr).filter(c => c.localName === 'tc').forEach((tc, c) => {
     if (yes(tc.getAttribute('hMerge')) || yes(tc.getAttribute('vMerge')) || c >= cols.length) return; // covered by a merged cell
     const span = Math.max(1, num(tc, 'gridSpan', 1)), down = Math.max(1, num(tc, 'rowSpan', 1)), tcPr = kid(tc, 'tcPr');
@@ -357,9 +358,9 @@ function tableOf(tbl, box, ctx) {
     // Fabric draws one border all round, so the cell takes the first edge that has one.
     const edge = ['lnT', 'lnL', 'lnB', 'lnR'].map(name => kid(tcPr, name)).find(ln => ln && !kid(ln, 'noFill') && kid(ln, 'solidFill'));
     const fill = fillOf(tcPr, ctx.theme), line = strokeOf(edge, ctx.theme, box.scale);
-    objects.push(new fabric.Rect({ left: cell.x, top: cell.y, width: cell.w, height: cell.h, fill: fill?.fill ?? null, opacity: fill?.alpha ?? 1, ...(line || { stroke: null, strokeWidth: 0 }), kbName: 'Table cell' }));
+    objects.push(new fabric.Rect({ left: cell.x, top: cell.y, width: cell.w, height: cell.h, fill: fill?.fill ?? null, opacity: fill?.alpha ?? 1, ...(line || { stroke: null, strokeWidth: 0 }), kbName: 'Table cell', kbTable }));
     const txBody = kid(tc, 'txBody'), text = txBody && textOf(txBody, cell, null, ctx, tcPr);
-    if (text) objects.push(text.set({ kbName: 'Cell text' }));
+    if (text) objects.push(text.set({ kbName: 'Cell text', kbTable }));
   }));
   return objects;
 }

@@ -51,9 +51,10 @@
       <label data-for="text shape line multi" class="swatch-input" title="Colour"><input id="prop-fill" type="color" aria-label="Colour"></label>
       <button data-for="none text shape line multi" type="button" data-pop="pop-colours" id="colours-open" title="Colours: this design's, saved and default" aria-label="Colours">Colours ▾</button>
       <span data-for="text"><button id="prop-bold" type="button" title="Bold" aria-label="Bold"><b>B</b></button><button id="prop-italic" type="button" title="Italic" aria-label="Italic"><i>I</i></button><button id="prop-underline" type="button" title="Underline" aria-label="Underline"><u>U</u></button><button id="prop-strike" type="button" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button><button id="prop-caps" type="button" title="Capitals" aria-label="Capitals">aA</button><button id="prop-list" type="button" title="Bullets, then numbers, then none">• List</button></span>
-      <span data-for="text"><button type="button" data-text-align="left" title="Align left" aria-label="Align left">⇤</button><button type="button" data-text-align="center" title="Centre" aria-label="Centre">↔</button><button type="button" data-text-align="right" title="Align right" aria-label="Align right">⇥</button></span>
+      <button data-for="text" id="prop-align" type="button" title="Align left (click for centre)" aria-label="Alignment">⇤</button>
       <button data-for="text" type="button" data-pop="pop-spacing">Spacing</button>
       <button data-for="chart" type="button" data-pop="pop-chart" id="chart-open">Edit chart</button>
+      <button data-for="cell" type="button" data-pop="pop-table" id="table-open">Table</button>
       <span data-for="group" id="graphic-colours" class="graphic-colours" aria-label="Colours in this graphic"></span>
       <button data-for="text shape line image" id="prop-copy-style" type="button" title="Copy this look onto something else">🖌 Copy style</button>
       <button data-for="shape image line multi" type="button" data-pop="pop-outline">Border</button>
@@ -205,6 +206,15 @@
       <button id="chart-add" type="button" class="wide">+ Add a row</button>
       <label class="check"><input id="chart-values" type="checkbox" checked> Show the numbers</label>
     </div>
+    <div id="pop-table" class="pop" hidden>
+      <p id="table-size" class="hint"></p>
+      <p id="table-turned" class="hint" hidden>Turn the table back straight (Position → rotation 0) to add or remove rows and columns.</p>
+      <h4>Rows</h4><div class="grid3"><button id="table-row-above" type="button">+ Above</button><button id="table-row-below" type="button">+ Below</button><button id="table-row-delete" type="button">Delete row</button></div>
+      <h4>Columns</h4><div class="grid3"><button id="table-col-left" type="button">+ Left</button><button id="table-col-right" type="button">+ Right</button><button id="table-col-delete" type="button">Delete column</button></div>
+      <h4>This cell</h4><div class="row"><label>Colour <input id="table-cell-colour" type="color"></label><button id="table-cell-clear" type="button">No colour</button></div>
+      <h4>Borders</h4><div class="row"><label>Colour <input id="table-border-colour" type="color"></label><label>Thickness <input id="table-border-width" type="number" min="0" max="20"></label></div>
+      <div class="grid2"><button id="table-select" type="button">Select the whole table</button><button id="table-delete" type="button">Delete the table</button></div>
+    </div>
     <div id="pop-position" class="pop" hidden>
       <h4>Arrange</h4>
       <div class="grid2"><button id="prop-front" type="button">To front</button><button id="prop-forward" type="button">Forward</button><button id="prop-back" type="button">To back</button><button id="prop-backward" type="button">Backward</button></div>
@@ -224,11 +234,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Tables</b> you can change: click a cell, then <b>Table</b> to add or remove rows and columns, colour a cell or change the borders. Rows grow to fit what you type.</li>
         <li><b>Gradients</b> in Colours, for words, shapes and the page. A photo's <b>Set as background</b> fills the page with it. PNGs can be <b>see-through</b>.</li>
         <li><b>Charts</b> in Elements: column, bar, line, pie and donut. Click <b>Edit chart</b> to type your own labels and numbers. Charts from Canva files come in ready to edit too.</li>
         <li><b>Decorations</b> in Elements: leaves, flowers, wreaths, doodles, dividers and party pieces. Click their colour dots in the toolbar to recolour them. Elements sections now fold away.</li>
         <li>Text can <b>curve</b> (Effects), become a bulleted or numbered <b>list</b>, go to capitals or get a strikethrough. <b>Copy style</b> paints one thing's look onto another.</li>
-        <li>In <b>Photos</b>, everything has a button now: Pick, Reject and stars above the photos (or on each photo in the grid), Grid / Photo / Compare / Develop, arrows and a filmstrip, and in Develop: hold for before, Undo, Fit and 100%. Develop's settings are in drawers on the left, with each look shown as a picture.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -292,5 +302,6 @@
   <script src="decor.js"></script>
   <script src="charts.js"></script>
   <script src="fills.js"></script>
+  <script src="tables.js"></script>
 
 </body></html>

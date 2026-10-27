@@ -137,6 +137,7 @@ function startBoard() {
   };
   for (const e of ['object:modified', 'text:editing:exited']) board.on(e, commitDesign);
   if (typeof startTextTools === 'function') startTextTools();
+  if (typeof startTables === 'function') startTables();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
@@ -820,10 +821,10 @@ function handwritingLines(width) {
 }
 function tableCells(rows, cols, top = 180, height = Math.min(rows * 72, pagePx()[1] - top - 48), text = 'Text', pageWidth = pagePx()[0]) {
   if (![rows, cols].every(n => Number.isInteger(n) && n >= 1 && n <= 20)) throw Error('Use 1 to 20 rows and columns');
-  const width = (pageWidth - 96) / cols, cellHeight = height / rows, cells = [];
+  const width = (pageWidth - 96) / cols, cellHeight = height / rows, cells = [], kbTable = typeof newTableId === 'function' ? newTableId() : undefined;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const left = 48 + c * width, y = top + r * cellHeight;
-    cells.push(R(left, y, width, cellHeight, { kbName: 'Table cell' }), T(width < 72 ? '' : text, left + 6, y + 6, { width: width - 12, minWidth: 1, fontSize: Math.min(24, cellHeight / 3), kbName: 'Cell text' }));
+    cells.push(R(left, y, width, cellHeight, { kbName: 'Table cell', kbTable }), T(width < 72 ? '' : text, left + 6, y + 6, { width: width - 12, minWidth: 1, fontSize: Math.min(24, cellHeight / 3), kbName: 'Cell text', kbTable }));
   }
   return cells;
 }
@@ -962,7 +963,7 @@ function tagsOf(o) {
   if (objects.some(x => x.kbLocked)) return ['locked'];
   if (o.type === 'activeselection') return ['object', 'multi'];
   const kind = { textbox: 'text', image: 'image', group: 'group', line: 'line' }[o.type] || (o.type === 'path' && !o.fill ? 'line' : 'shape');
-  return ['object', kind, ...(o.type === 'rect' ? ['rect'] : []), ...(o.kbChart ? ['chart'] : [])];
+  return ['object', kind, ...(o.type === 'rect' ? ['rect'] : []), ...(o.kbChart ? ['chart'] : []), ...(o.kbTable ? ['cell'] : [])];
 }
 // The toolbar along the top shows only what fits the selection, like Canva's.
 function paintPanel() {
@@ -1005,7 +1006,16 @@ $('#prop-fill').onchange = $('#prop-stroke').onchange = () => paintPanel();
 $('#prop-font').onchange = e => change(o => o.type === 'textbox' ? { fontFamily: e.target.value } : {});
 $('#prop-size').onchange = e => change(o => o.type === 'textbox' ? { fontSize: Math.min(400, Math.max(6, +e.target.value || 40)), scaleX: 1, scaleY: 1 } : {});
 $('#prop-bold').onclick = () => change(o => o.type === 'textbox' ? { fontWeight: o.fontWeight === 'bold' ? 'normal' : 'bold' } : {});
-for (const b of document.querySelectorAll('[data-text-align]')) b.onclick = () => change(o => o.type === 'textbox' ? { textAlign: b.dataset.textAlign } : {});
+// One alignment button, as in Canva: each click moves on to the next.
+const ALIGNS = [['left', '⇤', 'Align left'], ['center', '↔', 'Centre'], ['right', '⇥', 'Align right'], ['justify', '☰', 'Justify']];
+function paintAlign(o) {
+  const i = Math.max(0, ALIGNS.findIndex(([a]) => a === o?.textAlign)), b = $('#prop-align');
+  b.textContent = ALIGNS[i][1]; b.title = ALIGNS[i][2] + ' (click for ' + ALIGNS[(i + 1) % ALIGNS.length][2].toLowerCase() + ')';
+}
+$('#prop-align').onclick = () => {
+  const o = board.getActiveObject(), next = ALIGNS[(Math.max(0, ALIGNS.findIndex(([a]) => a === o?.textAlign)) + 1) % ALIGNS.length][0];
+  change(x => x.type === 'textbox' ? { textAlign: next } : {});
+};
 $('#prop-fav').onclick = () => {
   const o = board.getActiveObject();
   if (o?.type !== 'textbox') return;
@@ -1381,7 +1391,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 12;
+const WHATS_NEW = 13;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

@@ -333,3 +333,4 @@ header,.create-bar{border-bottom-color:var(--pink)}
 #create .swatch.gradient{border:1px solid var(--edge)}
 .gradient-maker{display:flex;align-items:center;gap:6px;margin:6px 0}#grad-preview{flex:1;height:28px;border-radius:8px;border:1px solid var(--edge)}
 #create .gradient-maker input[type=color]{width:34px;height:30px;padding:1px}#create .gradient-maker button{padding:4px 8px}
+#pop-table{width:320px}#pop-table .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#pop-table input[type=number]{width:60px}

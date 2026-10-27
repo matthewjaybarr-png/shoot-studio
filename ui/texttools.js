@@ -174,7 +174,9 @@ function paintTextTools(o) {
   paintSize();
   if (typeof paintGraphicColours === 'function') paintGraphicColours(o);
   if (typeof paintChartPanel === 'function') paintChartPanel(o);
+  if (typeof paintTablePanel === 'function') paintTablePanel();
   if (o?.type !== 'textbox') return;
+  if (typeof paintAlign === 'function') paintAlign(o);
   $('#prop-strike').classList.toggle('on', !!o.linethrough);
   $('#prop-caps').classList.toggle('on', o.kbCaps != null);
   $('#prop-list').classList.toggle('on', !!o.kbList);

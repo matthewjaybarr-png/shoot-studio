@@ -1771,6 +1771,8 @@ const test = `<script>
     const [turned, overflowing, round, title, badge, nameCell, nameText, scoreCell, , totalCell, totalText, grouped] = imported;
     step(nameCell.kbName === 'Table cell' && nameCell.left === 48 && nameCell.top === 480 && nameCell.width === 96 && nameCell.height === 48 && nameCell.fill === '#ffeeaa' && nameCell.stroke === '#333333', () => 'a table cell keeps its place, size, fill and border: ' + JSON.stringify([nameCell.left, nameCell.top, nameCell.width, nameCell.height, nameCell.fill, nameCell.stroke]));
     step(nameText.text === 'Name' && nameText.kbName === 'Cell text' && Math.abs(nameText.left - 48) < 1 && scoreCell.left === 144 && !scoreCell.fill, 'cell text sits in its cell, with the cell margins');
+    const importedTable = nameCell.kbTable && readTable(nameCell.kbTable), totalK = importedTable?.cells.find(k => k.rect === totalCell);
+    step(importedTable?.cells.length === 3 && totalK?.cs === 2 && totalK.text === totalText && nameText.kbTable === nameCell.kbTable, 'a Canva table becomes a table that can be changed, merged cell and all');
     step(totalCell.width === 192 && totalText.text === 'Total' && totalText.top > totalCell.top + 8, () => 'a merged cell spans both columns and centres its text: ' + totalCell.width + ' ' + totalText.top);
     step(turned.angle === 90 && turned.flipX && Math.abs(turned.getScaledWidth() - 192) < 0.5 && Math.abs(turned.getScaledHeight() - 96) < 0.5, () => 'a turned, flipped picture keeps its size: ' + turned.angle + ' ' + turned.getScaledWidth() + 'x' + turned.getScaledHeight());
     const turnedCentre = turned.getCenterPoint();
@@ -2049,7 +2051,44 @@ const test = `<script>
     step(clearCtx.getImageData(1, 1, 1, 1).data[3] === 0, 'a see-through PNG leaves out the page colour');
     $('#create-transparent').checked = false;
     step(seeThrough({ background: '#ff0000' }).background === '#ff0000', 'and an ordinary one keeps it');
+    { const words = addText('body'); words.exitEditing(); selectObjects([words]); paintPanel();
+      words.set('textAlign', 'left'); paintPanel();
+      const order = []; for (let i = 0; i < 4; i++) { $('#prop-align').click(); order.push(board.getActiveObject().textAlign); }
+      step(order.join() === 'center,right,justify,left' && $('#prop-align').textContent === '⇤', () => 'one button steps through the alignments: ' + order); board.remove(words); }
+    // Tables: rows and columns added and taken away, cell colours, borders, rows that grow with their words.
+    addTable(2, 3);
+    const tableId = board.getObjects().at(-1).kbTable, tableNow = () => readTable(tableId);
+    step(tableId && tableNow().cells.length === 6 && tableNow().xs.length === 4 && tableNow().ys.length === 3, 'a new table reads back as 2 rows by 3 columns');
+    const width0 = tableNow().xs.at(-1) - tableNow().xs[0], height0 = tableNow().ys.at(-1) - tableNow().ys[0];
+    const firstText = tableNow().cells.find(k => k.r === 0 && k.c === 0).text;
+    selectObjects([firstText]); paintPanel();
+    step(seen('#table-open') && $('#table-size').textContent === '2 rows × 3 columns', 'a cell shows the Table button');
+    $('#table-open').click();
+    $('#table-row-below').click();
+    step(tableNow().ys.length === 4 && tableNow().cells.length === 9 && Math.abs(tableNow().ys.at(-1) - tableNow().ys[0] - height0 * 1.5) < 1, 'adding a row below makes the table a row taller');
+    const added = tableNow().cells.find(k => k.r === 1 && k.c === 0);
+    step(added.text?.text === '' && added.text.kbName === 'Cell text' && added.rect.kbTable === tableId && board.getActiveObject() === firstText, 'the new row has empty cells of the same table, and the cell stays selected');
+    $('#table-col-right').click();
+    step(tableNow().xs.length === 5 && tableNow().cells.length === 12 && Math.abs(tableNow().xs.at(-1) - tableNow().xs[0] - width0) < 1, 'adding a column keeps the table the same width');
+    step(tableNow().cells.every(k => !k.text || Math.abs(k.text.left - k.rect.left - 6) < 0.5 && Math.abs(k.text.width - (k.rect.width - 12)) < 0.5), () => 'every cell keeps its words inside it: ' + JSON.stringify(tableNow().cells.map(k => [k.r, k.c, k.rect.left, k.rect.width, k.text?.left, k.text?.width])));
+    $('#table-col-delete').click(); $('#table-row-delete').click();
+    step(tableNow().xs.length === 4 && tableNow().ys.length === 3 && tableNow().cells.length === 6 && Math.abs(tableNow().xs.at(-1) - tableNow().xs[0] - width0) < 1, 'deleting a row and a column brings it back to 2 by 3');
+    const keepCell = board.getActiveObject();
+    $('#table-cell-colour').value = '#ffd1dc'; $('#table-cell-colour').dispatchEvent(new Event('input')); $('#table-cell-colour').dispatchEvent(new Event('change'));
+    step(tableNow().cells.find(k => k.text === keepCell || k.rect === keepCell).rect.fill === '#ffd1dc', 'a cell takes a colour');
+    $('#table-border-width').value = '5'; $('#table-border-width').dispatchEvent(new Event('input'));
+    step(tableNow().cells.every(k => k.rect.strokeWidth === 5), 'the border thickness changes for the whole table');
+    const growText = tableNow().cells.find(k => k.r === 0 && k.c === 1).text, rowBefore = tableNow().ys[1] - tableNow().ys[0];
+    growText.set({ text: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen' }); growText.initDimensions(); board.fire('text:changed', { target: growText });
+    step(tableNow().ys[1] - tableNow().ys[0] > rowBefore + 1 && tableNow().cells.find(k => k.r === 1 && k.c === 1).rect.top >= growText.top + growText.height, 'a row grows when its words no longer fit');
+    const liveText = tableNow().cells.find(k => k.r === 0 && k.c === 0).text;
+    selectObjects([liveText]); paintPanel(); $('#table-select').click();
+    step(board.getActiveObject()?.type === 'activeselection' && board.getActiveObjects().length === 12, 'Select the whole table picks every cell');
+    selectObjects([liveText]); paintPanel(); $('#table-open').click(); $('#table-delete').click();
+    step(!board.getObjects().some(o => o.kbTable === tableId), 'Delete the table removes it');
+    addTable(2, 2); const keptTable = board.getObjects().at(-1).kbTable; closeMenus();
     await settle(flush(), 'tools save'); await settle(openDesign(design.title), 'tools reopen');
+    step(readTable(keptTable).cells.length === 4, 'a table is still a table after save and reopen');
     step(board.backgroundColor?.colorStops && board.getObjects().some(o => o.fill?.type === 'radial') && board.getObjects()[0].kbName === 'Background photo', 'gradients and the background photo survive save and reopen');
     step(board.getObjects().some(o => o.kbChart?.kind === 'donut' && o.kbChart.title === 'Reading minutes' && o.kbChart.rows[0][1] === 20), 'a chart survives save and reopen');
     const reopenedWords = board.getObjects().find(o => o.type === 'textbox' && o.kbCurve);
@@ -2074,8 +2113,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
