@@ -46,7 +46,7 @@ pub fn solve_membrane(w: usize, h: usize, unknown: &[bool], v: &mut [f32]) {
     solve_rec(w, h, unknown, v, 0, &|| false);
 }
 
-fn solve_rec(w: usize, h: usize, unknown: &[bool], v: &mut [f32], depth: usize, stop: &(dyn Fn() -> bool + Sync)) {
+pub(crate) fn solve_rec(w: usize, h: usize, unknown: &[bool], v: &mut [f32], depth: usize, stop: &(dyn Fn() -> bool + Sync)) {
     if stop() {
         return;
     }
@@ -201,7 +201,7 @@ pub fn solve_membrane_reference(w: usize, h: usize, unknown: &[bool], v: &mut [f
 }
 
 /// Map `f` over the channels of an interleaved buffer as planar slices (parallel on native).
-fn per_channel(w: usize, h: usize, ch: usize, f: impl Fn(usize) -> Vec<f32> + Sync + Send) -> Vec<f32> {
+pub(crate) fn per_channel(w: usize, h: usize, ch: usize, f: impl Fn(usize) -> Vec<f32> + Sync + Send) -> Vec<f32> {
     let planes: Vec<Vec<f32>> = if w * h >= 64 * 64 {
         use rayon::prelude::*;
         (0..ch).into_par_iter().map(&f).collect()

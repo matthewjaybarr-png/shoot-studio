@@ -114,6 +114,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   // A 1×1 patch at the top left: x, y, width, height, then one pixel.
   if (command === 'retouch') { const b = new ArrayBuffer(22); new Uint32Array(b, 0, 4).set([0, 0, 1, 1]); new Uint16Array(b, 16).set([0.5, 0.5, 0.5].map(half)); return b; }
   if (command === 'spot_source') return [0.05, 0];
+  // A picture retouched in Create: a 2×2 magenta patch at the top left.
+  if (command === 'retouch_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255]); return b; }
   if (command === 'export_source') return rawImage(...exportSize, 0.18);
   if (command === 'save_export') {
     const h = Object.fromEntries(Object.entries(options.headers).map(([k, v]) => [k, decodeURIComponent(v)])), file = h.folder + '/' + h.name;
@@ -625,7 +627,18 @@ const test = `<script>
       ctrl('z');
       await until(() => strokes().length === 2, name + ' undoes');
     }
-    step(calls.filter(c => c.command === 'spot_source').length === spotCalls, 'blur, dodge and burn never ask for a heal source');
+    // Remove: a visible button, no strength slider (it always fills all of the gap), no source.
+    sliders.querySelector('[data-tool="remove"]').click();
+    step(tool === 'remove' && $('#strength').hidden && $('#tool-hint').textContent.includes('disappear'), 'the Remove button picks Remove, with no strength slider');
+    drag([[cx, cy], [cx + 10, cy]]);
+    await until(() => strokes().length === 3, 'a remove stroke');
+    saved = strokes()[2];
+    step(saved.tool === 'remove' && !('offset' in saved) && !('strength' in saved), 'remove saves with no source or strength (' + JSON.stringify(saved) + ')');
+    step(!validStroke({ ...saved, strength: 0.5 }), 'a remove stroke with a strength is refused');
+    await until(() => calls.filter(c => c.command === 'retouch').at(-1)?.args.strokes.at(-1)?.tool === 'remove', 'Rust applies remove');
+    ctrl('z');
+    await until(() => strokes().length === 2, 'remove undoes');
+    step(calls.filter(c => c.command === 'spot_source').length === spotCalls, 'blur, dodge, burn and remove never ask for a heal source');
     press('Escape');
     step(tool === null && !develop.classList.contains('hidden') && !$('.stage').classList.contains('brush'), 'Esc drops the tool and stays in Develop');
 
@@ -2142,6 +2155,68 @@ const test = `<script>
     del.click(); await until(() => !myElements.has('My element') && !disk['c:elements:My element'], 'the second deletes it');
     myElements.clear(); await settle(loadMine(), 'reload saved elements');
     step(myElements.size === 2 && myElements.has('Autumn leaf') && $('#create-mine').children.length === 2, 'saved elements are read back from their files');
+    // Retouch in Create: a brush paints on a picture, Rust changes its pixels, and Undo takes it back.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillStyle = '#3a7'; c.getContext('2d').fillRect(0, 0, 300, 200);
+      const pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/jpeg')), 'retouch'), 'a picture to retouch');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); pic.setCoords(); selectObjects([pic]); paintPanel();
+      step(seen('#prop-retouch'), 'a picture shows a Retouch button');
+      $('#prop-retouch').click();
+      step(drawer === 'retouch' && touch.tool === 'remove' && touchMode && board.skipTargetFind && !board.selection, 'Retouch opens its drawer with Remove picked, and the page paints instead of selecting');
+      step($('#touch-tools').children.length === 9 && $('#touch-strength-row').hidden && $('#touch-hint').textContent.includes('disappear'), 'nine brushes; Remove has no strength');
+      const uvAt = toPicture(pic, new fabric.Point(160, 150)), back = fromPicture(pic, uvAt);
+      step(Math.abs(uvAt[0] - 0.2) < 1e-6 && Math.abs(uvAt[1] - 0.25) < 1e-6 && Math.abs(back.x - 160) < 1e-6 && Math.abs(back.y - 150) < 1e-6, () => 'page points map to the picture and back: ' + uvAt);
+      pic.set({ angle: 90, flipX: true }); pic.setCoords();
+      const turned = fromPicture(pic, [0.2, 0.25]), again = toPicture(pic, turned);
+      step(Math.abs(again[0] - 0.2) < 1e-6 && Math.abs(again[1] - 0.25) < 1e-6, 'and for a turned, flipped picture');
+      pic.set({ angle: 0, flipX: false }); pic.setCoords(); commitDesign(); // where it is now is what Undo returns to
+      const srcBefore = pic.getSrc(), canvasRect = board.upperCanvasEl.getBoundingClientRect();
+      const screenAt = (x, y) => { const p = new fabric.Point(x, y).transform(board.viewportTransform); return { clientX: canvasRect.left + p.x, clientY: canvasRect.top + p.y }; };
+      const paint = points => {
+        board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { ...screenAt(...points[0]), bubbles: true, button: 0, buttons: 1 }));
+        for (const p of points.slice(1)) document.dispatchEvent(new MouseEvent('mousemove', { ...screenAt(...p), bubbles: true, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { ...screenAt(...points.at(-1)), bubbles: true, button: 0 }));
+      };
+      const sentStrokes = () => calls.filter(c => c.command === 'retouch_picture');
+      paint([[150, 150], [200, 150], [250, 160]]);
+      const undoBefore = history[here];
+      await until(() => pic.getSrc() !== srcBefore && history[here] !== undoBefore, 'a Remove stroke changes the picture and can be undone');
+      const call = sentStrokes().at(-1), sent = JSON.parse(decodeURIComponent(call.options.headers.strokes));
+      step(sent.length === 1 && sent[0].tool === 'remove' && !('strength' in sent[0]) && !('offset' in sent[0]) && sent[0].points.length >= 2 && validStroke(sent[0]), () => 'Rust gets one Remove stroke: ' + JSON.stringify(sent));
+      const body = new DataView(call.args.buffer, call.args.byteOffset);
+      step(body.getUint32(0, true) === 300 && body.getUint32(4, true) === 200 && call.args.length === 8 + 300 * 200 * 4, 'with the picture at its own pixel size');
+      const px = await new Promise(r => { const i = new Image(); i.onload = () => { const k = document.createElement('canvas'); k.width = i.width; k.height = i.height; const g = k.getContext('2d'); g.drawImage(i, 0, 0); r([...g.getImageData(0, 0, 1, 1).data, i.width]); }; i.src = pic.getSrc(); });
+      step(px[0] > 200 && px[1] < 60 && px[2] > 200 && px[4] === 300, () => 'the changed pixels come back into the picture: ' + px);
+      $('#create-undo').click();
+      await until(() => board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo retouch')?.getSrc() === srcBefore, 'Undo puts the picture back');
+      // Clone needs a place to copy from, picked with a visible button.
+      $('#touch-tools [data-touch=clone]').click();
+      step(touch.tool === 'clone' && seen('#touch-source') && !$('#touch-strength-row').hidden, 'Clone shows Pick where to copy from');
+      const before = sentStrokes().length;
+      paint([[300, 200], [320, 200]]);
+      step(touch.picking && sentStrokes().length === before, 'painting before picking a source asks for one instead');
+      paint([[130, 130]]);
+      step(touch.source && !touch.picking, 'a click then picks the source');
+      paint([[300, 200], [330, 200]]);
+      await until(() => sentStrokes().length === before + 1, 'a Clone stroke');
+      const cloned = JSON.parse(decodeURIComponent(sentStrokes().at(-1).options.headers.strokes))[0];
+      step(cloned.tool === 'clone' && Math.abs(cloned.offset[0] + 170 / 300) < 0.01 && Math.abs(cloned.offset[1] + 70 / 200) < 0.01, () => 'it copies from the picked place: ' + JSON.stringify(cloned.offset));
+      $('#touch-done').click();
+      step(drawer !== 'retouch' && !touchMode && board.selection && !board.skipTargetFind, 'Done puts the brush away and selecting works again');
+      await until(() => !adding.size, 'retouching finishes');
+      board.remove(board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo retouch')); commitDesign();
+    }
+    // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
+    { const titleBefore = design.title, c = document.createElement('canvas'); c.width = 1200; c.height = 900; c.getContext('2d').fillRect(0, 0, 1200, 900);
+      await settle(editPhoto(new File([await new Promise(r => c.toBlob(r, 'image/jpeg'))], 'Beach day.jpg', { type: 'image/jpeg' })), 'Edit a photo opens it');
+      const photo = board.getObjects()[0], [pw, ph] = pagePx();
+      step(design.title.startsWith('Beach day') && design.page === 'custom' && design.size[0] === 4 && design.size[1] === 3, () => 'the page is the photo at 300 dpi: ' + design.size);
+      step(board.getObjects().length === 1 && Math.abs(photo.getScaledWidth() - pw) < 0.5 && Math.abs(photo.getScaledHeight() - ph) < 0.5 && photo.left === 0 && photo.top === 0, 'the photo fills the page');
+      step(Math.round(pictureScale() * pw) === 1200, 'so a download is the photo size again');
+      step(drawer === 'retouch' && touch.tool === 'remove' && touchMode, 'with Remove ready to paint');
+      $('#touch-done').click();
+      await settle(openDesign(titleBefore), 'back to the design being tested');
+    }
     // Rulers, guide lines and snapping to them; every page in a grid.
     { step(rulers.top.hidden && !settings.rulers, 'rulers start hidden');
       $('#create-rulers').click(); board.requestRenderAll(); await new Promise(r => setTimeout(r, 50));
@@ -2244,8 +2319,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
@@ -2278,7 +2353,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     skipped = await read('document.body && document.body.dataset.skipped');
     socket.close();
   } catch (e) { error = e; } finally { const exited = new Promise(r => chromium.once('exit', r)); chromium.kill(); await exited; }
-  if (outcome === 'PASS') { fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5 }); console.log('PASS: culling and develop UI' + (skipped ? '; skipped odd-scale sources:' + skipped : '')); process.exit(0); }
+  // Chromium's helper processes can still be writing to the profile after it exits; a leftover temp folder is harmless.
+  if (outcome === 'PASS') { try { fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* left for the system to clear */ } console.log('PASS: culling and develop UI' + (skipped ? '; skipped odd-scale sources:' + skipped : '')); process.exit(0); }
   console.error('UI check failed: ' + (outcome || 'stuck after ' + (step || error)) + '\nCheck file: ' + file);
   process.exit(1);
 })();

@@ -24,7 +24,7 @@
   <section id="home" aria-label="Start">
     <div class="home-hero"><div><h1>KB Studio</h1><p class="hero-line">Teach · Create · Inspire</p><p class="hero-ask">What are we making today?</p></div></div>
     <p id="home-status" role="status"></p>
-    <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button><button id="home-import" type="button"><strong>Import from Canva</strong><small>In Canva: Share → Download → PowerPoint</small></button><input id="import-file" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" hidden></div>
+    <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button><button id="home-edit" type="button"><strong>Edit a photo</strong><small>Remove things, heal and retouch</small></button><button id="home-import" type="button"><strong>Import from Canva</strong><small>In Canva: Share → Download → PowerPoint</small></button><input id="edit-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><input id="import-file" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" hidden></div>
     <div id="home-latest" hidden><h2>Recent designs <button id="home-see-all" type="button" class="link">All designs and folders ↓</button></h2><div id="home-latest-list" class="home-list one-row"></div></div>
     <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
     <div id="home-designs" hidden><h2>Your designs</h2><div id="home-folders" class="folder-bar" role="toolbar" aria-label="Folders"></div><p id="home-folder-note" class="hint"></p><div id="home-recent" class="home-list"></div></div>
@@ -62,6 +62,7 @@
       <label data-for="rect">Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
       <button data-for="image" id="prop-crop" type="button">Crop</button>
       <button data-for="image" id="prop-set-bg" type="button" title="Make this photo fill the page, behind everything">Set as background</button>
+      <button data-for="image" id="prop-retouch" type="button" title="Remove things, heal spots and more">✨ Retouch</button>
       <button data-for="image" type="button" data-pop="pop-filters" id="filters-open">Filters</button>
       <label data-for="image">Frame <select id="prop-frame"><option value="none">None</option><option value="rect">Rectangle</option><option value="rounded">Rounded</option><option value="circle">Circle</option><option value="oval">Oval</option><option value="arch">Arch</option><option value="heart">Heart</option><option value="star">Star</option><option value="hexagon">Hexagon</option></select></label>
       <button data-for="shape image group multi" type="button" data-pop="pop-flip">Flip</button>
@@ -81,6 +82,7 @@
         <button type="button" data-drawer="uploads"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>Uploads</button>
         <button type="button" data-drawer="shoot"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>This shoot</button>
         <button type="button" data-drawer="draw"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8l-3-3L5 16zM14 7l3 3"/></svg>Draw</button>
+        <button type="button" data-drawer="retouch"><svg viewBox="0 0 24 24"><path d="M4 20 15 9M14 4v3M19 9h-3M17.5 5.5l-2 2M6 6l1 2 2 1-2 1-1 2-1-2-2-1 2-1zM18 14l.7 1.3L20 16l-1.3.7L18 18l-.7-1.3L16 16l1.3-.7z"/></svg>Retouch</button>
         <button type="button" data-drawer="layers"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>Layers</button>
       </nav>
       <aside id="create-drawer" hidden>
@@ -121,6 +123,15 @@
           <label>Colour <input id="draw-colour" type="color" value="#444444"></label>
           <label>Thickness <input id="draw-width" type="range" min="1" max="40" value="3"></label>
           <p class="hint">Draw on the page with the mouse. Each stroke is its own item you can move, recolour or delete.</p>
+        </section>
+        <section data-panel="retouch" hidden>
+          <h3>Retouch a picture</h3>
+          <div id="touch-tools" class="effect-grid" role="group" aria-label="Brushes"></div>
+          <label>Brush size <output id="touch-size-out"></output><input id="touch-size" type="range" min="0" max="100" step="1"></label>
+          <label id="touch-strength-row" hidden>Strength <output id="touch-strength-out"></output><input id="touch-strength" type="range" min="5" max="100" step="1"></label>
+          <button id="touch-source" type="button" class="wide" hidden>Pick where to copy from</button>
+          <p class="hint" id="touch-hint">Pick a brush, then paint on any picture on the page.</p>
+          <button id="touch-done" type="button" class="wide">Done</button>
         </section>
         <section data-panel="layers" hidden><h3>Layers</h3><p class="hint">Top of the list is in front.</p><ul id="layers"></ul></section>
       </aside>
@@ -260,11 +271,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Remove</b> things from any photo: <b>Edit a photo</b> on the start screen, or <b>✨ Retouch</b> on a picture in a design. Paint over what you want gone. Photos' heal, clone and skin brushes are there too.</li>
         <li><b>📏 Rulers</b> in the top bar: drag from a ruler to add a guide line things snap to. <b>▦ All pages</b> shows every page at once; drag one to move it.</li>
         <li><b>Links</b> (🔗 in the toolbar) work in the downloaded PDF. <b>Find and replace</b> is in the File menu, which can now also <b>Open</b> your recent designs.</li>
         <li><b>My elements</b>: select anything on the page, even pieces of a Canva design, and save it to the top of Elements to use again in any design.</li>
         <li><b>Tables</b> you can change: click a cell, then <b>Table</b> to add or remove rows and columns, colour a cell or change the borders. Rows grow to fit what you type.</li>
-        <li><b>Gradients</b> in Colours, for words, shapes and the page. A photo's <b>Set as background</b> fills the page with it. PNGs can be <b>see-through</b>.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -332,5 +343,6 @@
   <script src="myelements.js"></script>
   <script src="doctools.js"></script>
   <script src="viewtools.js"></script>
+  <script src="phototools.js"></script>
 
 </body></html>

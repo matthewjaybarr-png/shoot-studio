@@ -5,6 +5,7 @@
 mod creations;
 mod desktop;
 mod photocraft;
+mod photocraft_remove;
 mod pptx;
 mod retouch;
 
@@ -535,6 +536,35 @@ async fn save_export(request: tauri::ipc::Request<'_>) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Retouch a picture from Create. The body is its width and height (LE u32s) then 8-bit RGBA; the
+/// strokes travel as a percent-encoded JSON header. Returns the changed rectangle (x, y, w, h as LE
+/// u32s) then that rectangle's RGBA.
+#[tauri::command]
+async fn retouch_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("retouch_picture needs the picture as its body".into());
+    };
+    let strokes: Vec<Stroke> = serde_json::from_str(&header(&request, "strokes")?).map_err(|e| format!("bad strokes: {e}"))?;
+    if body.len() < 8 {
+        return Err("retouch_picture: no picture".into());
+    }
+    let size = |i: usize| u32::from_le_bytes(body[i..i + 4].try_into().unwrap()) as usize;
+    let (w, h, mut rgba) = (size(0), size(4), body[8..].to_vec());
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = retouch::retouch_picture(w, h, &mut rgba, strokes)?;
+        let mut out = Vec::with_capacity(16 + r.w * r.h * 4);
+        for v in [r.x, r.y, r.w, r.h] {
+            out.extend_from_slice(&(v as u32).to_le_bytes());
+        }
+        for y in r.y..r.y + r.h {
+            out.extend_from_slice(&rgba[(y * w + r.x) * 4..(y * w + r.x + r.w) * 4]);
+        }
+        Ok(Response::new(out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Undo JavaScript's encodeURIComponent.
 fn percent_decode(s: &str) -> Option<String> {
     let (bytes, mut out, mut i) = (s.as_bytes(), Vec::with_capacity(s.len()), 0);
@@ -901,6 +931,7 @@ fn main() {
             preview,
             thumb,
             save_thumb,
+            retouch_picture,
             load_shoot,
             save_shoot,
             develop_source,

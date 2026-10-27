@@ -13,6 +13,7 @@ Keys: arrows move, Enter opens the loupe, C compares, Esc goes back to the grid,
 Develop: D edits the current photo. ←/→ go to the previous/next photo, hold \ to see it before your edits, Ctrl+Z / Ctrl+Shift+Z undo and redo, double-click a slider to reset it. RAW files are developed from their sensor data; editing needs WebGL2, which any graphics from the last decade provides.
 
 Retouch, in Develop: pick a brush, then paint over what you want gone. Strokes are saved in the recipe and can be undone like any other edit.
+- **G remove**: paint over something (a stray hair, a sign, a person in the background), or draw a ring around it, and it disappears; the gap is filled from what's around it.
 - **J spot heal**: paint over a blemish or dust spot; the app finds clean texture nearby and blends it in to match the light around it.
 - **H heal**: Alt+click (or Ctrl+click) a clean area first, then paint. Like spot heal, but you choose where the texture comes from.
 - **S clone**: Alt+click (or Ctrl+click) a source, then paint an exact copy of it, with no blending.
@@ -87,6 +88,7 @@ The start screen offers Create next to Photos: a small Canva-style maker for pos
 - **Tables** keep working after they're added: rows and columns added or taken away, cell colours, borders, and rows that grow with their words (Canva tables too).
 - **My elements**: save anything from a page (including pieces of Canva designs) to the Elements drawer and use it again in any design.
 - **Links** that work in the downloaded PDF, and **Find and replace** across every page.
+- **Retouch** any picture in Create with Photos' brushes and **Remove**, which makes things disappear and fills the gap from what's around them; **Edit a photo** on the start screen opens a photo as a page its own size. Remove is in Develop too.
 - **Rulers** and **guide lines** to line things up (drag a guide out of a ruler), and **All pages**, a grid of every page to find one or drag it to a new place.
 - Text can curve (Effects → Curve), become a bulleted or numbered list, switch to capitals or get a strikethrough. **Copy style** paints one thing's look onto another, and Position takes an exact size and rotation.
 - **Filters** on a selected picture offers the looks from Photos and your Develop presets as previews, with a strength slider and Brightness, Contrast, Saturation, Warmth and Vignette. The original is kept, so filters can be changed or removed later.

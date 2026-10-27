@@ -147,6 +147,7 @@ function startBoard() {
   if (typeof startTextTools === 'function') startTextTools();
   if (typeof startTables === 'function') startTables();
   if (typeof startViewTools === 'function') startViewTools();
+  if (typeof startPhotoTools === 'function') startPhotoTools();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
@@ -249,6 +250,7 @@ function drawPageOverlay() {
     ctx.lineWidth = 1 / board.getZoom();
   }
   if (typeof drawGuides === 'function') drawGuides(ctx);
+  if (typeof drawTouch === 'function') drawTouch(ctx);
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
@@ -294,8 +296,9 @@ function panBy(dx, dy) {
 }
 function setSpacePan(on) {
   if (spacePan === on || !board) return;
-  spacePan = on; board.skipTargetFind = on; board.selection = on ? false : !cropSession;
-  board.defaultCursor = on ? 'grab' : 'default'; board.setCursor(board.defaultCursor);
+  const painting = typeof touchMode !== 'undefined' && touchMode; // a Retouch brush keeps the page from selecting
+  spacePan = on; board.skipTargetFind = on || painting; board.selection = on ? false : !cropSession && !painting;
+  board.defaultCursor = on ? 'grab' : painting ? 'crosshair' : 'default'; board.setCursor(board.defaultCursor);
 }
 function readout(text, e) {
   const tag = $('#create-readout'), host = $('#create').getBoundingClientRect();
@@ -1368,6 +1371,7 @@ function paintDrawer() {
   if (board?.isDrawingMode && drawer !== 'draw') toggleDraw(false);
   if (drawer === 'templates') paintTemplates();
   if (drawer === 'shoot') paintShoot();
+  if (typeof paintTouch === 'function') paintTouch(); // the Retouch brushes paint only while their drawer is open
 }
 for (const b of document.querySelectorAll('#create-rail [data-drawer]')) b.onclick = () => showDrawer(b.dataset.drawer);
 paintDrawer();
@@ -1420,7 +1424,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 16;
+const WHATS_NEW = 17;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

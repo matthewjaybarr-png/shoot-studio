@@ -17,7 +17,7 @@ const KEYS = {
   grid: `←→↑↓ move · Enter loupe · D develop · C compare · ${CULL_KEYS} · Ctrl/Shift+click select · Ctrl+A select all · ${COPY_KEYS} (onto the selection)`,
   loupe: `←→ move · Enter or Esc grid · D develop · C compare · ${CULL_KEYS} · ${COPY_KEYS}`,
   compare: `←→ change the right photo · C one photo · Esc grid · ${CULL_KEYS}`,
-  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · L blur · O dodge · I burn · [ ] brush size · Ctrl+click heal/clone source · R crop · wheel or + - zoom · 0 fit · 1 100% · Z toggle zoom · Space+drag pan · Esc drop tool, then grid`
+  develop: `←→ previous/next · hold \\ for before · Ctrl+Z undo · Ctrl+Shift+Z redo · double-click a slider to reset it · ${COPY_KEYS} · J spot heal · H heal · S clone · B soften · E red eye · L blur · O dodge · I burn · G remove · [ ] brush size · Ctrl+click heal/clone source · R crop · wheel or + - zoom · 0 fit · 1 100% · Z toggle zoom · Space+drag pan · Esc drop tool, then grid`
 };
 
 const fileOf = photo => photo.jpg || photo.raw;
@@ -221,7 +221,7 @@ sliders.insertAdjacentHTML('beforeend', `<h3>Crop</h3><div class="crop"><button 
   <label><span>Straighten</span><output></output><input type="range" min="${-MAX_ANGLE}" max="${MAX_ANGLE}" step="0.1" value="0" data-crop="angle"></label>
   <p id="crop-hint"></p><button id="crop-reset" type="button">Reset crop</button>`);
 sliders.insertAdjacentHTML('beforeend', `<h3>Retouch</h3><div class="tools">${Object.entries(TOOLS).map(([key, label]) =>
-  `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E', blur: 'L', dodge: 'O', burn: 'I' }[key]}</kbd></button>`).join('')}</div>
+  `<button type="button" data-tool="${key}">${label} <kbd>${{ spot: 'J', heal: 'H', clone: 'S', soften: 'B', redeye: 'E', blur: 'L', dodge: 'O', burn: 'I', remove: 'G' }[key]}</kbd></button>`).join('')}</div>
   <label><span>Brush size</span><output></output><input type="range" min="0" max="100" step="1" data-brush="size"></label>
   <label id="strength"><span>Strength</span><output></output><input type="range" min="0" max="100" step="1" data-brush="strength"></label>
   <label id="aligned"><span>Aligned (keep the source distance)</span><input type="checkbox" checked></label>
@@ -236,7 +236,8 @@ const HINTS = {
   redeye: 'Click a red pupil, or drag out a circle over the eye. Only strongly red pixels darken; the white catchlight stays.',
   blur: 'Paint to blur the area, such as a busy background. Strength mixes the blur in; a bigger brush blurs more.',
   dodge: 'Paint to lighten, like holding back light in the darkroom. Build it up in light strokes at 25%.',
-  burn: 'Paint to darken, like adding light in the darkroom. Build it up in light strokes at 25%.'
+  burn: 'Paint to darken, like adding light in the darkroom. Build it up in light strokes at 25%.',
+  remove: 'Paint over something to make it disappear (a stray hair, a sign, a person in the background), or draw a ring around it. The gap is filled from what is around it.'
 };
 function paintTools() {
   if (typeof paintRail === "function") paintRail();
@@ -246,7 +247,7 @@ function paintTools() {
   size.previousElementSibling.textContent = developer?.width ? Math.max(1, Math.round(brush.size * Math.max(developer.width, developer.height))) + ' px' : '';
   strength.value = Math.round(strengthOf(tool) * 100);
   strength.previousElementSibling.textContent = strength.value + '%';
-  $('#strength').hidden = !tool;
+  $('#strength').hidden = !tool || tool === 'remove';
   $('#aligned').hidden = !COPIES[tool];
   $('#tool-hint').textContent = tool ? HINTS[tool] : 'Pick a tool to paint fixes onto the photo.';
   stage.classList.toggle('brush', !!tool);
@@ -1119,7 +1120,7 @@ document.addEventListener('keydown', event => {
     d: () => { view = 'develop'; showViewer(); },
     '\\': () => { if (view === 'develop' && !before) { before = true; draw(); } },
     ...view === 'develop' && {
-      r: toggleCrop, j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'), l: () => pickTool('blur'), o: () => pickTool('dodge'), i: () => pickTool('burn'),
+      r: toggleCrop, j: () => pickTool('spot'), h: () => pickTool('heal'), s: () => pickTool('clone'), b: () => pickTool('soften'), e: () => pickTool('redeye'), l: () => pickTool('blur'), o: () => pickTool('dodge'), i: () => pickTool('burn'), g: () => pickTool('remove'),
       '[': () => resize(1 / 1.25), ']': () => resize(1.25),
       z: () => { const box = canvas.getBoundingClientRect(); developer?.toggleZoom(pointer?.clientX ?? box.left + box.width / 2, pointer?.clientY ?? box.top + box.height / 2); draw(); }
     },

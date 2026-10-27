@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0
+
+- Edit a photo, on the start screen: pick a photo and it opens as a page exactly its size, ready to retouch. Download & print gives it back at the photo's own size.
+- Retouch, in Create's rail (or ✨ Retouch when a picture is selected): brushes painted straight onto any picture on the page, even a locked Canva background. Remove makes things disappear (paint over them, or draw a ring around them) and fills the gap from what's around it. Spot heal, Heal, Clone, Soften skin, Red eye, Blur, Lighten and Darken work as they do in Photos. Heal and Clone have a Pick where to copy from button. Each stroke is one Undo.
+- Remove is in Photos' Develop too (Retouch, or G), kept with the photo's other fixes and done again at full size when you deliver.
+- The start screen's four cards share one row.
+- The What's new card appears once more.
+
 ## 0.27.0
 
 - 📏 Rulers in the top bar shows rulers along the top and left of the page: inches (with eighths) for print sizes, pixels for social posts. Your choice is remembered.

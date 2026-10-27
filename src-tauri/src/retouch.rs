@@ -3,6 +3,7 @@
 //! own rectangle; undo replays the rest from the clean image.
 
 use crate::photocraft::{best_offset, local_blur, seamless_clone};
+use crate::photocraft_remove::{close_loops, dilate, remove_with, Interrupt};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicU64;
 use std::sync::Mutex;
@@ -32,6 +33,8 @@ pub enum Tool {
     Dodge,
     /// Darken: minus one stop of exposure under the brush, mixed in by strength.
     Burn,
+    /// Fill what the brush covered (and anything a stroke circles) from its surroundings.
+    Remove,
 }
 
 /// One brush stroke. Points are 0–1 across the upright image, `size` is the brush radius over
@@ -94,6 +97,7 @@ pub fn validate(strokes: &[Stroke]) -> Result<(), String> {
         match (s.tool, s.offset) {
             (Tool::Soften, None) if s.strength.is_some() && strength_ok => {}
             (Tool::Redeye | Tool::Blur | Tool::Dodge | Tool::Burn, None) if strength_ok => {}
+            (Tool::Remove, None) if s.strength.is_none() => {}
             (Tool::Spot | Tool::Heal | Tool::Clone, Some(o)) if strength_ok && o.iter().all(|v| (-1.0..=1.0).contains(v)) => {}
             _ => return bad("a bad offset or strength"),
         }
@@ -167,6 +171,9 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
     let (rect, cov) = coverage(stroke, w, h);
     if rect.w == 0 || rect.h == 0 {
         return Rect::default();
+    }
+    if stroke.tool == Tool::Remove {
+        return remove(img, w, h, stroke, rect, &cov);
     }
     let at = |x: i64, y: i64| (y.clamp(0, h as i64 - 1) as usize * w + x.clamp(0, w as i64 - 1) as usize) * 3;
     let (sx, sy) = shift(stroke, w, h);
@@ -249,6 +256,7 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
             }
             out
         }
+        Tool::Remove => unreachable!("filled by remove()"),
         Tool::Redeye => {
             let mut out = Vec::with_capacity(rect.w * rect.h * 3);
             for y in rect.y..rect.y + rect.h {
@@ -275,6 +283,40 @@ pub fn apply(img: &mut [f32], w: usize, h: usize, stroke: &Stroke) -> Rect {
         }
     }
     rect
+}
+
+/// Remove: the stroke, everything it encloses and a small halo become a hole, filled from a crop
+/// around it (patch-based, so the fill keeps the grain of what's nearby). Hard-edged, unlike the
+/// other tools: a soft edge would let the removed thing show through.
+fn remove(img: &mut [f32], w: usize, h: usize, stroke: &Stroke, rect: Rect, cov: &[f32]) -> Rect {
+    let r = radius(stroke, w, h) as usize;
+    let halo = (r / 8).clamp(2, 12);
+    let pad = rect.w.max(rect.h).max(64) + halo;
+    let (cx0, cy0) = (rect.x.saturating_sub(pad), rect.y.saturating_sub(pad));
+    let (cx1, cy1) = ((rect.x + rect.w + pad).min(w), (rect.y + rect.h + pad).min(h));
+    let (cw, ch) = (cx1 - cx0, cy1 - cy0);
+    let mut brushed = vec![false; cw * ch];
+    for y in 0..rect.h {
+        for x in 0..rect.w {
+            brushed[(rect.y + y - cy0) * cw + rect.x + x - cx0] = cov[y * rect.w + x] > 0.0;
+        }
+    }
+    let hole = dilate(cw, ch, &close_loops(cw, ch, &brushed), halo);
+    let crop: Vec<f32> = (cy0..cy1).flat_map(|y| img[(y * w + cx0) * 3..(y * w + cx1) * 3].iter().copied()).collect();
+    let Ok(filled) = remove_with(cw, ch, 3, &crop, &hole, 1, &Interrupt::NONE) else {
+        return Rect::default();
+    };
+    let (mut x0, mut y0, mut x1, mut y1) = (cw, ch, 0, 0);
+    for (i, _) in hole.iter().enumerate().filter(|(_, m)| **m) {
+        let (x, y) = (i % cw, i / cw);
+        let d = ((cy0 + y) * w + cx0 + x) * 3;
+        img[d..d + 3].copy_from_slice(&filled[i * 3..i * 3 + 3]);
+        (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+    }
+    if x1 == 0 {
+        return Rect::default();
+    }
+    Rect { x: cx0 + x0, y: cy0 + y0, w: x1 - x0, h: y1 - y0 }
 }
 
 /// One red-eye pixel in linear light. How red it is: red's lead over the larger of green and
@@ -315,6 +357,48 @@ pub fn spot_source(img: &[f32], w: usize, h: usize, stroke: &Stroke) -> [f64; 2]
         if rect.x + rect.w + rect.w < w { (side, 0) } else { (-side, 0) }
     });
     [dx as f64 / w as f64, dy as f64 / h as f64]
+}
+
+/// Pictures in Create, as 8-bit sRGB RGBA, at most this many pixels a side (Create shrinks imports to 3300).
+pub const PICTURE_EDGE: usize = 4096;
+
+fn srgb_to_linear(v: u8) -> f32 {
+    let c = v as f32 / 255.0;
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+fn linear_to_srgb(v: f32) -> u8 {
+    let c = v.clamp(0.0, 1.0);
+    let s = if c <= 0.003_130_8 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+    (s * 255.0).round() as u8
+}
+
+/// Retouch a picture from Create in place: `rgba` is `w × h` 8-bit sRGB with alpha, which is left
+/// as it is. A spot stroke with no source yet (offset 0, 0) gets one found nearby, as in Develop.
+/// Only the returned rectangle changes.
+pub fn retouch_picture(w: usize, h: usize, rgba: &mut [u8], mut strokes: Vec<Stroke>) -> Result<Rect, String> {
+    if w == 0 || h == 0 || w > PICTURE_EDGE || h > PICTURE_EDGE || rgba.len() != w * h * 4 {
+        return Err(format!("not a picture KB Studio can retouch ({w} × {h})"));
+    }
+    validate(&strokes)?;
+    let lut: Vec<f32> = (0..=255u8).map(srgb_to_linear).collect();
+    let mut img: Vec<f32> = rgba.as_chunks::<4>().0.iter().flat_map(|p| [lut[p[0] as usize], lut[p[1] as usize], lut[p[2] as usize]]).collect();
+    let mut dirty = Rect::default();
+    for stroke in &mut strokes {
+        if stroke.tool == Tool::Spot && stroke.offset == Some([0.0, 0.0]) {
+            stroke.offset = Some(spot_source(&img, w, h, stroke));
+        }
+        dirty = dirty.union(apply(&mut img, w, h, stroke));
+    }
+    for y in dirty.y..dirty.y + dirty.h {
+        for x in dirty.x..dirty.x + dirty.w {
+            let i = y * w + x;
+            for c in 0..3 {
+                rgba[i * 4 + c] = linear_to_srgb(img[i * 3 + c]);
+            }
+        }
+    }
+    Ok(dirty)
 }
 
 /// The photo open in Develop: its clean pixels, the pixels with `applied` strokes, and those
@@ -398,10 +482,89 @@ mod tests {
     fn stroke(tool: Tool, size: f64, points: &[[f64; 2]]) -> Stroke {
         let (offset, strength) = match tool {
             Tool::Soften => (None, Some(1.0)),
-            Tool::Redeye | Tool::Blur | Tool::Dodge | Tool::Burn => (None, None),
+            Tool::Redeye | Tool::Blur | Tool::Dodge | Tool::Burn | Tool::Remove => (None, None),
             _ => (Some([0.0, 0.0]), None),
         };
         Stroke { tool, size, points: points.to_vec(), offset, strength, scaled: None }
+    }
+
+    /// A dark bar painted out with a few strokes, then a ring drawn round a square removes its middle too.
+    #[test]
+    fn remove_fills_what_was_brushed_and_what_a_stroke_circles() {
+        let (w, h) = (240, 180);
+        let clean = textured(w, h);
+        let mut img = clean.clone();
+        let bar = |x: usize, y: usize| (60..180).contains(&x) && (84..96).contains(&y);
+        let square = |x: usize, y: usize| (100..140).contains(&x) && (20..60).contains(&y);
+        for i in 0..w * h {
+            if bar(i % w, i / w) || square(i % w, i / w) {
+                img[i * 3..i * 3 + 3].copy_from_slice(&[0.9, 0.05, 0.05]);
+            }
+        }
+        let before = img.clone();
+        let p = |x: f64, y: f64| [x / w as f64, y / h as f64];
+        let line = stroke(Tool::Remove, 10.0 / 240.0, &[p(58.0, 90.0), p(182.0, 90.0)]);
+        let rect = apply(&mut img, w, h, &line);
+        let ring: Vec<[f64; 2]> = (0..=24).map(|k| { let a = k as f64 / 24.0 * std::f64::consts::TAU; p(120.0 + 34.0 * a.cos(), 40.0 + 34.0 * a.sin()) }).collect();
+        let rect2 = apply(&mut img, w, h, &stroke(Tool::Remove, 3.0 / 240.0, &ring));
+        let red = |i: usize| img[i * 3] > 0.6 && img[i * 3 + 1] < 0.2;
+        assert!(!(0..w * h).any(red), "something red is left");
+        let err = (0..w * h).filter(|&i| bar(i % w, i / w)).map(|i| (img[i * 3] - clean[i * 3]).abs()).fold(0.0, f32::max);
+        assert!(err < 0.15, "the fill doesn't match its surroundings: {err}");
+        for y in 0..h {
+            for x in 0..w {
+                let within = |r: Rect| x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
+                if !within(rect) && !within(rect2) {
+                    let i = (y * w + x) * 3;
+                    assert_eq!(img[i..i + 3], before[i..i + 3], "changed outside at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn srgb_round_trips_so_untouched_pixels_stay_exact() {
+        assert!((0..=255u8).all(|v| linear_to_srgb(srgb_to_linear(v)) == v));
+    }
+
+    /// A picture from Create: a red dot removed, alpha and everything outside the rectangle kept.
+    #[test]
+    fn a_picture_from_create_is_retouched_in_place() {
+        let (w, h) = (120, 90);
+        let mut rgba: Vec<u8> = (0..w * h).flat_map(|i| [120 + (i % w) as u8 / 2, 140, 160, if i % 7 == 0 { 200 } else { 255 }]).collect();
+        for y in 40..50 {
+            for x in 55..65 {
+                rgba[(y * w + x) * 4..(y * w + x) * 4 + 3].copy_from_slice(&[255, 0, 0]);
+            }
+        }
+        let before = rgba.clone();
+        let mut s = stroke(Tool::Spot, 9.0 / 120.0, &[[60.0 / 120.0, 45.0 / 90.0]]);
+        s.offset = Some([0.0, 0.0]);
+        let r = retouch_picture(w, h, &mut rgba, vec![s]).unwrap();
+        assert!(r.w > 0 && r.h > 0);
+        assert!(!rgba.as_chunks::<4>().0.iter().any(|p| p[0] > 230 && p[1] < 40), "the red dot is still there");
+        for i in 0..w * h {
+            let (x, y) = (i % w, i / w);
+            let inside = x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
+            assert_eq!(rgba[i * 4 + 3], before[i * 4 + 3], "alpha changed at {x},{y}");
+            if !inside {
+                assert_eq!(rgba[i * 4..i * 4 + 4], before[i * 4..i * 4 + 4], "changed outside at {x},{y}");
+            }
+        }
+        assert!(retouch_picture(w, h, &mut rgba[..10].to_vec(), vec![]).is_err(), "a short buffer is refused");
+    }
+
+    /// A Develop-sized photo with a 300 px object: the fill must stay interactive.
+    #[test]
+    #[ignore = "timing; run with --ignored --release"]
+    fn remove_is_quick_at_develop_size() {
+        let (w, h) = (3072, 2048);
+        let mut img = textured(w, h);
+        let t = std::time::Instant::now();
+        let s = stroke(Tool::Remove, 40.0 / 3072.0, &[[0.4, 0.4], [0.45, 0.5], [0.5, 0.45]]);
+        let r = apply(&mut img, w, h, &s);
+        eprintln!("remove {}x{} px in {:?}", r.w, r.h, t.elapsed());
+        assert!(t.elapsed().as_secs_f32() < 3.0);
     }
 
     #[test]
