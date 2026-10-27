@@ -342,3 +342,5 @@ header,.create-bar{border-bottom-color:var(--pink)}
 #create .mine-tile>button:not(.mine-add){position:absolute;bottom:3px;padding:0 6px;min-height:20px;font-size:12px;line-height:20px}
 #create .mine-tile>button:nth-of-type(2){left:4px}#create .mine-tile>button:nth-of-type(3){right:4px}#create .mine-tile>button.sure{color:#fff;background:#d6455d}
 #mine-save{margin:4px 0}
+#pop-file .file-recent{display:flex;flex-direction:column;gap:2px}#create .file-recent button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:none}#create .file-recent button:hover{background:var(--deep)}
+#pop-file hr{border:0;border-top:1px solid var(--edge);margin:6px 0}

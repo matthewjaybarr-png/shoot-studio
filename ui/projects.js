@@ -191,7 +191,18 @@ function paintFileMenu() {
   select.value = here;
   const pages = designPages.length, size = design.page === 'custom' ? design.size.map(v => +v.toFixed(2)).join(' × ') + ' in' : PAGE_LABEL(design.page);
   $('#file-info').textContent = `${pages === 1 ? 'One page' : pages + ' pages'} · ${size}`;
+  paintRecent();
 }
+// Open: the designs changed most recently (newest first, not this one and not in the trash).
+async function paintRecent() {
+  const p = projects(), list = (await invoke('list_creations', { kind: 'designs' }).catch(() => [])).filter(d => d.name !== design?.title && !(d.name in p.trash)).slice(0, 6);
+  $('#file-recent').replaceChildren(...(list.length ? list.map(d => {
+    const b = button(d.name, () => { closeMenus(); openDesign(d.name).catch(e => { $('#create-saved').textContent = 'Could not open it: ' + (e.message || e); }); });
+    b.title = 'Open ' + d.name;
+    return b;
+  }) : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No other designs yet.' })]));
+}
+$('#file-all').onclick = () => { closeMenus(); navigateDesign(() => setMode('home')).catch(() => {}); };
 $('#file-open').addEventListener('click', paintFileMenu);
 $('#file-new').onclick = () => { closeMenus(); newDesign().catch(e => { $('#create-saved').textContent = 'Could not start a design: ' + (e.message || e); }); };
 $('#file-import').onclick = () => { closeMenus(); $('#import-file').click(); };

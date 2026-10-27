@@ -1875,6 +1875,17 @@ const test = `<script>
     put($('#create-title'), 'Harvest invite', 'change');
     await settle(flush(), 'rename by title');
     step(placedIn('Harvest invite') === 'Class 2B' && !placedIn('Harvest flyer'), 'renaming in Create keeps the folder');
+    $('#file-open').click();
+    await until(() => $('#file-recent').querySelector('button'), 'File lists recent designs to open');
+    const recentNames = [...$('#file-recent').querySelectorAll('button')].map(b => b.textContent);
+    step(recentNames.length <= 6 && !recentNames.includes('Harvest invite') && recentNames.every(n => disk['c:designs:' + n] && !inTrash(n)), () => 'Open lists other designs, not this one or the trash: ' + recentNames);
+    $('#file-recent').querySelector('button').click();
+    await until(() => design?.title === recentNames[0] && !navigating, 'clicking one opens it');
+    step(disk['c:designs:Harvest invite'], 'the design that was open is still saved');
+    await settle(openDesign('Harvest invite'), 'back to the invite');
+    $('#file-open').click(); $('#file-all').click();
+    await until(() => mode === 'home' && !navigating, 'All designs and folders goes to the start screen');
+    await settle(openDesign('Harvest invite'), 'and back again');
     $('#file-open').click(); $('#file-copy').click();
     await until(() => design?.title === 'Copy of Harvest invite' && !navigating, 'Make a copy opens the copy');
     $('#file-open').click(); $('#file-trash').click();
