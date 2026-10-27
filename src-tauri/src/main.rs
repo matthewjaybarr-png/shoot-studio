@@ -978,6 +978,23 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
+/// A picture dragged in from the file manager, by its file:// address: WebKitGTK can hand a drop over as the
+/// address alone, with no file the page can read.
+#[tauri::command]
+async fn read_dropped(uri: String) -> Result<Response, String> {
+    let path = uri.strip_prefix("file://").and_then(percent_decode).map(PathBuf::from).ok_or("only files can be dropped")?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if !["png", "jpg", "jpeg", "webp", "gif"].contains(&ext.as_str()) {
+        return Err("PNG, JPEG, WebP or GIF pictures only".into());
+    }
+    if fs::metadata(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?.len() > 200 << 20 {
+        return Err("that picture is too big".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || fs::read(&path).map(Response::new).map_err(|e| format!("could not read {}: {e}", path.display())))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Print: the system's print dialog, with its preview, for what the page has laid out for printing.
 #[tauri::command]
 async fn print_page(webview: tauri::Webview) -> Result<(), String> {
@@ -1173,6 +1190,7 @@ fn main() {
             save_output,
             show_output,
             print_page,
+            read_dropped,
             load_create_settings,
             save_create_settings,
             read_pptx

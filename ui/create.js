@@ -199,7 +199,7 @@ function startBoard() {
   // A picture dragged over a frame or picture outlines it: letting go there swaps the picture in.
   stage.ondragover = e => {
     e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-    const picture = e.dataTransfer.types.includes('Files') || dragItem?.[0] === 'photo';
+    const picture = e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('text/uri-list') || dragItem?.[0] === 'photo';
     const target = picture && !cropSession && !$('#create').inert ? dropTarget(board.getScenePoint(e)) : null;
     if (target !== dropHover) { dropHover = target; board.requestRenderAll(); }
   };
@@ -212,10 +212,16 @@ function startBoard() {
     if ($('#create').inert || cropSession) return;
     dropHover = null; board.requestRenderAll();
     const at = board.getScenePoint(e), item = e.dataTransfer.getData(DRAG_TYPE);
-    const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')), target = files.length === 1 && dropTarget(at);
-    if (item) dropItem(JSON.parse(item), at);
-    else if (target) fillFrame(target, files[0], files[0].name.replace(/\.[^.]*$/, '')).catch(error => { $('#create-saved').textContent = `Could not add ${files[0].name}: ${error}`; });
-    else importFiles(files, at);
+    if (item) return dropItem(JSON.parse(item), at);
+    const add = files => {
+      const target = files.length === 1 && dropTarget(at);
+      if (target) fillFrame(target, files[0], files[0].name.replace(/\.[^.]*$/, '')).catch(error => { $('#create-saved').textContent = `Could not add ${files[0].name}: ${error}`; });
+      else importFiles(files, at);
+    };
+    const files = droppedFiles(e.dataTransfer), uris = files.length ? [] : droppedUris(e.dataTransfer);
+    if (files.length) add(files);
+    else if (uris.length) Promise.all(uris.map(readDropped)).then(add, error => { $('#create-saved').textContent = 'Could not add it: ' + error; });
+    else $('#create-saved').textContent = 'Only pictures can be dropped here (PNG, JPEG, WebP or GIF)';
   };
   paintCreateTools();
 }
@@ -588,6 +594,16 @@ async function addingImage(file, name, at) {
   const [w, h] = pagePx(), k = Math.min(1, (w * 0.8) / image.width, (h * 0.8) / image.height);
   image.set({ scaleX: k, scaleY: k, kbName: name ? 'Photo ' + name : 'Picture' });
   return place(image, at);
+}
+// The pictures in a drop from the file manager. WebKitGTK can give a file with no type, or only its file:// address
+// (read through Rust then); the drop's data is gone once the event ends, so it's read before anything waits.
+const PICTURE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+const pictureType = name => PICTURE_TYPES[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] || '';
+const droppedFiles = data => [...data.files].map(f => f.type || !pictureType(f.name) ? f : new File([f], f.name, { type: pictureType(f.name) })).filter(f => f.type.startsWith('image/'));
+const droppedUris = data => (data.types.includes('text/uri-list') ? data.getData('text/uri-list') : '').split(/\r?\n/).filter(u => u.startsWith('file://') && pictureType(u));
+async function readDropped(uri) {
+  const name = decodeURIComponent(uri.slice(uri.lastIndexOf('/') + 1));
+  return new File([new Uint8Array(await invoke('read_dropped', { uri }))], name, { type: pictureType(name) });
 }
 // The whole batch is one tracked job, so closing mid-import still waits for the files not started yet.
 const importFiles = (files, at) => track((async () => {

@@ -89,6 +89,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'delete_creation') { delete disk['c:' + args.kind + ':' + args.name]; return null; }
   if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; if (window.saveCancel && h.ask !== 'no') return ''; (window.outputs ??= {})[name] = { bytes: args, ask: h.ask }; return '/home/me/Downloads/' + name; }
   if (command === 'show_output') { (window.shown ??= []).push(args); return null; }
+  if (command === 'read_dropped') return window.droppedPng.arrayBuffer();
   if (command === 'print_page') { window.printed = (window.printed || 0) + 1; return null; }
   if (command === 'load_create_settings') return JSON.parse(disk.createSettings || 'null');
   if (command === 'save_create_settings') { disk.createSettings = JSON.stringify(args.settings); return null; }
@@ -1297,6 +1298,21 @@ const test = `<script>
     $('#create-stage').dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
     step(adding.size >= 1, 'drop registers tracked import work');
     await until(() => adding.size === 0 && board.getObjects().length === 3, 'drop finishes and drains');
+    // 0.33: WebKitGTK can hand a drop from the file manager over as a typeless file, or as its file:// address alone.
+    const grey = { clientX: $('#create-stage').getBoundingClientRect().right - 8, clientY: $('#create-stage').getBoundingClientRect().bottom - 8, bubbles: true, cancelable: true };
+    const untyped = new DataTransfer(); untyped.items.add(new File([png], 'untyped.png', { type: '' }));
+    $('#create-stage').dispatchEvent(new DragEvent('drop', { ...grey, dataTransfer: untyped }));
+    await until(() => adding.size === 0 && board.getObjects().length === 4, 'a dropped file with no type is added by its name');
+    board.remove(board.getObjects().at(-1)); commitDesign();
+    const byAddress = new DataTransfer(); byAddress.setData('text/uri-list', 'file:///home/me/Pictures/sun%20set.png');
+    window.droppedPng = png;
+    $('#create-stage').dispatchEvent(new DragEvent('drop', { ...grey, dataTransfer: byAddress }));
+    await until(() => adding.size === 0 && board.getObjects().length === 4, () => 'a drop of a file address is read and added: ' + $('#create-saved').textContent + ' reads=' + calls.filter(c => c.command === 'read_dropped').length + ' objects=' + board.getObjects().length + ' adding=' + adding.size + ' types=' + byAddress.types.join());
+    step(calls.some(c => c.command === 'read_dropped' && c.args.uri === 'file:///home/me/Pictures/sun%20set.png'), 'through read_dropped, by its address');
+    const notPicture = new DataTransfer(); notPicture.setData('text/uri-list', 'file:///home/me/notes.txt');
+    $('#create-stage').dispatchEvent(new DragEvent('drop', { ...grey, dataTransfer: notPicture }));
+    step($('#create-saved').textContent.startsWith('Only pictures can be dropped') && board.getObjects().length === 4, 'anything else says why nothing was added');
+    board.remove(...board.getObjects().slice(3)); commitDesign();
     const framed = board.getObjects().at(-1); selectObjects([framed]); put($('#prop-frame'), 'rounded', 'change');
     await settle(flush(), 'frame saved'); await settle(openDesign(propertiesTitle), 'frame reopened');
     step(board.getObjects().at(-1).clipPath?.rx === board.getObjects().at(-1).width / 8, 'picture clipPath survives reopening');
