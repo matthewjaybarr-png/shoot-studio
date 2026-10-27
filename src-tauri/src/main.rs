@@ -876,6 +876,14 @@ fn main() {
         .manage(PendingUpdate::default())
         .manage(Retouching::default())
         .setup(|app| {
+            // As an AppImage, ask the system which title bar buttons it wants (see desktop::button_layout).
+            #[cfg(target_os = "linux")]
+            if std::env::var_os("APPDIR").is_some() {
+                use gtk::prelude::GtkSettingsExt;
+                if let Some(settings) = gtk::Settings::default() {
+                    settings.set_gtk_decoration_layout(Some(&desktop::button_layout()));
+                }
+            }
             // As an AppImage, the dock pin happens once (the menu entry was refreshed in main, before any window).
             if let Ok(config) = app.path().app_config_dir() {
                 std::thread::spawn(move || desktop::pin_once(config));

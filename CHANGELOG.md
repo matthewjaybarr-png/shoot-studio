@@ -9,6 +9,7 @@
 - Develop's bar has Hold for before (keep the button pressed to see the photo without your edits), Undo, Redo, and zoom: −, Fit, 100% and +.
 - Develop's settings moved to the left, in drawers like Create's: Adjust, Looks, Crop and Retouch. Looks shows each look as a small picture of the photo you're editing; click one to use it. R and the brush keys open their drawer.
 - The header stays on one line, so long messages no longer push the photo down.
+- On Zorin and other GNOME-style desktops the window has minimize and maximize buttons again, next to close. The app now asks the desktop which title bar buttons it uses (as an AppImage it couldn't read that setting, so it showed close alone).
 - The What's new card appears once more.
 
 ## 0.18.0

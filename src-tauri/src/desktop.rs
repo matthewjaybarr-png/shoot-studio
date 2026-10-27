@@ -102,6 +102,23 @@ fn gsettings() -> Command {
     command
 }
 
+/// The title bar buttons the desktop asks for, such as "appmenu:minimize,maximize,close". The AppImage's own GLib
+/// can't read the system's settings, so without this GTK uses GNOME's built-in default: a close button alone.
+pub fn button_layout() -> String {
+    let asked = gsettings().args(["get", "org.gnome.desktop.wm.preferences", "button-layout"]).output().ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().trim_matches('\'').to_string());
+    layout_or_default(asked)
+}
+
+/// What gsettings said, or all three buttons on the right when it said nothing usable.
+pub fn layout_or_default(asked: Option<String>) -> String {
+    match asked {
+        Some(layout) if layout.contains(':') => layout,
+        _ => "appmenu:minimize,maximize,close".to_string(),
+    }
+}
+
 /// Adds the app to the end of GNOME's dock favourites (Zorin's taskbar reads the same list).
 /// Returns Ok(true) once it is there, whether it was added now or already pinned.
 fn pin_to_dock() -> Result<bool, String> {
@@ -152,6 +169,14 @@ pub fn pin_once(config: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn title_bar_buttons_follow_the_desktop_or_show_all_three() {
+        assert_eq!(layout_or_default(Some("close,minimize:".into())), "close,minimize:");
+        assert_eq!(layout_or_default(Some("appmenu:close".into())), "appmenu:close");
+        assert_eq!(layout_or_default(None), "appmenu:minimize,maximize,close");
+        assert_eq!(layout_or_default(Some(String::new())), "appmenu:minimize,maximize,close");
+    }
 
     #[test]
     fn exec_paths_are_quoted_for_the_desktop_spec() {

@@ -17,3 +17,6 @@ rayon = "1.12"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 tauri-plugin-updater = "2"
 zip = { version = "9.1.2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
