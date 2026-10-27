@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.0
+
+- My elements, at the top of Elements: select anything on the page (a decoration from a Canva file, a styled heading, a chart, a few pieces together) and click Save the selection to My elements, or Save to My elements in the ⋯ and right-click menus. It waits there, with a picture of it, for any design.
+- Click a saved element to add it, or drag it onto the page. Several pieces saved together come back loose and the same distance apart; a saved table comes back as its own table.
+- ✎ renames a saved element; × asks once, then deletes it.
+- Saved elements are kept as files in KB Studio/Elements, next to your designs, so they're backed up with them.
+- The What's new card appears once more.
+
 ## 0.24.0
 
 - Tables can be changed after they're added: click any cell and use Table in the toolbar to add a row above or below, a column left or right, or delete a row or column. New rows make the table taller; new columns share the table's width.

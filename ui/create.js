@@ -720,6 +720,7 @@ function dropItem([kind, value], at) {
   else if (kind === 'frame' && FRAME_TILES.some(([k]) => k === value)) addFrame(value, at);
   else if (kind === 'grid' && GRIDS[value]) addGrid(value);
   else if (kind === 'chart' && typeof addChart === 'function') addChart(value, at);
+  else if (kind === 'mine' && typeof addMine === 'function') addMine(value, at);
   else if (kind === 'decor' && typeof addDecor === 'function') addDecor(value, at).catch(e => { $('#create-saved').textContent = String(e); });
   else if (kind === 'photo') addShootPhoto(value, at, dropTarget(at));
 }
@@ -1305,6 +1306,7 @@ function openMenu(x, y) {
     item(locked ? 'Unlock' : 'Lock', '', toggleLock),
     ...(objects.length > 1 ? [item('Group', 'Ctrl+G', () => groupSelected(), locked)] : active.type === 'group' ? [item('Ungroup', 'Ctrl+Shift+G', () => groupSelected(true), locked)] : []),
     item('Centre on the page', '', centreOnPage, locked),
+    ...(typeof saveMine === 'function' ? [item('Save to My elements', '', () => saveMine())] : []),
     ...(objects.length === 1 && active.type === 'image' && typeof setAsBackground === 'function' ? [item('Set as background', '', () => setAsBackground(active), locked)] : [])
   ] : [item('Paste', 'Ctrl+V', () => pasteSelected(), !designClipboard), item('Select all', 'Ctrl+A', selectAll, !board.getObjects().length)]));
   menu.hidden = false;
@@ -1391,7 +1393,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 13;
+const WHATS_NEW = 14;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

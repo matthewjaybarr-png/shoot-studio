@@ -83,6 +83,7 @@
       <aside id="create-drawer" hidden>
         <section data-panel="templates" hidden><h3>Templates</h3><p class="hint">On a blank page a template fills it; otherwise it opens as a new design.</p><div id="drawer-templates" class="template-grid"></div></section>
         <section data-panel="elements" hidden>
+          <details class="fold" data-fold="mine" open><summary>My elements</summary><p id="mine-hint" class="hint">Select something on the page, then Save, to keep it here for any design.</p><button id="mine-save" type="button" class="wide">Save the selection to My elements</button><p id="mine-empty" class="hint">Nothing saved yet. Things from Canva files work too.</p><div id="create-mine" class="mine-grid"></div></details>
           <details class="fold" data-fold="shapes" open><summary>Shapes</summary><div id="create-tools" class="shape-grid"></div></details>
           <details class="fold" data-fold="frames" open><summary>Frames</summary><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div></details>
           <details class="fold" data-fold="grids" open><summary>Photo grids</summary><p class="hint">Fill the page with frames, then drop photos into them.</p><div id="create-grids" class="shape-grid frames"></div></details>
@@ -234,9 +235,9 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>My elements</b>: select anything on the page, even pieces of a Canva design, and save it to the top of Elements to use again in any design.</li>
         <li><b>Tables</b> you can change: click a cell, then <b>Table</b> to add or remove rows and columns, colour a cell or change the borders. Rows grow to fit what you type.</li>
         <li><b>Gradients</b> in Colours, for words, shapes and the page. A photo's <b>Set as background</b> fills the page with it. PNGs can be <b>see-through</b>.</li>
-        <li><b>Charts</b> in Elements: column, bar, line, pie and donut. Click <b>Edit chart</b> to type your own labels and numbers. Charts from Canva files come in ready to edit too.</li>
         <li><b>Decorations</b> in Elements: leaves, flowers, wreaths, doodles, dividers and party pieces. Click their colour dots in the toolbar to recolour them. Elements sections now fold away.</li>
         <li>Text can <b>curve</b> (Effects), become a bulleted or numbered <b>list</b>, go to capitals or get a strikethrough. <b>Copy style</b> paints one thing's look onto another.</li>
       </ul>
@@ -303,5 +304,6 @@
   <script src="charts.js"></script>
   <script src="fills.js"></script>
   <script src="tables.js"></script>
+  <script src="myelements.js"></script>
 
 </body></html>

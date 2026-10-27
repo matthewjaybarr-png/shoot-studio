@@ -2087,6 +2087,37 @@ const test = `<script>
     selectObjects([liveText]); paintPanel(); $('#table-open').click(); $('#table-delete').click();
     step(!board.getObjects().some(o => o.kbTable === tableId), 'Delete the table removes it');
     addTable(2, 2); const keptTable = board.getObjects().at(-1).kbTable; closeMenus();
+    // My elements: save anything from the page, use it again in any design.
+    step(seen('#mine-save') && document.querySelector('details.fold[data-fold=mine]').open && !$('#mine-empty').hidden, 'Elements starts with an empty My elements section');
+    const mapleNow = board.getObjects().find(o => o.kbName === 'Maple leaf');
+    selectObjects([mapleNow]); openMenu(50, 50);
+    step([...$('#create-menu').children].some(b => b.textContent === 'Save to My elements'), 'the ⋯ menu offers Save to My elements'); closeMenus();
+    selectObjects([mapleNow]);
+    await settle(saveMine(), 'save an element');
+    step(myElements.has('Maple leaf') && disk['c:elements:Maple leaf'] && JSON.parse(disk['c:elements:Maple leaf']).thumb.startsWith('data:image/png') && $('#create-mine').children.length === 1 && $('#mine-empty').hidden, 'a decoration saves to My elements with a picture of it');
+    const pair = [square, mapleNow];
+    const pairGap = () => { const [p, q] = board.getActiveObjects().map(o => o.getBoundingRect()); return Math.round(q.left - p.left) + ',' + Math.round(q.top - p.top); };
+    selectObjects(pair); const gapBefore = pairGap(), boardBefore = board.getObjects().length;
+    $('#mine-save').click(); await until(() => myElements.has('My element'), 'save two things');
+    step(board.getActiveObjects().length === 2 && board.getObjects().length === boardBefore, 'saving leaves the page as it was, still selected');
+    await settle(addMine('My element'), 'add a saved pair');
+    step(board.getActiveObjects().length === 2 && board.getActiveObjects().every(o => !o.group || o.group.type === 'activeselection') && board.getObjects().length === boardBefore + 2 && pairGap() === gapBefore, () => 'several saved pieces come back loose, the same distance apart: ' + pairGap() + ' vs ' + gapBefore);
+    selectObjects(readTable(keptTable).members); await settle(saveMine(), 'save a table');
+    const tableName = [...myElements.keys()].find(n => n.startsWith('My element') && n !== 'My element');
+    await settle(addMine(tableName), 'add a saved table');
+    const copyId = board.getActiveObjects()[0].kbTable;
+    step(copyId && copyId !== keptTable && readTable(copyId).cells.length === 4 && readTable(keptTable).cells.length === 4, 'a saved table comes back as its own table');
+    dropItem(['mine', 'Maple leaf'], new fabric.Point(500, 500));
+    await until(() => board.getObjects().filter(o => o.kbName === 'Maple leaf').length === 2, 'a saved element can be dropped onto the page');
+    const mapleTile = [...$('#create-mine').children].find(t => t.textContent.includes('Maple leaf'));
+    mapleTile.querySelector('button[title=Rename]').click();
+    const renameBox = mapleTile.querySelector('input'); renameBox.value = 'Autumn leaf'; renameBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await until(() => myElements.has('Autumn leaf') && !myElements.has('Maple leaf') && disk['c:elements:Autumn leaf'] && !disk['c:elements:Maple leaf'], 'renaming a saved element');
+    const pairTile = [...$('#create-mine').children].find(t => t.querySelector('.mine-add span')?.textContent === 'My element'), del = pairTile.querySelector('button[title=Delete]');
+    del.click(); step(myElements.has('My element') && del.textContent === 'Delete?', 'the first × asks before deleting');
+    del.click(); await until(() => !myElements.has('My element') && !disk['c:elements:My element'], 'the second deletes it');
+    myElements.clear(); await settle(loadMine(), 'reload saved elements');
+    step(myElements.size === 2 && myElements.has('Autumn leaf') && $('#create-mine').children.length === 2, 'saved elements are read back from their files');
     await settle(flush(), 'tools save'); await settle(openDesign(design.title), 'tools reopen');
     step(readTable(keptTable).cells.length === 4, 'a table is still a table after save and reopen');
     step(board.backgroundColor?.colorStops && board.getObjects().some(o => o.fill?.type === 'radial') && board.getObjects()[0].kbName === 'Background photo', 'gradients and the background photo survive save and reopen');
@@ -2113,8 +2144,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
