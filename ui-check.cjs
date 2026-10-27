@@ -2190,7 +2190,7 @@ const test = `<script>
       await until(() => pic.getSrc() !== srcBefore && history[here] !== undoBefore, 'a Remove stroke changes the picture and can be undone');
       const call = sentStrokes().at(-1), sent = JSON.parse(decodeURIComponent(call.options.headers.strokes));
       step(sent.length === 1 && sent[0].tool === 'remove' && !('strength' in sent[0]) && !('offset' in sent[0]) && sent[0].points.length >= 2 && validStroke(sent[0]), () => 'Rust gets one Remove stroke: ' + JSON.stringify(sent));
-      const wanted = Math.min(0.1, touch.px / board.getZoom() / 300);
+      const wanted = Math.min(0.5, touch.px / board.getZoom() / 300);
       step(Math.abs(sent[0].size - wanted) < 1e-4, () => 'the brush is sized on screen: ' + sent[0].size + ' vs ' + wanted);
       const body = new DataView(call.args.buffer, call.args.byteOffset);
       step(body.getUint32(0, true) === 300 && body.getUint32(4, true) === 200 && call.args.length === 8 + 300 * 200 * 4, 'with the picture at its own pixel size');

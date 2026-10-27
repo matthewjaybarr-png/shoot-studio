@@ -10,6 +10,8 @@ use std::sync::Mutex;
 
 pub const MAX_STROKES: usize = 500;
 pub const MAX_POINTS: usize = 2000;
+/// Brush radius over the long edge. Develop's slider stops at 0.1; Create's on-screen brush can be half of a small decoration.
+pub const MAX_SIZE: f64 = 0.5;
 /// Dodge stops doubling at 64 (six stops over white) so repeated strokes stay finite; the
 /// half floats sent to the shader overflow to infinity above 65504. Brighter pixels are left as they are.
 const DODGE_CAP: f32 = 64.0;
@@ -84,7 +86,7 @@ pub fn validate(strokes: &[Stroke]) -> Result<(), String> {
     }
     for (i, s) in strokes.iter().enumerate() {
         let bad = |what: &str| Err(format!("retouch stroke {} has {what}", i + 1));
-        if !(0.001..=0.1).contains(&s.size) {
+        if !(0.001..=MAX_SIZE).contains(&s.size) {
             return bad("a bad size");
         }
         if s.points.is_empty() || s.points.len() > MAX_POINTS {
@@ -724,7 +726,7 @@ mod tests {
         assert!(bad(&|s| s.points[0][0] = f64::NAN));
         assert!(bad(&|s| s.points[0][1] = 1.2));
         assert!(bad(&|s| s.size = f64::INFINITY));
-        assert!(bad(&|s| s.size = 0.5));
+        assert!(bad(&|s| s.size = 0.51));
         assert!(bad(&|s| s.size = 0.0001));
         assert!(bad(&|s| s.offset = None));
         assert!(bad(&|s| s.offset = Some([f64::NAN, 0.0])));

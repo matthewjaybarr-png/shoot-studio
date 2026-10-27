@@ -44,9 +44,9 @@ function fromPicture(image, [u, v]) {
 }
 const onPicture = ([u, v]) => u >= 0 && v >= 0 && u <= 1 && v <= 1;
 // The brush is sized on screen, as in Canva, whatever picture is under it. A stroke stores it as a share of that
-// picture's long edge, within the limits Rust allows (at most a tenth of a small picture).
+// picture's long edge, within the limits Rust allows (at most half of a small picture).
 const pictureLong = image => Math.max(...naturalSize(image)) * Math.abs(image.scaleX || 1); // on the page
-const brushSize = image => Math.min(STROKE_LIMITS.maxSize, Math.max(STROKE_LIMITS.minSize, touch.px / board.getZoom() / pictureLong(image)));
+const brushSize = image => Math.min(STROKE_LIMITS.maxStored, Math.max(STROKE_LIMITS.minSize, touch.px / board.getZoom() / pictureLong(image)));
 const brushRadius = (image, size = brushSize(image)) => size * pictureLong(image); // on the page
 // The topmost picture you can see under the pointer, locked ones included: a Canva background is where things need
 // removing. See-through parts don't count, so a Canva layer of scattered leaves lets the brush reach what's below it.
