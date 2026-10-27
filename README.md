@@ -1,10 +1,12 @@
 # KB Studio
 
-A small desktop app for culling and editing a photo shoot on Linux. Open a folder of Canon CR2 and JPEG files, flip through them, mark picks, rejects and stars from the keyboard, adjust, retouch and crop the ones you keep, and deliver them as JPEGs.
+A small desktop app for culling and editing a photo shoot on Linux. Open a folder of Canon CR2 and JPEG files, flip through them, mark picks, rejects and stars with the mouse or the keyboard, adjust, retouch and crop the ones you keep, and deliver them as JPEGs.
 
 - RAW and JPEG files with the same name are shown as one photo.
 - Your originals are only ever read. Ratings live in `<shoot>/.shootstudio/shoot.json` and edits in `<shoot>/.shootstudio/recipes/`, next to the photos. Delete `.shootstudio` and you're back to the camera files.
 - The app makes no network calls except one update check at launch.
+
+Everything works with the mouse: the Grid, Photo, Compare and Develop buttons switch views; the bar above the photos has Pick, Reject, Unflag and the stars, Copy and Paste settings, and in Develop Hold for before, Undo, Redo and zoom. In the grid, pointing at a photo shows a flag and star bar on it. Arrows over the photo and the filmstrip under it move between photos. Develop's settings sit in drawers on the left (Adjust, Looks, Crop, Retouch), and Looks shows each look as a picture of the photo.
 
 Keys: arrows move, Enter opens the loupe, C compares, Esc goes back to the grid, P picks, X rejects, U unflags, 1–5 set stars, 0 clears stars.
 

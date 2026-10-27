@@ -6,12 +6,21 @@
     <button id="photos-home" type="button" title="Back to the start screen">⌂ Start</button>
     <button id="open" type="button">Open shoot</button>
     <strong id="shoot-name">No shoot open</strong>
+    <div id="views" class="segmented" role="group" aria-label="View"><button type="button" data-view="grid" title="All the photos (Esc)">Grid</button><button type="button" data-view="loupe" title="One photo, large (Enter)">Photo</button><button type="button" data-view="compare" title="Two photos side by side (C)">Compare</button><button type="button" data-view="develop" title="Edit the photo (D)">Develop</button></div>
     <label>Show <select id="filter"><option value="all">All</option><option value="picks">Picks</option><option value="unrated">Unrated</option></select></label>
     <span id="counts"></span>
     <span id="status" role="status"></span>
     <button id="use-in-design" type="button" title="Put this photo on a page in Create" disabled>Use in a design</button>
     <button id="deliver-open" type="button" title="Ctrl+E" disabled>Deliver…</button>
   </header>
+  <div id="photo-bar" role="toolbar" aria-label="Rate and adjust the photo" hidden>
+    <span class="group"><button type="button" data-flag="pick" title="Pick (P)">⚑ Pick</button><button type="button" data-flag="reject" title="Reject (X)">✕ Reject</button><button type="button" data-flag="" title="Unflag (U)">Unflag</button></span>
+    <span class="group stars" aria-label="Stars"><button type="button" data-stars="1" title="1 star (1)">★</button><button type="button" data-stars="2" title="2 stars (2)">★</button><button type="button" data-stars="3" title="3 stars (3)">★</button><button type="button" data-stars="4" title="4 stars (4)">★</button><button type="button" data-stars="5" title="5 stars (5)">★</button></span>
+    <span class="group" data-for="develop"><button type="button" id="pb-before" title="Hold the button down to see the photo before your edits (or hold \)">Hold for before</button><button type="button" id="pb-undo" title="Undo (Ctrl+Z)" >↶ Undo</button><button type="button" id="pb-redo" title="Redo (Ctrl+Shift+Z)" >↷ Redo</button></span>
+    <span class="group" data-for="develop"><button type="button" id="pb-out" title="Zoom out (−)" aria-label="Zoom out">−</button><button type="button" id="pb-fit" title="Fit the photo (0)">Fit</button><button type="button" id="pb-100" title="Actual pixels (1)">100%</button><button type="button" id="pb-in" title="Zoom in (+)" aria-label="Zoom in">+</button></span>
+    <span class="group" data-for="grid loupe develop"><button type="button" id="pb-copy" title="Copy this photo's settings (Ctrl+C)">Copy settings</button><button type="button" id="pb-paste" title="Paste settings (Ctrl+V)">Paste settings</button></span>
+    <span class="group" data-for="grid"><button type="button" id="pb-all" title="Select every photo, to paste settings onto them (Ctrl+A)">Select all</button></span>
+  </div>
   <section id="home" aria-label="Start">
     <h1><img src="icon.png" alt="" class="logo">KB Studio</h1>
     <p id="home-status" role="status"></p>
@@ -26,7 +35,7 @@
       <button id="create-home" type="button">⌂ Start</button>
       <button id="file-open" type="button" data-pop="pop-file">File</button>
       <input id="create-title" type="text" aria-label="Design name" spellcheck="false">
-      <button id="create-undo" type="button" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button><button id="create-redo" type="button" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+      <button id="create-undo" type="button" title="Undo (Ctrl+Z)" >↶ Undo</button><button id="create-redo" type="button" title="Redo (Ctrl+Y)" >↷ Redo</button>
       <button type="button" data-pop="pop-resize">Resize</button>
       <span id="create-saved" role="status"></span>
       <span class="zoom"><button id="create-zoom-out" type="button" aria-label="Zoom out">−</button><output id="create-zoom">100%</output><button id="create-zoom-in" type="button" aria-label="Zoom in">+</button><button id="create-fit" type="button">Fit</button></span>
@@ -192,13 +201,13 @@
     <div id="create-menu" role="menu" hidden></div>
     <output id="create-readout" hidden></output>
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
-      <h3 id="whatsnew-title">What's new in Create</h3>
+      <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li>In <b>Photos</b>, everything has a button now: Pick, Reject and stars above the photos (or on each photo in the grid), Grid / Photo / Compare / Develop, arrows and a filmstrip, and in Develop: hold for before, Undo, Fit and 100%. Develop's settings are in drawers on the left, with each look shown as a picture.</li>
         <li><b>Folders</b> for your designs on the start screen: drag a design onto a folder, or use the ⋯ on a design. Deleted designs wait in the Trash.</li>
         <li>A <b>File</b> menu next to Start: new design, make a copy, rename, folder, download and more.</li>
         <li>In Elements: many more shapes, frames shaped like an arch, heart or star, and <b>photo grids</b> that fill the page with frames.</li>
         <li><b>Font combinations</b> in Text: ready-made pairings to click or drag in.</li>
-        <li><b>Import from Canva</b> on the start screen (in Canva: Share → Download → PowerPoint), and <b>Filters</b> for pictures.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -209,11 +218,18 @@
     </div>
   </section>
   <main id="grid" class="grid" tabindex="-1"></main>
-  <section id="loupe" class="viewer hidden" aria-label="Photo viewer"><figure><img alt=""><figcaption></figcaption></figure><figure><img alt=""><figcaption></figcaption></figure></section>
+  <section id="loupe" class="viewer hidden" aria-label="Photo viewer"><figure><img alt=""><figcaption></figcaption></figure><figure><img alt=""><figcaption></figcaption></figure><button type="button" class="photo-nav prev" aria-label="Previous photo">‹</button><button type="button" class="photo-nav next" aria-label="Next photo">›</button></section>
   <section id="develop" class="develop hidden" aria-label="Develop">
-    <div class="stage"><canvas id="canvas"></canvas><canvas id="overlay"></canvas><p id="develop-note" hidden></p><span id="develop-caption"></span><span id="zoom-readout" hidden></span><div id="navigator" hidden><canvas></canvas><div></div></div></div>
+    <nav id="develop-rail" aria-label="Develop tools">
+      <button type="button" data-section="adjust"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Adjust</button>
+      <button type="button" data-section="looks"><svg viewBox="0 0 24 24"><circle cx="9" cy="10" r="5"/><circle cx="15" cy="10" r="5"/><circle cx="12" cy="15" r="5"/></svg>Looks</button>
+      <button type="button" data-section="crop"><svg viewBox="0 0 24 24"><path d="M6 2v16h16M2 6h16v16"/></svg>Crop</button>
+      <button type="button" data-section="retouch"><svg viewBox="0 0 24 24"><path d="M4 20l8-8M14 4l6 6-6 6-6-6z"/></svg>Retouch</button>
+    </nav>
+    <div class="stage"><button type="button" class="photo-nav prev" aria-label="Previous photo">‹</button><button type="button" class="photo-nav next" aria-label="Next photo">›</button><canvas id="canvas"></canvas><canvas id="overlay"></canvas><p id="develop-note" hidden></p><span id="develop-caption"></span><span id="zoom-readout" hidden></span><div id="navigator" hidden><canvas></canvas><div></div></div></div>
     <fieldset id="sliders" disabled></fieldset>
   </section>
+  <div id="filmstrip" aria-label="Photos in this shoot" hidden></div>
   <dialog id="deliver" aria-labelledby="deliver-title">
     <h2 id="deliver-title">Deliver</h2>
     <fieldset id="deliver-form">
@@ -242,6 +258,7 @@
   <footer><span id="keys"></span><span id="version"></span></footer>
   <script src="develop.js"></script>
   <script src="app.js"></script>
+  <script src="photobar.js"></script>
   <script src="vendor/fabric.min.js"></script>
   <script src="vendor/fabric-extensions.min.js"></script>
   <script src="vendor/jspdf.umd.min.js"></script>

@@ -743,6 +743,88 @@ const test = `<script>
     step(!box.open, 'Close closes');
     }
 
+    // Photos for the mouse: the view buttons, the rating bar, the grid's hover bar, arrows, the filmstrip and Develop's rail.
+    {
+    const seen = sel => { const el = $(sel); return !!el && el.offsetParent !== null; };
+    const barClick = sel => $('#photo-bar ' + sel).click();
+    while (view !== 'grid') press('Escape');
+    selected.clear(); paintSelection(); move(30);
+    step(seen('#photo-bar') && $('#views [data-view=grid]').classList.contains('on') && $('#filmstrip').hidden, 'the grid shows the rating bar and no filmstrip');
+    step(seen('#pb-all') && seen('#pb-copy') && !seen('#pb-before') && !seen('#pb-fit'), "the grid's bar has Select all and copy, not Develop's buttons");
+    $('#pb-all').click();
+    step(selected.size === visible.length && $('#pb-all').textContent === 'Select none', 'Select all selects every photo');
+    $('#pb-all').click();
+    step(selected.size === 0, 'and Select none clears it');
+
+    grid.children[32].querySelector('.cell-rate [data-stars="3"]').click();
+    await until(() => lastSave()?.[visible[32].id]?.stars === 3, 'a star on a photo in the grid rates that photo');
+    step(cursor === 32 && view === 'grid' && grid.children[32].querySelectorAll('.cell-rate .on').length === 3, 'it becomes the current photo, still in the grid, its stars lit');
+    grid.children[32].querySelector('.cell-rate [data-stars="3"]').click();
+    await until(() => !lastSave()?.[visible[32].id], 'the same star again clears it');
+    grid.children[32].querySelector('.cell-rate [data-flag=reject]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    step(view === 'grid', 'double-clicking the hover bar does not open the photo');
+
+    barClick('[data-flag=pick]');
+    await until(() => lastSave()?.[visible[32].id]?.flag === 'pick', 'Pick on the bar picks the current photo');
+    step($('#photo-bar [data-flag=pick]').classList.contains('on'), 'and lights up');
+    barClick('[data-stars="2"]');
+    await until(() => lastSave()?.[visible[32].id]?.stars === 2 && $('#photo-bar [data-stars="2"]').classList.contains('on') && !$('#photo-bar [data-stars="3"]').classList.contains('on'), 'two stars on the bar');
+    barClick('[data-flag=""]'); barClick('[data-stars="2"]');
+    await until(() => !lastSave()?.[visible[32].id], 'Unflag and the same star again clear the rating');
+
+    $('#views [data-view=loupe]').click();
+    await until(() => view === 'loupe' && !loupe.classList.contains('hidden'), 'Photo shows the photo large');
+    const strip = $('#filmstrip');
+    step(!strip.hidden && strip.children.length === visible.length && strip.children[32].classList.contains('current'), 'with the filmstrip under it, the current photo marked');
+    loupe.querySelector('.photo-nav.next').click();
+    step(cursor === 33 && strip.children[33].classList.contains('current'), 'the arrow over the photo goes to the next one');
+    loupe.querySelector('.photo-nav.prev').click();
+    step(cursor === 32, 'and back');
+    strip.children[35].click();
+    step(cursor === 35 && view === 'loupe', 'clicking the filmstrip shows that photo');
+    await until(() => strip.children[35].querySelector('img').src.startsWith('blob:'), 'the filmstrip loads its thumbnails');
+    $('#views [data-view=compare]').click();
+    step(view === 'compare' && anchor === visible[35] && cursor === 36 && strip.children[35].classList.contains('anchor'), 'Compare keeps this photo on the left and shows the next beside it');
+
+    $('#views [data-view=develop]').click();
+    await until(() => view === 'develop' && editing?.ready, 'Develop opens from its button');
+    step(seen('#pb-before') && seen('#pb-fit') && !seen('#pb-all') && seen('#develop-rail'), "Develop's bar has before, undo and zoom");
+    step($('#develop-rail [data-section=adjust]').classList.contains('on') && seen('#sliders input[data-key=exposure]') && !seen('#look') && !seen('#crop') && seen('#reset'), 'the Adjust drawer shows the sliders and nothing else');
+    $('#develop-rail [data-section=looks]').click();
+    step(seen('#look') && !seen('#sliders input[data-key=exposure]'), 'Looks shows the looks');
+    const tiles = $('#look-tiles');
+    await until(() => tiles.children.length === LOOKS.length + 1 && [...tiles.querySelectorAll('canvas')].every(c => c.width > 1), 'each look is a picture of this photo');
+    tiles.children[2].click();
+    await until(() => editing.recipe.look === LOOKS[1].id && tiles.children[2].classList.contains('on') && !$('#pb-undo').disabled, 'clicking a look uses it, and it can be undone');
+    $('#pb-undo').click();
+    await until(() => !editing.recipe.look && !$('#pb-redo').disabled, 'Undo on the bar takes it back');
+    $('#pb-redo').click();
+    await until(() => editing.recipe.look === LOOKS[1].id, 'Redo puts it back');
+    $('#pb-undo').click();
+    $('#develop-rail [data-section=crop]').click();
+    step(seen('#crop') && !seen('#look'), 'Crop shows the crop tools');
+    press('j');
+    step(tool === 'spot' && $('#develop-rail [data-section=retouch]').classList.contains('on') && seen('#sliders [data-tool=spot]'), 'a brush key opens the Retouch drawer');
+    $('#develop-rail [data-section=adjust]').click();
+    step(tool === null && seen('#sliders input[data-key=exposure]'), 'leaving Retouch drops the brush');
+
+    const realZoom = zoomKey, zooms = []; zoomKey = by => { zooms.push(by); realZoom(by); };
+    $('#pb-100').click(); $('#pb-out').click(); $('#pb-in').click(); $('#pb-fit').click();
+    zoomKey = realZoom;
+    step(JSON.stringify(zooms) === JSON.stringify([1, 1 / 1.25, 1.25, null]) && pointer === null, '100%, −, + and Fit zoom like their keys, on the middle of the photo');
+    const hold = $('#pb-before');
+    hold.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+    step($('#develop-caption').textContent.includes('Before'), 'holding the button shows the photo before');
+    hold.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+    step(!$('#develop-caption').textContent.includes('Before'), 'letting go shows the edits');
+    const was = editing.photo;
+    $('.stage .photo-nav.next').click();
+    await until(() => editing?.photo === visible[37] && editing.ready, 'the arrow in Develop opens the next photo');
+    step(was !== editing.photo, 'a different photo');
+    $('#views [data-view=grid]').click();
+    step(view === 'grid' && !grid.classList.contains('hidden') && strip.hidden, 'Grid goes back to all the photos');
+    }
+
     // Updates.
     step($('#update').hidden && $('#version').textContent === 'KB Studio 0.1.0', 'no banner without an update; version shown');
     offer = '0.1.1'; await checkForUpdate();
@@ -1841,6 +1923,7 @@ const html = ui('index.html')
   .replace('<script src="develop.js"></script>', mock + '<script>' + ui('develop.js') + '</script>')
   .replace('<head>', '<head><base href="file://' + path.join(__dirname, 'ui') + '/">')
   .replace('<script src="app.js"></script>', '<script>' + ui('app.js') + '</script>')
+  .replace('<script src="photobar.js"></script>', () => '<script>' + ui('photobar.js') + '</script>')
   .replace('<script src="vendor/fabric.min.js"></script>', () => '<script>' + ui('vendor/fabric.min.js') + '</script>')
   .replace('<script src="vendor/fabric-extensions.min.js"></script>', () => '<script>' + ui('vendor/fabric-extensions.min.js') + '</script>')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')

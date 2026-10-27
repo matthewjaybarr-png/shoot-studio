@@ -73,8 +73,7 @@ function pump() {
     makeThumb(photo, shoot).then(blob => {
       stale(shoot);
       thumbs.set(photo.id, URL.createObjectURL(blob));
-      const img = grid.querySelector(`[data-id="${CSS.escape(photo.id)}"] img`);
-      if (img) img.src = thumbs.get(photo.id);
+      for (const img of document.querySelectorAll(`#grid [data-id="${CSS.escape(photo.id)}"] img, #filmstrip [data-id="${CSS.escape(photo.id)}"] img`)) img.src = thumbs.get(photo.id);
     }).catch(error => { if (shoot === dir) status(`${fileOf(photo)}: ${error}`, true); }).finally(() => { loading--; pump(); });
   }
 }
@@ -93,6 +92,7 @@ function paintCell(cell, photo) {
   const r = rating(photo);
   cell.className = 'cell' + (r.flag ? ' ' + r.flag : '') + (visible[cursor] === photo ? ' current' : '') + (selected.has(photo.id) ? ' selected' : '');
   cell.querySelector('figcaption').textContent = caption(photo);
+  cellRating(cell, photo);
 }
 
 const shown = photo => { const filter = $('#filter').value, r = rating(photo); return filter === 'all' || (filter === 'picks' ? r.flag === 'pick' : !r.flag && !r.stars); };
@@ -108,7 +108,7 @@ function renderGrid() {
     const cell = document.createElement('figure');
     cell.dataset.i = i;
     cell.dataset.id = photo.id;
-    cell.innerHTML = '<img alt="" loading="lazy" decoding="async"><figcaption></figcaption>';
+    cell.innerHTML = '<img alt="" loading="lazy" decoding="async"><figcaption></figcaption>' + CELL_RATE;
     if (thumbs.has(photo.id)) cell.firstChild.src = thumbs.get(photo.id);
     paintCell(cell, photo);
     watcher.observe(cell);
@@ -121,6 +121,7 @@ function renderGrid() {
 function counts() {
   const all = Object.values(ratings);
   $('#counts').textContent = `${photos.length} photos · ${all.filter(r => r.flag === 'pick').length} picks · ${all.filter(r => r.flag === 'reject').length} rejects` + (selected.size ? ` · ${selected.size} selected` : '');
+  if (typeof paintPhotoBar === "function") paintPhotoBar();
 }
 
 let shownToken = 0;
@@ -131,6 +132,7 @@ async function showViewer() {
   develop.classList.toggle('hidden', view !== 'develop');
   loupe.classList.toggle('compare', view === 'compare');
   $('#keys').textContent = KEYS[view];
+  if (typeof paintPhotoBar === "function") paintPhotoBar();
   if (view === 'develop') return openDevelop(visible[cursor]);
   leaveDevelop();
   if (view === 'grid') return grid.querySelector('.current')?.scrollIntoView({ block: 'nearest' });
@@ -237,6 +239,7 @@ const HINTS = {
   burn: 'Paint to darken, like adding light in the darkroom. Build it up in light strokes at 25%.'
 };
 function paintTools() {
+  if (typeof paintRail === "function") paintRail();
   for (const button of sliders.querySelectorAll('[data-tool]')) { button.classList.toggle('active', button.dataset.tool === tool); button.disabled = !!cropping; }
   const size = sliders.querySelector('[data-brush=size]'), strength = sliders.querySelector('[data-brush=strength]');
   size.value = sizeToSlider(brush.size);
@@ -251,6 +254,7 @@ function paintTools() {
 
 function paintSliders() {
   sliders.disabled = !editing?.ready || updating;
+  if (typeof paintPhotoBar === "function") paintPhotoBar();
   paintTools();
   for (const input of sliders.querySelectorAll('input[data-key]')) {
     const s = SLIDERS.find(s => s.key === input.dataset.key), v = editing ? editing.recipe[s.key] : s.default ?? 0;
@@ -1061,6 +1065,8 @@ $('#filter').onchange = () => { renderGrid(); showViewer(); $('#filter').blur();
 grid.onclick = event => {
   const cell = event.target.closest('.cell');
   if (!cell) return;
+  const rater = event.target.closest('.cell-rate button');
+  if (rater) return rateCell(rater);
   const i = +cell.dataset.i, id = visible[i].id;
   if (event.shiftKey) for (let j = Math.min(i, cursor); j <= Math.max(i, cursor); j++) selected.add(visible[j].id);
   else if (event.ctrlKey || event.metaKey) {
@@ -1074,7 +1080,7 @@ function paintSelection() {
   for (const cell of grid.querySelectorAll('.cell')) cell.classList.toggle('selected', selected.has(cell.dataset.id));
   counts();
 }
-grid.ondblclick = event => { if (event.target.closest('.cell')) { view = 'loupe'; showViewer(); } };
+grid.ondblclick = event => { if (event.target.closest('.cell') && !event.target.closest('.cell-rate')) { view = 'loupe'; showViewer(); } };
 
 document.addEventListener('keydown', event => {
   if (mode !== 'photos') return;

@@ -27,7 +27,7 @@ figcaption{position:absolute;left:6px;bottom:4px;font-size:12px;text-shadow:0 1p
 .viewer.compare figure:last-child{outline:2px solid var(--accent);outline-offset:-2px}
 .viewer figcaption{font-size:14px;bottom:8px;left:10px}
 .develop{flex:1;display:flex;min-height:0}
-.stage{position:relative;flex:1;min-width:0;background:var(--deep)}
+.stage{order:2;position:relative;flex:1;min-width:0;background:var(--deep)}
 #canvas,#overlay{position:absolute;inset:0;width:100%;height:100%}
 #overlay{pointer-events:none}
 .stage.brush{cursor:none}
@@ -39,7 +39,7 @@ figcaption{position:absolute;left:6px;bottom:4px;font-size:12px;text-shadow:0 1p
 #navigator canvas{display:block}
 #navigator div{position:absolute;border:2px solid #fff;box-shadow:0 0 0 1px #000,0 0 0 9999px rgba(0,0,0,.45);pointer-events:none}
 #zoom-readout[hidden],#navigator[hidden],#sliders [hidden]{display:none}
-#sliders{width:280px;margin:0;padding:4px 16px 16px;border:0;border-left:1px solid var(--edge);background:var(--panel);overflow-y:auto}
+#sliders{order:1;width:280px;margin:0;padding:4px 16px 16px;border:0;border-right:1px solid var(--edge);background:var(--panel);overflow-y:auto}
 #sliders:disabled{opacity:.5}
 #sliders h3{margin:16px 0 4px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 #sliders label{display:grid;grid-template-columns:1fr auto;margin:6px 0}
@@ -96,7 +96,7 @@ figcaption{position:absolute;left:6px;bottom:4px;font-size:12px;text-shadow:0 1p
 @font-face{font-family:'Comic Neue';font-weight:700;src:url(fonts/comic-neue-latin-700-normal.woff2) format('woff2')}
 @font-face{font-family:'Fredoka';font-weight:400;src:url(fonts/fredoka-latin-400-normal.woff2) format('woff2')}
 @font-face{font-family:'Fredoka';font-weight:700;src:url(fonts/fredoka-latin-700-normal.woff2) format('woff2')}
-body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>footer #keys{display:none}
+body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>footer #keys{display:none}
 #home{padding:40px;overflow:auto;flex:1}
 #home h1{display:flex;align-items:center;gap:14px;margin:0 0 20px}#home .logo{width:56px;height:56px}#home h2{margin:28px 0 10px;font-size:15px;color:var(--muted,#aaa)}
 .home-main{display:flex;gap:20px}.home-main button{display:flex;flex-direction:column;gap:6px;padding:28px 40px;font-size:18px;min-width:260px}
@@ -247,3 +247,44 @@ body.away>header,body.away>#grid,body.away>#loupe,body.away>#develop,body.away>f
 #font-combos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 #font-combos .combo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:86px;padding:8px 6px !important;background:#fff;color:#222;border-radius:8px;line-height:1.15;text-align:center;overflow:hidden}
 #font-combos .combo:hover{outline:2px solid var(--accent)}#font-combos .combo span{max-width:100%}
+/* Photos for the mouse: view switcher, rating bar, arrows, filmstrip, Develop's rail */
+.segmented{display:flex}.segmented button{border-radius:0;margin-left:-1px}.segmented button:first-child{border-radius:6px 0 0 6px;margin:0}.segmented button:last-child{border-radius:0 6px 6px 0}
+.segmented button.on{outline:0;position:relative;background:var(--accent);border-color:var(--accent);color:var(--deep)}
+#photo-bar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:6px 14px;background:var(--panel);border-bottom:1px solid var(--edge)}
+#photo-bar[hidden],#photo-bar [hidden],#filmstrip[hidden]{display:none}
+#photo-bar .group{display:flex;gap:4px}#photo-bar .group[hidden]{display:none}#photo-bar button{padding:4px 10px}
+#photo-bar button:disabled,.photo-nav:disabled{opacity:.4}
+#photo-bar button.on{outline:0;background:var(--accent);border-color:var(--accent);color:var(--deep)}
+#photo-bar [data-flag=reject].on{background:var(--warning);border-color:var(--warning)}
+#photo-bar .stars button{color:var(--muted);padding:4px 7px;font-size:16px;line-height:1}#photo-bar .stars button.on{background:transparent;border-color:var(--edge);color:#ffd166}
+.viewer{position:relative}
+.photo-nav{position:absolute;top:50%;z-index:3;width:44px;height:64px;margin-top:-32px;padding:0;border:0;border-radius:8px;background:rgb(0 0 0/.35);color:#fff;font-size:34px;line-height:1;opacity:0;transition:opacity .15s}
+.photo-nav.prev{left:10px}.photo-nav.next{right:10px}
+.viewer:hover .photo-nav:not(:disabled),.stage:hover .photo-nav:not(:disabled){opacity:.85}.photo-nav:hover{background:rgb(0 0 0/.6)}
+#filmstrip{display:flex;gap:6px;flex:none;height:86px;padding:6px 10px;overflow-x:auto;overflow-y:hidden;background:var(--panel);border-top:1px solid var(--edge)}
+#filmstrip button{flex:none;width:96px;height:72px;padding:0;border:2px solid transparent;border-radius:5px;background:var(--deep);overflow:hidden}
+#filmstrip img{display:block;width:100%;height:100%;object-fit:cover}
+#filmstrip button.current{border-color:var(--accent)}#filmstrip button.anchor{border-color:var(--muted)}#filmstrip button.reject img{opacity:.3}
+#filmstrip button.pick{box-shadow:inset 0 -3px 0 var(--success)}
+#develop-rail{order:0;display:flex;flex-direction:column;gap:2px;width:76px;padding:8px 4px;background:var(--deep);border-right:1px solid var(--edge)}
+#develop-rail button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px}
+#develop-rail button:hover{color:var(--text);background:var(--panel)}#develop-rail button.on{outline:0;color:var(--text);background:var(--panel)}
+#develop-rail svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#sliders[data-section=adjust] [data-section]:not([data-section=adjust]):not([data-section=all]),
+#sliders[data-section=looks] [data-section]:not([data-section=looks]):not([data-section=all]),
+#sliders[data-section=crop] [data-section]:not([data-section=crop]):not([data-section=all]),
+#sliders[data-section=retouch] [data-section]:not([data-section=retouch]):not([data-section=all]){display:none}
+#look-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:6px 0 10px}
+#sliders #look-tiles button{display:flex;flex-direction:column;gap:3px;align-items:center;width:auto;margin:0;padding:4px;font-size:11px;color:var(--muted);overflow:hidden}
+#look-tiles canvas{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;background:var(--deep)}
+#sliders #look-tiles button.on{outline:2px solid var(--accent);color:var(--text)}
+.cell-rate{position:absolute;top:6px;left:6px;right:6px;display:flex;gap:2px;justify-content:center;opacity:0;transition:opacity .12s}
+.cell:hover .cell-rate,.cell-rate:has(.on){opacity:1}
+.cell:not(:hover) .cell-rate button:not(.on){visibility:hidden}
+.cell-rate button{padding:2px 6px;border:0;border-radius:4px;background:rgb(0 0 0/.55);color:#ddd;font-size:13px;line-height:1.2}
+.cell-rate button:hover{background:rgb(0 0 0/.8);color:#fff}
+.cell-rate [data-flag=pick].on{background:var(--success);color:var(--deep)}.cell-rate [data-flag=reject].on{background:var(--warning);color:var(--deep)}
+.cell-rate [data-stars].on{color:#ffd166}
+/* The header stays one line high whatever the status says, so the photo under it never jumps. */
+header>*{flex:none;white-space:nowrap}header>#status{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis}header>#shoot-name{flex:0 1 auto;min-width:40px;overflow:hidden;text-overflow:ellipsis}
+.cell-rate button.on,#photo-bar .stars button.on{outline:0}

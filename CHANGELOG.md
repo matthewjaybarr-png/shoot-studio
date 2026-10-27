@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.0
+
+- Photos works with the mouse alone. A bar above the photos has Pick, Reject, Unflag and one to five stars for the current photo (click the same star again to clear it), Copy settings and Paste settings, and in the grid Select all.
+- Grid, Photo, Compare and Develop buttons in the header switch views, with no keys needed.
+- In the grid, pointing at a photo shows a small flag and star bar on it, so photos can be rated without opening them; ratings stay shown on the photo.
+- Arrows over the large photo and over Develop go to the previous and next photo, and a filmstrip under them shows every photo in the filter: click one to go to it.
+- Develop's bar has Hold for before (keep the button pressed to see the photo without your edits), Undo, Redo, and zoom: −, Fit, 100% and +.
+- Develop's settings moved to the left, in drawers like Create's: Adjust, Looks, Crop and Retouch. Looks shows each look as a small picture of the photo you're editing; click one to use it. R and the brush keys open their drawer.
+- The header stays on one line, so long messages no longer push the photo down.
+- The What's new card appears once more.
+
 ## 0.18.0
 
 - Folders for designs on the start screen, under Your designs: All designs, your folders, and + New folder. Drag a design onto a folder to move it there, or use the ⋯ on a design (or right-click it) to open, make a copy, rename, move to a folder or move to the trash. Folders can be renamed or deleted; deleting one keeps its designs.
