@@ -978,11 +978,17 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
-/// A picture dragged in from the file manager, by its file:// address: WebKitGTK can hand a drop over as the
-/// address alone, with no file the page can read.
+/// A picture dragged in from the file manager, by its path or file:// address: WebKitGTK gives the page no file
+/// it can read.
 #[tauri::command]
 async fn read_dropped(uri: String) -> Result<Response, String> {
-    let path = uri.strip_prefix("file://").and_then(percent_decode).map(PathBuf::from).ok_or("only files can be dropped")?;
+    let path = match uri.strip_prefix("file://") {
+        Some(encoded) => PathBuf::from(percent_decode(encoded).ok_or("only files can be dropped")?),
+        None => PathBuf::from(&uri),
+    };
+    if !path.is_absolute() {
+        return Err("only files can be dropped".into());
+    }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
     if !["png", "jpg", "jpeg", "webp", "gif"].contains(&ext.as_str()) {
         return Err("PNG, JPEG, WebP or GIF pictures only".into());
@@ -1133,6 +1139,15 @@ fn main() {
                 }
                 if let Some(page) = window.app_handle().get_webview_window(window.label()) {
                     let _ = page.eval("window.kbClose ? kbClose() : window.__TAURI__.core.invoke('quit')");
+                }
+            }
+            // Files dragged in from the file manager: WebKitGTK gives the page nothing it can read, so the paths and
+            // where they were let go are handed to the page from here.
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                if let Some(page) = window.app_handle().get_webview_window(window.label()) {
+                    let paths: Vec<_> = paths.iter().map(|p| p.display().to_string()).collect();
+                    let call = format!("window.kbDropFiles && kbDropFiles({}, {}, {})", serde_json::json!(paths), position.x, position.y);
+                    let _ = page.eval(call);
                 }
             }
         })

@@ -352,6 +352,10 @@ header,.create-bar{border-bottom-color:var(--pink)}
 #create .mine-tile>button:not(.mine-add){position:absolute;bottom:3px;padding:0 6px;min-height:20px;font-size:12px;line-height:20px}
 #create .mine-tile>button:nth-of-type(2){left:4px}#create .mine-tile>button:nth-of-type(3){right:4px}#create .mine-tile>button.sure{color:#fff;background:#d6455d}
 #mine-save{margin:4px 0}
+.mine-place{display:flex;align-items:center;gap:8px;margin:6px 0 2px}.mine-place select{flex:1}
+.mine-saved{margin:0 0 10px}.mine-saved>.hint{margin:4px 0 0}
+#create .mine-tile>button.mine-move{left:50%;transform:translateX(-50%)}
+.mine-tile select{position:absolute;left:4px;right:4px;bottom:28px;padding:2px 4px;font-size:12px}
 #pop-file .file-recent{display:flex;flex-direction:column;gap:2px}#create .file-recent button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:none}#create .file-recent button:hover{background:var(--deep)}
 #pop-file hr{border:0;border-top:1px solid var(--edge);margin:6px 0}
 #deliver-preview.needs{color:var(--accent);font-weight:600}

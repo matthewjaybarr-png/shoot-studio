@@ -6,7 +6,9 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-studio-check-'));
 const appConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'src-tauri/tauri.conf.json'), 'utf8')).app;
-if (appConfig.windows.some(w => w.dragDropEnabled !== false)) throw Error('HTML file drops require native interception disabled');
+// WebKitGTK gives the page no readable file for a drop from the file manager, so Tauri catches file drops and main.rs
+// hands their paths to kbDropFiles; drags within the page aren't file drops and still reach the page.
+if (appConfig.windows.some(w => w.dragDropEnabled === false)) throw Error('file drops need native drag and drop on');
 const ui = name => fs.readFileSync(path.join(__dirname, 'ui', name), 'utf8');
 // Literal relative fetches use connect-src, not script-src or img-src.
 const connectPolicy = appConfig.security.csp.split(';').map(s => s.trim()).find(s => s.startsWith('connect-src ')) || appConfig.security.csp.split(';').map(s => s.trim()).find(s => s.startsWith('default-src ')) || '';
@@ -1312,6 +1314,13 @@ const test = `<script>
     const notPicture = new DataTransfer(); notPicture.setData('text/uri-list', 'file:///home/me/notes.txt');
     $('#create-stage').dispatchEvent(new DragEvent('drop', { ...grey, dataTransfer: notPicture }));
     step($('#create-saved').textContent.startsWith('Only pictures can be dropped') && board.getObjects().length === 4, 'anything else says why nothing was added');
+    // The real app: Rust hands over paths of files let go anywhere in Create.
+    const dropCount = board.getObjects().length, stageBox = $('#create-stage').getBoundingClientRect();
+    kbDropFiles(['/home/me/Pictures/leaf.png', '/home/me/notes.txt'], stageBox.left + 8, stageBox.top + 8);
+    await until(() => adding.size === 0 && board.getObjects().length === dropCount + 1, () => 'a native drop of a path is added: ' + $('#create-saved').textContent);
+    step(calls.some(c => c.command === 'read_dropped' && c.args.uri === '/home/me/Pictures/leaf.png') && !calls.some(c => c.command === 'read_dropped' && c.args.uri.endsWith('.txt')), 'only the picture is read, by its path');
+    kbDropFiles(['/home/me/notes.txt'], stageBox.right - 8, stageBox.bottom - 8);
+    step($('#create-saved').textContent.startsWith('Only pictures can be dropped') && board.getObjects().length === dropCount + 1, 'a native drop of anything else says why');
     board.remove(...board.getObjects().slice(3)); commitDesign();
     const framed = board.getObjects().at(-1); selectObjects([framed]); put($('#prop-frame'), 'rounded', 'change');
     await settle(flush(), 'frame saved'); await settle(openDesign(propertiesTitle), 'frame reopened');
@@ -2220,6 +2229,20 @@ const test = `<script>
     del.click(); await until(() => !myElements.has('My element') && !disk['c:elements:My element'], 'the second deletes it');
     myElements.clear(); await settle(loadMine(), 'reload saved elements');
     step(myElements.size === 2 && myElements.has('Autumn leaf') && $('#create-mine').children.length === 2, 'saved elements are read back from their files');
+    // 0.33: Save to another section (Shapes, Text…) for keeping things organised, and Move between them later.
+    put($('#mine-place'), 'shapes', 'change');
+    step($('#mine-save').textContent === 'Save the selection to Shapes', 'the button says where it will save');
+    selectObjects([board.getObjects().find(o => o.kbName === 'Autumn leaf') || board.getObjects()[0]]);
+    const shapeName = await settle(saveMine(), 'save to Shapes');
+    const shapeGrid = $('#mine-in-shapes');
+    step(shapeGrid && !shapeGrid.parentElement.hidden && shapeGrid.closest('details').dataset.fold === 'shapes' && shapeGrid.children.length === 1 && JSON.parse(disk['c:elements:' + shapeName]).place === 'shapes' && ![...$('#create-mine').children].some(t => t.textContent.includes(shapeName)), () => 'it shows at the top of Shapes, not in My elements: ' + shapeName);
+    shapeGrid.querySelector('button.mine-move').click();
+    const movePick = shapeGrid.querySelector('select'); put(movePick, 'text', 'change');
+    await until(() => $('#mine-in-text')?.children.length === 1 && shapeGrid.parentElement.hidden, 'Move puts it in the Text drawer');
+    step($('#mine-in-text').closest('section').dataset.panel === 'text' && JSON.parse(disk['c:elements:' + shapeName]).place === 'text', 'and remembers it');
+    myElements.clear(); await settle(loadMine(), 'reload sorted elements');
+    step($('#mine-in-text').children.length === 1 && $('#create-mine').children.length === 2, 'sections are kept when read back');
+    await settle(removeMine(shapeName), 'tidy up'); put($('#mine-place'), 'mine', 'change');
     // Retouch in Create: a brush paints on a picture, Rust changes its pixels, and Undo takes it back.
     { const seen = sel => !$(sel).closest('[hidden]');
       const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillStyle = '#3a7'; c.getContext('2d').fillRect(0, 0, 300, 200);

@@ -601,8 +601,22 @@ const PICTURE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
 const pictureType = name => PICTURE_TYPES[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] || '';
 const droppedFiles = data => [...data.files].map(f => f.type || !pictureType(f.name) ? f : new File([f], f.name, { type: pictureType(f.name) })).filter(f => f.type.startsWith('image/'));
 const droppedUris = data => (data.types.includes('text/uri-list') ? data.getData('text/uri-list') : '').split(/\r?\n/).filter(u => u.startsWith('file://') && pictureType(u));
+// Files let go anywhere in Create, from Rust (see main.rs): on the page area they land where dropped, or swap into
+// the picture or frame there; anywhere else they land in the middle. On Linux the position is GTK's, already in CSS
+// pixels, although Tauri calls it physical.
+window.kbDropFiles = (paths, px, py) => {
+  if (mode !== 'create' || !board || !design || $('#create').inert || cropSession) return;
+  const pictures = paths.filter(pictureType), x = px, y = py, r = $('#create-stage').getBoundingClientRect();
+  if (!pictures.length) { $('#create-saved').textContent = 'Only pictures can be dropped here (PNG, JPEG, WebP or GIF)'; return; }
+  const onStage = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom, at = onStage ? board.getScenePoint({ clientX: x, clientY: y }) : null;
+  Promise.all(pictures.map(readDropped)).then(files => {
+    const target = at && files.length === 1 && dropTarget(at);
+    if (target) return fillFrame(target, files[0], files[0].name.replace(/\.[^.]*$/, ''));
+    return importFiles(files, at || undefined);
+  }).catch(error => { $('#create-saved').textContent = 'Could not add it: ' + error; });
+};
 async function readDropped(uri) {
-  const name = decodeURIComponent(uri.slice(uri.lastIndexOf('/') + 1));
+  const last = uri.slice(uri.lastIndexOf('/') + 1), name = uri.startsWith('file://') ? decodeURIComponent(last) : last;
   return new File([new Uint8Array(await invoke('read_dropped', { uri }))], name, { type: pictureType(name) });
 }
 // The whole batch is one tracked job, so closing mid-import still waits for the files not started yet.
@@ -1826,6 +1840,10 @@ $('#create-pdf').onclick = () => output('pdf');
 $('#create-png').onclick = () => output('png');
 $('#create-jpeg').onclick = () => output('jpeg');
 $('#create-print').onclick = () => printDesign();
+// WebKitGTK can blank the page on screen while it lays it out for paper: draw it again once the print window closes.
+const redrawAfterPrint = () => { if (board && mode === 'create') { layoutBoard(); clampView(); board.requestRenderAll(); } };
+addEventListener('afterprint', redrawAfterPrint);
+addEventListener('focus', () => { if (printPictures.length) redrawAfterPrint(); });
 
 function reorderSelected(by) {
   const objects = board.getActiveObjects().sort((a, b) => board.getObjects().indexOf(a) - board.getObjects().indexOf(b));
