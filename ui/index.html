@@ -50,9 +50,11 @@
       <span data-for="text" class="stepper"><button id="prop-size-down" type="button" aria-label="Smaller text">−</button><input id="prop-size" type="number" min="6" max="400" aria-label="Text size"><button id="prop-size-up" type="button" aria-label="Larger text">+</button></span>
       <label data-for="text shape line multi" class="swatch-input" title="Colour"><input id="prop-fill" type="color" aria-label="Colour"></label>
       <button data-for="none text shape line multi" type="button" data-pop="pop-colours" id="colours-open" title="Colours: this design's, saved and default" aria-label="Colours">Colours ▾</button>
-      <span data-for="text"><button id="prop-bold" type="button" title="Bold" aria-label="Bold"><b>B</b></button><button id="prop-italic" type="button" title="Italic" aria-label="Italic"><i>I</i></button><button id="prop-underline" type="button" title="Underline" aria-label="Underline"><u>U</u></button></span>
+      <span data-for="text"><button id="prop-bold" type="button" title="Bold" aria-label="Bold"><b>B</b></button><button id="prop-italic" type="button" title="Italic" aria-label="Italic"><i>I</i></button><button id="prop-underline" type="button" title="Underline" aria-label="Underline"><u>U</u></button><button id="prop-strike" type="button" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button><button id="prop-caps" type="button" title="Capitals" aria-label="Capitals">aA</button><button id="prop-list" type="button" title="Bullets, then numbers, then none">• List</button></span>
       <span data-for="text"><button type="button" data-text-align="left" title="Align left" aria-label="Align left">⇤</button><button type="button" data-text-align="center" title="Centre" aria-label="Centre">↔</button><button type="button" data-text-align="right" title="Align right" aria-label="Align right">⇥</button></span>
       <button data-for="text" type="button" data-pop="pop-spacing">Spacing</button>
+      <span data-for="group" id="graphic-colours" class="graphic-colours" aria-label="Colours in this graphic"></span>
+      <button data-for="text shape line image" id="prop-copy-style" type="button" title="Copy this look onto something else">🖌 Copy style</button>
       <button data-for="shape image line multi" type="button" data-pop="pop-outline">Border</button>
       <label data-for="rect">Corners <input id="prop-corners" type="number" min="0" max="200" value="0"></label>
       <button data-for="image" id="prop-crop" type="button">Crop</button>
@@ -78,10 +80,11 @@
       <aside id="create-drawer" hidden>
         <section data-panel="templates" hidden><h3>Templates</h3><p class="hint">On a blank page a template fills it; otherwise it opens as a new design.</p><div id="drawer-templates" class="template-grid"></div></section>
         <section data-panel="elements" hidden>
-          <h3>Shapes</h3><div id="create-tools" class="shape-grid"></div>
-          <h3>Frames</h3><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div>
-          <h3>Photo grids</h3><p class="hint">Fill the page with frames, then drop photos into them.</p><div id="create-grids" class="shape-grid frames"></div>
-          <h3>Graphics</h3><input id="emoji-search" type="search" placeholder="Search graphics" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p>
+          <details class="fold" data-fold="shapes" open><summary>Shapes</summary><div id="create-tools" class="shape-grid"></div></details>
+          <details class="fold" data-fold="frames" open><summary>Frames</summary><p class="hint">Drop a photo on a frame to fill it.</p><div id="create-frames" class="shape-grid frames"></div></details>
+          <details class="fold" data-fold="grids" open><summary>Photo grids</summary><p class="hint">Fill the page with frames, then drop photos into them.</p><div id="create-grids" class="shape-grid frames"></div></details>
+          <details class="fold" data-fold="decor" open><summary>Decorations</summary><p class="hint">Leaves, flowers, doodles and more. Change their colours from the toolbar.</p><select id="decor-group" aria-label="Decoration group"></select><div id="create-decor" class="decor-grid"></div></details>
+          <details class="fold" data-fold="graphics" open><summary>Graphics</summary><input id="emoji-search" type="search" placeholder="Search graphics" aria-label="Search clip art"><select id="emoji-category" aria-label="Clip art category"></select><div id="emoji-list"></div><p id="emoji-results" role="status"></p><button id="emoji-prev" type="button">Previous</button> <button id="emoji-next" type="button">Next</button><p class="hint">Clip art: Twemoji by Twitter, Inc. and contributors, CC-BY 4.0.</p></details>
           <details><summary>Table</summary><form id="create-table"><label>Rows <input id="table-rows" type="number" min="1" max="20" value="3" required></label><label>Columns <input id="table-cols" type="number" min="1" max="20" value="4" required></label><button>Add table</button></form></details>
           <details><summary>QR code</summary><form id="create-qr"><label for="qr-text">Link or text</label><textarea id="qr-text" maxlength="1000" rows="3" required></textarea><button>Add QR code</button></form></details>
         </section>
@@ -174,6 +177,7 @@
     <div id="pop-flip" class="pop" hidden><button id="prop-flip-x" type="button" class="wide">Flip horizontal</button><button id="prop-flip-y" type="button" class="wide">Flip vertical</button></div>
     <div id="pop-effects" class="pop" hidden>
       <div data-for="text" id="text-effects" class="effect-grid"></div>
+      <label data-for="text">Curve <input id="prop-curve" type="range" min="-100" max="100" step="1" value="0" aria-label="Curve"><output id="prop-curve-value">0</output></label>
       <label data-for="shape image line group multi" class="check"><input id="prop-shadow" type="checkbox"> Shadow</label>
       <label data-for="text" class="check"><input id="prop-highlight-on" type="checkbox"> Highlight</label><input data-for="text" id="prop-highlight" type="color" value="#fff2cc" aria-label="Highlight colour">
     </div>
@@ -190,6 +194,8 @@
       <h4>Arrange</h4>
       <div class="grid2"><button id="prop-front" type="button">To front</button><button id="prop-forward" type="button">Forward</button><button id="prop-back" type="button">To back</button><button id="prop-backward" type="button">Backward</button></div>
       <h4>Align</h4><div id="align-tools" class="grid3"></div>
+      <h4>Size and rotation</h4><div class="size-tools"><label>W <input id="prop-w" type="number" min="1" max="20000"></label><label>H <input id="prop-h" type="number" min="1" max="20000"></label><label>↻ <input id="prop-angle" type="number" min="-360" max="360"></label></div>
+      <label class="check"><input id="prop-ratio" type="checkbox" checked> Keep proportions</label>
       <div data-for="multi"><h4>Spacing</h4><div class="grid2"><button id="prop-distribute-x" type="button">Equal gaps across</button><button id="prop-distribute-y" type="button">Equal gaps down</button></div></div>
     </div>
     <div id="create-float" role="toolbar" aria-label="Selection" hidden>
@@ -203,11 +209,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Decorations</b> in Elements: leaves, flowers, wreaths, doodles, dividers and party pieces. Click their colour dots in the toolbar to recolour them. Elements sections now fold away.</li>
+        <li>Text can <b>curve</b> (Effects), become a bulleted or numbered <b>list</b>, go to capitals or get a strikethrough. <b>Copy style</b> paints one thing's look onto another.</li>
         <li>A fresh new look: soft pinks, purples and light blues, with your artwork on the start screen. Photos still sit on neutral grey so colours look true.</li>
         <li>In <b>Photos</b>, everything has a button now: Pick, Reject and stars above the photos (or on each photo in the grid), Grid / Photo / Compare / Develop, arrows and a filmstrip, and in Develop: hold for before, Undo, Fit and 100%. Develop's settings are in drawers on the left, with each look shown as a picture.</li>
         <li><b>Folders</b> for your designs on the start screen: drag a design onto a folder, or use the ⋯ on a design. Deleted designs wait in the Trash.</li>
-        <li>A <b>File</b> menu next to Start: new design, make a copy, rename, folder, download and more.</li>
-        <li>In Elements: many more shapes, frames shaped like an arch, heart or star, and <b>photo grids</b> that fill the page with frames.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
@@ -267,5 +273,7 @@
   <script src="create.js"></script>
   <script src="canva.js"></script>
   <script src="projects.js"></script>
+  <script src="texttools.js"></script>
+  <script src="decor.js"></script>
 
 </body></html>

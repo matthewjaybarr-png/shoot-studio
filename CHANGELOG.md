@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.21.0
+
+- Decorations in Elements, drawn for KB Studio: maple, oak and autumn leaves, falling leaves, acorn, pumpkin, wheat, apple and mushroom; leafy sprigs, eucalyptus, fern, a branch, a leaf wreath and leafy corners; daisy, blossom, tulip, rose, lavender, sunflower, a bouquet, a floral corner and a flower border; sparkles, a doodle heart, a swirly arrow, squiggles, burst lines, a circle scribble, an underline swash, a boho rainbow, a sun, a cloud and a star; flourish, dotted and leafy dividers, a corner flourish and a scalloped label; confetti, balloons, bunting, a ribbon banner and a bow; and a pencil, camera, paw print and books.
+- Any decoration's colours show as dots in the toolbar: click one to change that colour everywhere in it. Ungroup a decoration to move its pieces apart.
+- The Elements sections (Shapes, Frames, Photo grids, Decorations, Graphics) fold away with a click on their heading, and stay the way you left them.
+- Curved text: Effects has a Curve slider, from a smile to an arch. The text goes straight while you type in it and curves again after.
+- Bulleted and numbered lists (click List once for bullets, twice for numbers, a third time for none); new lines get their bullet or number when you click away.
+- Capitals (aA) and strikethrough for text. Turning capitals off brings back the letters as you typed them.
+- Copy style: select something, click Copy style, then click what should look the same. Text takes the font, size, colours, effect and curve; shapes take the fill, outline, corners and shadow.
+- Position has Size and rotation: type an exact width, height or angle, with Keep proportions on or off.
+- The What's new card appears once more.
+
 ## 0.20.0
 
 - A new light look across the whole app: soft blush and lavender panels, white cards, orchid and pink-to-purple buttons, and light blue touches.

@@ -1911,6 +1911,86 @@ const test = `<script>
     await settle(flush(), 'elements save'); await settle(openDesign(design.title), 'elements reopen');
     const reopenedHeart = board.getObjects().find(o => o.type === 'image');
     step(reopenedHeart.clipPath?.kbFrame === 'heart' && board.getObjects().filter(o => o.kbFrame === 'rect' && o.kbName === 'Grid frame').length === 3, 'frame shapes and grids survive save and reopen');
+
+    // 0.21: strikethrough, capitals, lists, curved text, Copy style, and exact size and rotation.
+    {
+    const words = addText('heading'); words.exitEditing(); selectObjects([words]);
+    words.set({ text: 'Fall festival' + String.fromCharCode(10) + 'Games and food' }); words.initDimensions();
+    $('#prop-strike').click();
+    step(words.linethrough && $('#prop-strike').classList.contains('on'), 'strikethrough');
+    $('#prop-strike').click();
+    $('#prop-caps').click();
+    step(words.text === 'FALL FESTIVAL' + String.fromCharCode(10) + 'GAMES AND FOOD' && $('#prop-caps').classList.contains('on'), 'capitals');
+    $('#prop-caps').click();
+    step(words.text === 'Fall festival' + String.fromCharCode(10) + 'Games and food' && words.kbCaps === undefined, 'capitals off brings back the letters as typed');
+    $('#prop-list').click();
+    step(words.text.split(String.fromCharCode(10)).every(l => l.startsWith('• ')) && words.kbList === 'bullets', 'the first click makes a bulleted list');
+    $('#prop-list').click();
+    step(words.text.split(String.fromCharCode(10))[1].startsWith('2. ') && $('#prop-list').textContent === '1. List', 'the second numbers it');
+    words.enterEditing(); words.set({ text: words.text + String.fromCharCode(10) + 'Music' }); words.exitEditing();
+    step(words.text.split(String.fromCharCode(10))[2] === '3. Music', 'a new line typed into a list gets its number');
+    $('#prop-list').click();
+    step(!words.kbList && words.text === 'Fall festival' + String.fromCharCode(10) + 'Games and food' + String.fromCharCode(10) + 'Music', 'the third click takes the list away');
+
+    const straight = words.height, middle = words.getCenterPoint();
+    put($('#prop-curve'), '60', 'input'); put($('#prop-curve'), '60', 'change');
+    step(words.kbCurve === 60 && words.height > straight && Math.abs(words.getCenterPoint().x - middle.x) < 1 && Math.abs(words.getCenterPoint().y - middle.y) < 1, 'curving makes an arch around the same middle');
+    board.renderAll();
+    const box = words.getBoundingRect(), paintedIn = (x0, y0, x1, y1) => { const d = board.contextContainer.getImageData(x0, y0, x1 - x0, y1 - y0).data; for (let i = 3; i < d.length; i += 4) if (d[i] && d[i - 3] < 120) return true; return false; };
+    const z = board.getZoom(), vpt = board.viewportTransform, sx = x => Math.round(vpt[4] + x * z), sy = y => Math.round(vpt[5] + y * z);
+    step(paintedIn(sx(box.left + box.width * 0.4), sy(box.top), sx(box.left + box.width * 0.6), sy(box.top + box.height * 0.3)) && !paintedIn(sx(box.left + box.width * 0.45), sy(box.top + box.height * 0.75), sx(box.left + box.width * 0.55), sy(box.top + box.height)), 'an arch is drawn high in the middle and empty below it');
+    words.enterEditing();
+    step(words.height < words.width && words.height <= straight + 1, 'while typing, curved text goes straight');
+    words.exitEditing();
+    step(words.kbCurve === 60 && words.height > straight, 'and curves again after');
+    put($('#prop-curve'), '-40', 'input');
+    step(words.kbCurve === -40, 'a negative curve is a smile');
+
+    const square = addShape('rect'); square.set({ fill: '#ff00aa', strokeWidth: 9, opacity: 0.5 });
+    const circle = addShape('circle');
+    selectObjects([square]);
+    $('#prop-copy-style').click();
+    step($('#prop-copy-style').classList.contains('on') && $('#prop-copy-style').textContent.includes('click what'), 'Copy style waits for something to click');
+    selectObjects([circle]); board.fire('selection:updated', { selected: [circle], deselected: [square] });
+    step(circle.fill === '#ff00aa' && circle.strokeWidth === 9 && circle.opacity === 0.5 && !$('#prop-copy-style').classList.contains('on'), 'and paints its look onto the next thing clicked');
+    selectObjects([words]); $('#prop-copy-style').click(); const plain = addText('body'); plain.exitEditing();
+    board.fire('selection:updated', { selected: [plain] });
+    step(plain.fontSize === words.fontSize && plain.kbCurve === -40 && plain.text !== words.text, 'text takes the font and curve, not the words');
+
+    selectObjects([square]); paintPanel();
+    step(+$('#prop-w').value === Math.round(square.getScaledWidth()), 'Position shows the width');
+    const squareMid = square.getCenterPoint();
+    put($('#prop-w'), '520', 'change');
+    step(Math.round(square.getScaledWidth()) === 520 && Math.abs(square.getScaledHeight() / square.getScaledWidth() - 169 / 269) < 0.01 && Math.abs(square.getCenterPoint().x - squareMid.x) < 1, () => 'typing a width keeps proportions and the middle: ' + square.getScaledWidth() + 'x' + square.getScaledHeight());
+    $('#prop-ratio').checked = false; put($('#prop-h'), '100', 'change'); $('#prop-ratio').checked = true;
+    step(Math.round(square.getScaledHeight()) === 100 && Math.round(square.getScaledWidth()) === 520, 'without proportions only the height changes');
+    put($('#prop-angle'), '45', 'change');
+    step(square.angle === 45, 'rotation typed in');
+    const shapesFold = document.querySelector('details.fold[data-fold=shapes]');
+    step(shapesFold.open && !document.querySelector('details.fold[data-fold=frames]').open, 'Elements starts with Shapes open and Frames folded away');
+    shapesFold.open = false; await new Promise(r => setTimeout(r, 50));
+    step(settings.closed.includes('shapes'), 'folding a section is remembered');
+    shapesFold.open = true; await new Promise(r => setTimeout(r, 50));
+    step(!settings.closed.includes('shapes'), 'and so is opening it');
+    // Decorations: drawn here, recoloured from the toolbar.
+    step($('#create-decor').children.length === DECOR.length && DECOR.length >= 40, 'Elements lists the decorations');
+    put($('#decor-group'), 'Flowers', 'change');
+    step([...$('#create-decor').children].every(b => DECOR.find(d => 'add-decor-' + d[0] === b.id)[2] === 'Flowers'), 'they can be shown one group at a time');
+    put($('#decor-group'), '', 'change');
+    for (const [id, name] of DECOR) { const art = await addDecor(id); step(art && art.kbName === name && Math.round(Math.max(art.getScaledWidth(), art.getScaledHeight())) === 200, 'the ' + name + ' decoration draws'); board.remove(art); }
+    const maple = await addDecor('maple'); selectObjects([maple]); paintPanel();
+    const swatches = [...$('#graphic-colours').children];
+    step(!$('#graphic-colours').hidden && swatches.some(i => i.value === '#c8552b'), () => 'a decoration shows its colours: ' + swatches.map(i => i.value));
+    const leafSwatch = swatches.find(i => i.value === '#c8552b');
+    leafSwatch.value = '#8e6cc4'; leafSwatch.dispatchEvent(new Event('input')); leafSwatch.dispatchEvent(new Event('change'));
+    step(maple.getObjects().some(p => p.fill === '#8e6cc4') && !maple.getObjects().some(p => p.fill === '#c8552b'), 'changing a swatch recolours that colour everywhere in it');
+    dropItem(['decor', 'daisy'], new fabric.Point(300, 300));
+    await until(() => board.getObjects().some(o => o.kbName === 'Daisy'), 'a decoration can be dropped onto the page');
+    await settle(flush(), 'tools save'); await settle(openDesign(design.title), 'tools reopen');
+    const reopenedWords = board.getObjects().find(o => o.type === 'textbox' && o.kbCurve);
+    step(reopenedWords?.kbCurve === -40 && reopenedWords.text.includes('Music'), 'curved text survives save and reopen');
+    step(board.getObjects().some(o => o.kbName === 'Maple leaf' && o.getObjects().some(p => p.fill === '#8e6cc4')), 'a recoloured decoration survives save and reopen');
+    }
     deleteFolder('Class 2B');
     step(!settings.projects.folders.length && !placedIn('Harvest invite') && disk['c:designs:Harvest invite'], 'deleting a folder keeps its designs');
     closeMenus();
@@ -1929,8 +2009,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

@@ -310,3 +310,18 @@ header,.create-bar{border-bottom-color:var(--pink)}
 #create-rail button.on,#develop-rail button.on{color:var(--accent);background:var(--panel);box-shadow:0 1px 4px var(--shadow)}
 .pop,#create-menu,#home-menu,#name-dialog,#deliver,#create-whatsnew,#create-import-note{border-radius:12px}
 ::selection{background:var(--pink)}
+.size-tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.pop .size-tools label{margin:0;gap:4px}#create .size-tools input{width:100%;min-width:0}
+#prop-curve{flex:1}#prop-curve-value{min-width:30px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.decor-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:6px 0 4px}
+.decor-grid button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px !important;font-size:11px;color:var(--muted);background:#fff}
+.decor-grid img{width:100%;height:56px;object-fit:contain}.decor-grid button:hover{border-color:var(--accent);color:var(--text)}
+#decor-group{width:100%;margin:4px 0}
+#create-context .graphic-colours{display:inline-flex;gap:4px;align-items:center}#create-context .graphic-colours[hidden]{display:none}
+#create .graphic-colours input[type=color]{width:28px;height:28px;padding:1px;border-radius:50%}
+#create-drawer details.fold{margin:10px 0 0;border-bottom:1px solid var(--edge);padding-bottom:6px}
+#create-drawer details.fold>summary{display:flex;justify-content:space-between;align-items:center;padding:8px 2px;list-style:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+#create-drawer details.fold>summary::-webkit-details-marker{display:none}
+#create-drawer details.fold>summary::after{content:'▾';font-size:14px;color:var(--accent);transition:transform .15s}
+#create-drawer details.fold:not([open])>summary::after{transform:rotate(-90deg)}
+#create-drawer details.fold>summary:hover{color:var(--accent)}
+#create .graphic-colours input[type=color]::-webkit-color-swatch-wrapper{padding:0}#create .graphic-colours input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
