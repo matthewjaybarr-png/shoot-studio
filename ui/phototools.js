@@ -251,7 +251,7 @@ function editPhoto(file) {
     await open({ format: 2, page: 'custom', size, pages: [blankPage()] }, await uniqueTitle(name), null);
     const image = await fabric.FabricImage.fromURL(url), [w] = pagePx();
     image.set({ left: 0, top: 0, scaleX: w / image.width, scaleY: w / image.width, kbName: 'Photo ' + name });
-    board.add(image); image.setCoords(); remember(); schedule();
+    board.add(image); image.setCoords(); commitDesign(); // the page thumbnail and Layers too
     touch.tool = 'remove'; touch.source = null; photoTab = 'retouch';
     if (drawer !== 'retouch') showDrawer('retouch'); else paintTouch();
     touchSay('Paint over anything you want gone, or pick another brush.');

@@ -145,7 +145,7 @@ async function splitScan() {
     const at = board.getObjects().indexOf(image);
     board.remove(image); board.insertAt(at, ...photos);
     Object.assign(straightTool, { image: null, corners: null, drag: null });
-    remember(); schedule(); board.requestRenderAll();
+    commitDesign(); board.requestRenderAll();
     straightSay(`Found ${photos.length} photos. Each is its own picture now; Undo puts the scan back.`);
   } catch (error) {
     straightSay(`Couldn't split the scan: ${error}`);
