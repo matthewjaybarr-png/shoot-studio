@@ -2794,6 +2794,8 @@ const test = `<script>
       await until(() => disk['c:classes:Room 12'], 'Save the list');
       step(JSON.parse(disk['c:classes:Room 12']).text === 'Name\\tBirthday\\nAva\\t' + md + '\\nBen\\tnot a date' && $('#list-save').textContent === '✓ Saved' && $('#list-pick').value === 'Room 12', () => "saved in Bulk create's format: " + disk['c:classes:Room 12']);
       step($('#class-birthdays').children.length === 1 && /Ava: tomorrow/.test($('#class-birthdays').textContent), () => 'a birthday tomorrow shows: ' + $('#class-birthdays').textContent);
+      paintLists.loaded = false; classLists.clear(); paintClassroom();
+      await until(() => $('#class-birthdays').children.length === 1, 'birthdays after a fresh start, once the lists have loaded');
       step(['March 4', '4 March', '3/4', '2019-03-04', 'Mar. 4th, 2019', '3/4/2019'].every(d => JSON.stringify(birthday(d)) === '[3,4]') && birthday('soon') === null, 'birthdays read in the usual ways');
       $('#list-bulk').click();
       await until(() => !$('#bulk').hidden && $('#bulk-class').value === 'Room 12', 'Make one for each row');

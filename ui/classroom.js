@@ -30,7 +30,7 @@ function paintClassroom() {
   $('#class-logo-img').hidden = !c.logo; if (c.logo) $('#class-logo-img').src = c.logo;
   $('#class-logo-add').disabled = $('#class-logo-remove').hidden = !c.logo;
   $('#class-logo-pick').textContent = c.logo ? 'Change the logo…' : 'Choose a logo…';
-  paintLists(); paintBirthdays();
+  paintLists().then(paintBirthdays); // the saved lists load from disk the first time
 }
 function addClassDetail(key, label) {
   const text = classroom()[key];
