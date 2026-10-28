@@ -103,8 +103,22 @@ fn paper(w: usize, h: usize, px: &[f32]) -> Vec<f32> {
     let mut sorted = lumas.clone();
     sorted.sort_by(f32::total_cmp);
     let typical = sorted[sorted.len() * 3 / 4];
+    // The paper's tint: its colour relative to its own brightness, which shade doesn't change. A square
+    // coloured in (a yellow crayon sun) is nearly as light as paper but a different tint, so it isn't paper.
+    let tint = |c: &[f32; 3]| {
+        let m = (c[0] + c[1] + c[2]) / 3.0;
+        c.map(|v| v / m.max(1e-3))
+    };
+    let mut paper_tint = [0f32; 3];
+    let bright: Vec<_> = grid.iter().zip(&lumas).filter(|(_, l)| **l >= typical).map(|(c, _)| tint(c)).collect();
+    for t in &bright {
+        for k in 0..3 {
+            paper_tint[k] += t[k] / bright.len() as f32;
+        }
+    }
     for (i, l) in lumas.iter().enumerate() {
-        solid[i] = *l >= typical * 0.8;
+        let t = tint(&grid[i]);
+        solid[i] = *l >= typical * 0.8 && (0..3).all(|k| (t[k] - paper_tint[k]).abs() < 0.12);
     }
     // Fill the drawn-over squares from their paper neighbours, ring by ring.
     for _ in 0..gw.max(gh) {
@@ -189,8 +203,10 @@ pub fn see_through(w: usize, h: usize, rgba: &[u8], key: Key, clean: f32) -> Res
     }
     let mut px: Vec<f32> = rgba.iter().map(|v| *v as f32 / 255.0).collect();
     // Anything at least this solid stays fully solid, so colours unlike the key never go faintly
-    // see-through (pure Color to Alpha leaves only the key's exact opposite fully solid).
-    let solid = 0.85f32;
+    // see-through (pure Color to Alpha leaves only the key's exact opposite fully solid). On paper
+    // the bar is lower: a light crayon colour unmixed from white is only part solid, but a coloured-in
+    // sun should stay a solid sun.
+    let solid = if matches!(key, Key::Paper) { 0.6f32 } else { 0.85 };
     let keys = match key {
         Key::Paper => {
             let paper = paper(w, h, &px);
@@ -208,7 +224,12 @@ pub fn see_through(w: usize, h: usize, rgba: &[u8], key: Key, clean: f32) -> Res
     let mut out = Vec::with_capacity(rgba.len());
     let mut changed = false;
     for (i, p) in px.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-        let a = unmix(&mut p[..3], &key, clean, solid.max(clean + 0.01));
+        // How solid it shows comes from the thresholds; its colour is unmixed at its true opacity, so a
+        // pencil line stays dark rather than greying as it's made more solid.
+        let a = remap(opacity(&p[..3], &key), clean, solid.max(clean + 0.01));
+        if a < 1.0 {
+            unmix(&mut p[..3], &key, 0.0, 1.0);
+        }
         let alpha = (rgba[i * 4 + 3] as f32 * a).round() as u8;
         if alpha != rgba[i * 4 + 3] {
             changed = true;
@@ -228,7 +249,7 @@ mod tests {
     use super::*;
 
     /// A sheet of paper lit from the top left (bright corner 250, far corner 190, a little yellow),
-    /// with a black line across the middle and a soft grey pencil dot.
+    /// with a black line across the middle, a soft grey pencil dot and a big yellow crayon sun.
     fn drawing() -> (usize, usize, Vec<u8>) {
         let (w, h) = (240usize, 180usize);
         let mut v = Vec::with_capacity(w * h * 4);
@@ -236,6 +257,10 @@ mod tests {
             for x in 0..w {
                 let light = 250.0 - 60.0 * (x + y) as f32 / (w + h) as f32;
                 let paper = [light, light * 0.97, light * 0.88];
+                if ((x as f32 - 180.0).powi(2) + (y as f32 - 45.0).powi(2)).sqrt() < 30.0 {
+                    v.extend_from_slice(&[(242.0 * light / 250.0) as u8, (177.0 * light / 250.0) as u8, (52.0 * light / 250.0) as u8, 255]);
+                    continue;
+                }
                 let ink = if (88..93).contains(&y) && (20..220).contains(&x) {
                     1.0
                 } else {
@@ -264,6 +289,8 @@ mod tests {
         let line = at(&out, w, 120, 90);
         assert_eq!(line[3], 255, "the line stays solid: {line:?}");
         assert!(line[0] < 40, "and dark: {line:?}");
+        let sun = at(&out, w, 180, 45);
+        assert_eq!(sun[3], 255, "a big light crayon fill isn't paper: {sun:?}");
         let pencil = at(&out, w, 60, 40);
         assert!((60..200).contains(&pencil[3]), "pencil is part see-through: {pencil:?}");
         assert!(pencil[0] < 60, "and dark rather than grey: {pencil:?}");
