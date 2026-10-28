@@ -189,6 +189,7 @@ function startBoard() {
   if (typeof startStraightenTools === 'function') startStraightenTools();
   if (typeof startReshapeTools === 'function') startReshapeTools();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
+  for (const e of ['selection:created', 'selection:updated']) board.on(e, () => { if (drawer === 'retouch' && photoTab === 'stretch' && typeof paintStretch === 'function') paintStretch(); if (drawer === 'retouch' && photoTab === 'effects' && typeof paintFun === 'function') paintFun(); });
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
   // The stage changes size with the window and when a drawer opens or closes.
@@ -1599,7 +1600,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 26;
+const WHATS_NEW = 27;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

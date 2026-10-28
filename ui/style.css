@@ -228,12 +228,14 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 #pop-colours{width:300px}
 .swatches{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .swatches:empty::after{content:"None yet";font-size:12px;color:var(--muted)}
+.fun-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px}.fun-grid button.on,.light-grid button.on{outline:2px solid var(--accent)}
+.light-grid{display:grid;grid-template-columns:repeat(3,40px);gap:4px;justify-content:center;margin-bottom:8px}.light-grid button{padding:6px 0 !important;font-size:16px}
 .effect-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
 .effect-grid button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px !important;font-size:11px;color:var(--muted)}
 .effect-grid button.on{outline:2px solid var(--accent);color:var(--text)}
 .effect-grid span{font:700 26px Lexend,sans-serif;color:var(--text);line-height:1.2}
 #touch-tools svg,#cut-tools svg,#cut-fix svg{width:28px;height:28px;margin:2px 0;color:var(--text)}#touch-tools button.on svg,#cut-tools button.on svg,#cut-fix button.on svg{color:var(--accent)}
-#photo-tabs{margin:10px 0 2px;display:grid;grid-template-columns:repeat(4,1fr)}#photo-tabs button{min-width:0;padding-left:2px;padding-right:2px;font-size:12px;white-space:nowrap}
+#photo-tabs{margin:10px 0 2px;display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#photo-tabs button{min-width:0;margin:0;border-radius:6px;padding-left:2px;padding-right:2px;font-size:12px;white-space:nowrap}
 #cut-tools{grid-template-columns:repeat(5,1fr);gap:4px}#cut-fix{grid-template-columns:repeat(2,1fr)}#cut-fix svg{width:24px;height:24px}
 .fade-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.fade-grid button{padding:6px 4px !important;font-size:12px}.fade-grid button.on{outline:2px solid var(--accent)}
 #cut-parts{display:flex;align-items:center;justify-content:space-between;gap:8px}

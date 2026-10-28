@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.38.0
+
+- Stretch, a new tab in Edit photo: make a photo wider, narrower, taller or shorter without squashing anyone. Sky, grass, walls and other plain parts give way while people and things keep their shape (content-aware resize). Keep people from squashing steers around skin. **Make it fill the page** turns a photo into the page's shape and lays it over the whole page, so nothing has to be cropped off.
+- Effects, a new tab in Edit photo, with fun effects for class projects: Oil paint, Pop-art dots, Mosaic and Pencil sketch, each with a Size slider. Clicking another effect swaps it rather than adding to it.
+- Relight, in the Effects tab: click where the light should come from (nine arrows around a dot for straight on) and the photo is lit from that side. Strength, Lift the shadows and Warmth fine-tune it. Back to the photo takes off both the effect and the light.
+- Edit photo's tabs sit in two rows to fit the new ones.
+- The What's new card appears once more.
+
 ## 0.37.0
 
 - Split a scan into photos, in Edit photo → Straighten: scan several prints at once, open the scan, and each print is found, turned straight and cropped, and becomes its own picture where it lay. Undo puts the scan back. Leave a small gap between the prints on the scanner glass.

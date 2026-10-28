@@ -8,10 +8,12 @@ mod focus;
 mod reshape;
 mod straighten;
 mod desktop;
+mod effects;
 mod photocraft;
 mod photocraft_redeye;
 mod photocraft_remove;
 mod photocraft_scancrop;
+mod photocraft_seam;
 mod photocraft_select;
 mod pptx;
 mod retouch;
@@ -776,6 +778,69 @@ async fn see_through_picture(request: tauri::ipc::Request<'_>) -> Result<Respons
         .map_err(|e| e.to_string())?
 }
 
+/// A fun effect in Edit a photo: the body is retouch_picture's; `effect` is oil, dots, mosaic or sketch and `size` 0–100
+/// how big its strokes, dots or tiles are. Returns the new RGBA, the same size.
+#[tauri::command]
+async fn effect_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("effect_picture needs the picture as its body".into());
+    };
+    let effect = effects::Effect::parse(&header(&request, "effect")?).ok_or("unknown effect")?;
+    let size: f32 = header(&request, "size")?.parse().map_err(|_| "bad size")?;
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(Response::new(effects::effect(w, h, &rgba, effect, size / 100.0))))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Relight in Edit a photo: the body is retouch_picture's; `angle` is where the lamp is (degrees, 0 from the right, 90
+/// from above) or "front", and `amount`, `even` 0–100 and `warmth` −100–100 are Relight's sliders. Returns the new RGBA.
+#[tauri::command]
+async fn relight_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("relight_picture needs the picture as its body".into());
+    };
+    let number = |key| -> Result<f32, String> { header(&request, key)?.parse().map_err(|_| format!("bad {key}")) };
+    let lamp = match header(&request, "angle")?.as_str() {
+        "front" => None,
+        angle => Some(angle.parse::<f32>().map_err(|_| "bad angle")?),
+    };
+    let (amount, even, warmth) = (number("amount")? / 100.0, number("even")? / 100.0, number("warmth")? / 100.0);
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(Response::new(effects::relight(w, h, &rgba, lamp, amount, even, warmth))))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Content-aware resize in Edit a photo: the body is retouch_picture's; `width` and `height` are
+/// the new size and `people` "1" steers seams around skin tones. Returns [w][h] (LE u32s) and the
+/// resized RGBA.
+#[tauri::command]
+async fn carve_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("carve_picture needs the picture as its body".into());
+    };
+    let size = |key| -> Result<usize, String> {
+        let v: usize = header(&request, key)?.parse().map_err(|_| format!("bad {key}"))?;
+        if (1..=20_000).contains(&v) { Ok(v) } else { Err(format!("bad {key}")) }
+    };
+    let (nw, nh) = (size("width")?, size("height")?);
+    let people = header(&request, "people")? == "1";
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let img: Vec<f32> = rgba.iter().map(|&v| v as f32 / 255.0).collect();
+        let protect = people.then(|| photocraft_seam::skin_mask(w, h, 4, &img));
+        let out = photocraft_seam::carve(w, h, 4, &img, protect.as_deref(), nw, nh);
+        let mut reply = Vec::with_capacity(8 + out.len());
+        reply.extend((nw as u32).to_le_bytes());
+        reply.extend((nh as u32).to_le_bytes());
+        reply.extend(out.iter().map(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8));
+        Ok(Response::new(reply))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Reshapes a Create picture: the body is [w][h][RGBA] then the displacement field as [gw][gh] (LE
 /// u32s) and gw × gh pairs of LE f32s. Returns the reshaped RGBA, the same size.
 #[tauri::command]
@@ -1312,7 +1377,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos,
+            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos, carve_picture, effect_picture, relight_picture,
             load_shoot,
             save_shoot,
             develop_source,

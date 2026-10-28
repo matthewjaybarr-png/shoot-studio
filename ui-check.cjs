@@ -123,6 +123,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'blur_picture_background') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([128, 128, 128, 255], i); return out.buffer; }
   if (command === 'see_through_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([20, 20, 20, i < out.length / 2 ? 0 : 255], i); return out.buffer; }
   if (command === 'red_eye_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255]); return b; }
+  if (command === 'effect_picture' || command === 'relight_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4), k = command === 'effect_picture' ? 10 : 20; for (let i = 0; i < out.length; i += 4) out.set([args[8 + i] + k, args[9 + i], args[10 + i], 255], i); return out.buffer; }
+  if (command === 'carve_picture') { const w = +options.headers.width, h = +options.headers.height, b = new ArrayBuffer(8 + w * h * 4); new Uint32Array(b, 0, 2).set([w, h]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([90, 60, 200, 255], i); return b; }
   if (command === 'find_scan_photos') return window.scanPhotos || [];
   if (command === 'find_picture_corners') return window.foundCorners || null;
   if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 900 * 600 * 4); new Uint32Array(b, 0, 2).set([900, 600]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
@@ -2669,6 +2671,63 @@ const test = `<script>
       step(drawer !== 'retouch' && !touchMode, 'Done puts Reshape away');
       board.remove(board.getObjects().find(o => o.kbName === 'Photo reshape')); commitDesign();
     }
+    // 0.38: Stretch: content-aware resize through carve_picture; the picture keeps its middle and pixel scale, Undo puts it back.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillStyle = '#79a'; c.getContext('2d').fillRect(0, 0, 300, 200);
+      let pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/jpeg')), 'stretch'), 'a picture to stretch');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); pic.setCoords(); commitDesign(); selectObjects([pic]); paintPanel();
+      $('#prop-retouch').click(); $('#photo-tabs [data-photo-tab=stretch]').click();
+      step(seen('#stretch-w') && seen('#stretch-fill') && $('#stretch-go').disabled, 'Stretch shows Width and Height, and nothing to do at 100%');
+      const w = $('#stretch-w'); w.value = 130; w.dispatchEvent(new Event('input'));
+      step(!$('#stretch-go').disabled && /130% · 390 px/.test($('#stretch-w-out').textContent), () => 'dragging Width says the new size: ' + $('#stretch-w-out').textContent);
+      const before = calls.length, mid = pic.getCenterPoint();
+      $('#stretch-go').click();
+      await until(() => !stretch.busy && pic.width === 390, 'Stretch');
+      const sent = calls.slice(before).find(c => c.command === 'carve_picture');
+      step(sent && sent.args.length === 8 + 300 * 200 * 4 && sent.options.headers.width === '390' && sent.options.headers.height === '200' && sent.options.headers.people === '1', 'Rust gets the original, the new size and Keep people');
+      const now = pic.getCenterPoint();
+      step(pic.height === 200 && Math.abs(now.x - mid.x) < 1 && Math.abs(now.y - mid.y) < 1 && /Stretched to 390 × 200/.test($('#stretch-hint').textContent) && stretch.w === 100, () => 'the wider picture keeps its middle: ' + [pic.width, pic.height, now.x, now.y]);
+      undoDesign(); await until(() => board.getObjects().find(o => o.kbName === 'Photo stretch')?.width === 300, 'Undo puts the narrower picture back');
+      pic = board.getObjects().find(o => o.kbName === 'Photo stretch'); selectObjects([pic]); paintStretch();
+      $('#stretch-fill').click();
+      const [pw, ph] = pagePx();
+      await until(() => !stretch.busy && Math.abs(pic.getScaledWidth() - pw) < 1, 'Make it fill the page');
+      step(Math.abs(pic.getScaledHeight() - ph) < 1 && Math.abs(pic.left) < 1 && Math.abs(pic.top) < 1 && Math.abs(pic.width / pic.height - pw / ph) < 0.02, () => 'it becomes the page shape and covers the page: ' + [pic.width, pic.height, pic.left, pic.top]);
+      undoDesign(); await until(() => board.getObjects().find(o => o.kbName === 'Photo stretch')?.width === 300, 'Undo again');
+      $('#stretch-done').click();
+      step(drawer !== 'retouch', 'Done puts Stretch away');
+      board.remove(board.getObjects().find(o => o.kbName === 'Photo stretch')); commitDesign();
+    }
+    // 0.38: Effects: an effect and a light redraw from the photo as it was, so they swap instead of piling up.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 60; c.height = 40; c.getContext('2d').fillStyle = 'rgb(100,100,100)'; c.getContext('2d').fillRect(0, 0, 60, 40);
+      let pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/png')), 'effects'), 'a picture for effects');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); pic.setCoords(); commitDesign(); selectObjects([pic]); paintPanel();
+      $('#prop-retouch').click(); $('#photo-tabs [data-photo-tab=effects]').click();
+      step(seen('#fun-list') && $('#fun-list').children.length === 4 && $('#light-dirs').children.length === 9 && $('#fun-back').disabled, 'Effects shows four effects, nine light directions, and nothing to go back to');
+      const red = async () => { const w = await touchPixels(pic.getSrc()); return w.ctx.getImageData(5, 5, 1, 1).data[0]; };
+      const before = calls.length;
+      $('#fun-list [data-fun=oil]').click();
+      await until(() => !funFx.busy && calls.slice(before).some(c => c.command === 'effect_picture'), 'Oil paint');
+      step(await red() === 110 && $('#fun-list [data-fun=oil]').classList.contains('on') && !$('#fun-back').disabled, 'Oil paint changes the picture:  (wrong colour)');
+      $('#fun-list [data-fun=mosaic]').click();
+      await until(() => !funFx.busy && calls.slice(before).filter(c => c.command === 'effect_picture').length === 2, 'Mosaic');
+      const sent = calls.slice(before).filter(c => c.command === 'effect_picture').pop();
+      step(await red() === 110 && sent.options.headers.effect === 'mosaic' && sent.options.headers.size === '50', 'Mosaic replaces Oil paint instead of adding to it:  (wrong colour)');
+      $('#light-dirs [data-light="180"]').click();
+      await until(() => !funFx.busy && calls.slice(before).some(c => c.command === 'relight_picture'), 'Relight');
+      const lit = calls.slice(before).find(c => c.command === 'relight_picture');
+      step(await red() === 130 && lit.options.headers.angle === '180' && lit.options.headers.amount === '60', 'a light goes on top of the effect:  (wrong colour)');
+      $('#fun-back').click();
+      await until(() => !funFx.busy && !funFx.effect && !funFx.light, 'Back to the photo');
+      step(await red() === 100 && $('#fun-back').disabled, 'Back to the photo puts it back:  (wrong colour)');
+      undoDesign(); await until(() => board.getObjects().find(o => o.kbName === 'Photo effects') && !board.getObjects().includes(pic), 'Undo');
+      pic = board.getObjects().find(o => o.kbName === 'Photo effects'); selectObjects([pic]); paintFun();
+      step(await red() === 130 && !funFx.light && !funFx.base, 'Undo brings the lit picture back and starts afresh from it:  (wrong colour)');
+      $('#fun-done').click();
+      step(drawer !== 'retouch', 'Done puts Effects away');
+      board.remove(board.getObjects().find(o => o.kbName === 'Photo effects')); commitDesign();
+    }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
     { const titleBefore = design.title, c = document.createElement('canvas'); c.width = 1200; c.height = 900; c.getContext('2d').fillRect(0, 0, 1200, 900);
       await settle(editPhoto(new File([await new Promise(r => c.toBlob(r, 'image/jpeg'))], 'Beach day.jpg', { type: 'image/jpeg' })), 'Edit a photo opens it');
@@ -2792,8 +2851,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="bulk.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('bulk.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="bulk.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('bulk.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

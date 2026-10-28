@@ -152,7 +152,7 @@
           <p class="hint">Draw on the page with the mouse. Each stroke is its own item you can move, recolour or delete.</p>
         </section>
         <section data-panel="retouch" hidden>
-          <div id="photo-tabs" class="segmented" role="group" aria-label="Photo tools"><button type="button" data-photo-tab="retouch">Retouch</button><button type="button" data-photo-tab="cutout">Cut out</button><button type="button" data-photo-tab="straighten">Straighten</button><button type="button" data-photo-tab="reshape">Reshape</button></div>
+          <div id="photo-tabs" class="segmented" role="group" aria-label="Photo tools"><button type="button" data-photo-tab="retouch">Retouch</button><button type="button" data-photo-tab="cutout">Cut out</button><button type="button" data-photo-tab="straighten">Straighten</button><button type="button" data-photo-tab="reshape">Reshape</button><button type="button" data-photo-tab="stretch">Stretch</button><button type="button" data-photo-tab="effects">Effects</button></div>
           <div id="photo-retouch">
           <h3>Retouch a picture</h3>
           <div id="touch-tools" class="effect-grid" role="group" aria-label="Brushes"></div>
@@ -219,6 +219,35 @@
           <label>Strength <output id="shape-strength-out"></output><input id="shape-strength" type="range" min="5" max="100" step="1"></label>
           <p class="hint" id="shape-hint"></p>
           <button id="shape-done" type="button" class="wide">Done</button>
+          </div>
+          <div id="photo-stretch" hidden>
+          <h3>Stretch without squashing</h3>
+          <p class="hint" id="stretch-hint"></p>
+          <div id="stretch-actions" hidden>
+            <label>Width <output id="stretch-w-out"></output><input id="stretch-w" type="range" min="50" max="150" step="1" value="100"></label>
+            <label>Height <output id="stretch-h-out"></output><input id="stretch-h" type="range" min="50" max="150" step="1" value="100"></label>
+            <label class="check"><input id="stretch-people" type="checkbox" checked> Keep people from squashing</label>
+            <button id="stretch-go" type="button" class="wide primary">Stretch</button>
+            <button id="stretch-reset" type="button" class="wide">Back to 100%</button>
+            <button id="stretch-fill" type="button" class="wide">Make it fill the page</button>
+          </div>
+          <button id="stretch-done" type="button" class="wide">Done</button>
+          </div>
+          <div id="photo-effects" hidden>
+          <h3>Fun effects</h3>
+          <p class="hint" id="fun-hint"></p>
+          <div id="fun-actions" hidden>
+            <div id="fun-list" class="fun-grid" role="group" aria-label="Effects"></div>
+            <label>Size <output id="fun-size-out"></output><input id="fun-size" type="range" min="0" max="100" step="5" value="50"></label>
+            <h3>Relight</h3>
+            <p class="hint">Click where the light should come from.</p>
+            <div id="light-dirs" class="light-grid" role="group" aria-label="Where the light comes from"></div>
+            <label>Strength <output id="light-amount-out"></output><input id="light-amount" type="range" min="0" max="100" step="5" value="60"></label>
+            <label>Lift the shadows <output id="light-even-out"></output><input id="light-even" type="range" min="0" max="100" step="5" value="0"></label>
+            <label>Warmth <output id="light-warmth-out"></output><input id="light-warmth" type="range" min="-100" max="100" step="10" value="0"></label>
+            <button id="fun-back" type="button" class="wide">Back to the photo</button>
+          </div>
+          <button id="fun-done" type="button" class="wide">Done</button>
           </div>
         </section>
         <section data-panel="layers" hidden><h3>Layers</h3><p class="hint">Top of the list is in front.</p><ul id="layers"></ul></section>
@@ -361,6 +390,7 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Stretch</b> (Edit photo): make a photo wider or taller without squashing anyone, or <b>Make it fill the page</b>. <b>Effects</b>: oil paint, pop-art dots, mosaic and pencil sketch, plus <b>Relight</b> to light a photo from any side.</li>
         <li><b>Split a scan into photos</b> (Edit photo → Straighten): scan a few prints at once and each comes out straight, as its own picture.</li>
         <li><b>Name tag sheets</b>: Bulk create now fills every name box on the page, a different child in each, and starts a new page when they're full.</li>
         <li><b>Make the paper see-through</b> in Cut out (Edit photo): a child's drawing or your handwriting loses its paper and becomes a sticker. <b>Red eye</b> fixes a pupil in one click.</li>
@@ -441,6 +471,8 @@
   <script src="cutout.js"></script>
   <script src="straighten.js"></script>
   <script src="reshape.js"></script>
+  <script src="stretch.js"></script>
+  <script src="effects.js"></script>
   <script src="bulk.js"></script>
   <div id="print-sheets" aria-hidden="true"></div>
   <style id="print-size"></style>
