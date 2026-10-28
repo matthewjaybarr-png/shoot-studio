@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.39.0
+
+- 🛟 Back up my designs, on the start screen and in File: choose a folder (a USB stick, or a Google Drive or OneDrive folder) and every design, template, saved element and class list, with your saved colours, folders and settings, is copied into one backup file there. It backs up straight away, then automatically every week (or every day, or only when you click). The newest 8 backups are kept.
+- The start screen always says when the last backup was, and turns pink when your designs aren't backed up, a backup is overdue, or the last one didn't work (a USB stick left out, say).
+- Restore from a backup brings back anything missing, such as everything on a new computer. It never overwrites: a design that changed since comes back beside it as "… (from backup)".
+- The What's new card appears once more.
+
 ## 0.38.0
 
 - Stretch, a new tab in Edit photo: make a photo wider, narrower, taller or shorter without squashing anyone. Sky, grass, walls and other plain parts give way while people and things keep their shape (content-aware resize). Keep people from squashing finds the main person or thing in the photo (as Select subject does) and steers around them, clothes and all. **Make it fill the page** turns a photo into the page's shape and lays it over the whole page, so nothing has to be cropped off.

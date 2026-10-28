@@ -24,6 +24,7 @@
   <section id="home" aria-label="Start">
     <div class="home-hero"><div><h1>KB Studio</h1><p class="hero-line">Teach · Create · Inspire</p><p class="hero-ask">What are we making today?</p></div></div>
     <p id="home-status" role="status"></p>
+    <p id="home-backup"><span id="home-backup-text"></span> <button id="home-backup-go" type="button"></button></p>
     <div class="home-main"><button id="home-photos" type="button"><strong>Photos</strong><small>Cull, develop and deliver a shoot</small></button><button id="home-create" type="button"><strong>Create</strong><small>Posters, labels, charts and cards</small></button><button id="home-edit" type="button"><strong>Edit a photo</strong><small>Remove things, heal and retouch</small></button><button id="home-import" type="button"><strong>Import from Canva</strong><small>In Canva: Share → Download → PowerPoint</small></button><input id="edit-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><input id="import-file" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg" hidden></div>
     <div id="home-latest" hidden><h2>Recent designs <button id="home-see-all" type="button" class="link">All designs and folders ↓</button></h2><div id="home-latest-list" class="home-list one-row"></div></div>
     <h2>Start from a template</h2><div id="home-templates" class="home-list"></div>
@@ -31,6 +32,18 @@
   </section>
   <div id="home-menu" role="menu" hidden></div>
   <dialog id="name-dialog"><form method="dialog"><h3 id="name-title"></h3><input id="name-input" type="text" maxlength="80" spellcheck="false" aria-labelledby="name-title"><p id="name-error" role="alert"></p><div class="row"><button value="ok" class="primary">OK</button><button value="cancel" formnovalidate>Cancel</button></div></form></dialog>
+  <dialog id="backup-dialog" aria-labelledby="backup-title"><h3 id="backup-title">Back up my designs</h3>
+    <p class="hint">Copies every design, template, saved element and class list, and your settings, into one file. Choose a USB stick or a cloud folder (Google Drive, OneDrive) so your work is safe even if this computer isn't. The newest 8 backups are kept.</p>
+    <p class="backup-row">Backups go to <b id="backup-folder"></b> <button id="backup-choose" type="button">Choose folder…</button></p>
+    <label>Back up automatically <select id="backup-every"><option value="day">every day</option><option value="week">every week</option><option value="off">only when I click</option></select></label>
+    <p id="backup-last" class="hint"></p>
+    <button id="backup-now" type="button" class="wide primary">Back up now</button>
+    <p id="backup-status" role="status"></p>
+    <hr>
+    <button id="backup-restore" type="button" class="wide">Restore from a backup…</button>
+    <p class="hint">Nothing is overwritten: anything missing comes back, and a design that changed since comes back beside it as “… (from backup)”.</p>
+    <div class="row"><button id="backup-close" type="button">Close</button></div>
+  </dialog>
   <section id="create" aria-label="Create" hidden>
     <div id="bulk" hidden>
       <div class="bulk-card" role="dialog" aria-labelledby="bulk-title">
@@ -286,6 +299,7 @@
       <button id="file-template" type="button" class="wide">Save as template</button>
       <button id="file-bulk" type="button" class="wide">👥 Bulk create: one for each name…</button>
       <button id="file-download" type="button" class="wide">Download &amp; print…</button>
+      <button id="file-backup" type="button" class="wide">🛟 Back up my designs…</button>
       <button id="file-trash" type="button" class="wide">Move to trash</button>
       <p id="file-info" class="hint"></p>
     </div>
@@ -390,6 +404,7 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>🛟 Back up my designs</b> (start screen and File): pick a USB stick or Google Drive folder, and your designs, class lists and settings are backed up there every week by themselves.</li>
         <li><b>Stretch</b> (Edit photo): make a photo wider or taller without squashing anyone, or <b>Make it fill the page</b>. <b>Effects</b>: oil paint, pop-art dots, mosaic and pencil sketch, plus <b>Relight</b> to light a photo from any side.</li>
         <li><b>Split a scan into photos</b> (Edit photo → Straighten): scan a few prints at once and each comes out straight, as its own picture.</li>
         <li><b>Name tag sheets</b>: Bulk create now fills every name box on the page, a different child in each, and starts a new page when they're full.</li>
@@ -474,6 +489,7 @@
   <script src="stretch.js"></script>
   <script src="effects.js"></script>
   <script src="bulk.js"></script>
+  <script src="backup.js"></script>
   <div id="print-sheets" aria-hidden="true"></div>
   <style id="print-size"></style>
 

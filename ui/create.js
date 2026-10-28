@@ -93,7 +93,7 @@ const PASTEBOARD = '#ede5f2';
 let design = null;                                     // { title, page, size (inches), tile, copies }
 let designPages = [], pageAt = 0;                      // every page's canvas JSON; the one being edited lives on the board instead
 let designFonts = [];                                  // fonts that came inside an imported design: [{ family, src }], saved with it
-let settings = { colours: [], fonts: [], seen: 0, rulers: false, closed: ['frames', 'grids', 'graphics'], projects: { folders: [], placed: Object.create(null), trash: Object.create(null) }, lastClass: '' };
+let settings = { colours: [], fonts: [], seen: 0, rulers: false, closed: ['frames', 'grids', 'graphics'], projects: { folders: [], placed: Object.create(null), trash: Object.create(null) }, lastClass: '', backup: { folder: '', every: 'week', last: 0, failed: '' } };
 let history = [], here = 0, restoring = false, historyBytes = 0, saveTimer = null, saved = Promise.resolve(), diskName = null, dirty = false, edits = 0;
 
 const pagePx = () => design.size.map(v => Math.round(v * PX));
@@ -1600,7 +1600,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 27;
+const WHATS_NEW = 28;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1719,7 +1719,7 @@ function paintBw() { $('#create-stage').classList.toggle('bw', $('#create-bw').c
 
 async function loadSettings() {
   const s = await invoke('load_create_settings').catch(() => null);
-  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, rulers: s.rulers === true, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects), lastClass: typeof s.lastClass === 'string' ? s.lastClass.slice(0, 80) : '' };
+  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, rulers: s.rulers === true, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects), lastClass: typeof s.lastClass === 'string' ? s.lastClass.slice(0, 80) : '', backup: s.backup };
   paintWhatsNew();
   if (typeof paintFolds === 'function') paintFolds();
 }
@@ -2030,7 +2030,7 @@ const STARTERS = {
 const STARTER_PAGE = { 'Photo card': 'photo-7x5', 'Instagram post': 'social-portrait', 'Square collage': 'social-square', 'Story': 'social-story' };
 const starterPage = name => STARTER_PAGE[name] || 'letter';
 
-loadSettings();
+loadSettings().then(() => { if (typeof startBackups === 'function') startBackups(); });
 
 // The window is closing: save, then go. If saving fails, say so and let a second close go through anyway.
 let closeTried = false;

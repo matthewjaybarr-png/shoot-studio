@@ -207,6 +207,8 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 #create-crop-dialog[open]{display:flex;flex-direction:column;width:90vw;height:85vh;background:var(--panel);color:inherit;border:1px solid var(--edge)}
 #create-crop-dialog::backdrop{background:var(--backdrop)}
 #home-status{color:var(--warning)}#home-status:empty{display:none}
+#home-backup{margin:0 0 10px;color:var(--muted);font-size:13px}#home-backup button{margin-left:6px}#home-backup.warn{color:var(--warning)}#home-backup.warn button{background:var(--brand);border-color:transparent;color:var(--on-accent)}
+#backup-dialog{width:440px;max-width:calc(100vw - 32px);padding:16px 18px;background:var(--panel);color:inherit;border:1px solid var(--edge);border-radius:10px}#backup-dialog::backdrop{background:var(--backdrop)}#backup-dialog h3{margin:0 0 8px;font-size:15px}#backup-dialog label{display:block;margin:8px 0}#backup-dialog .row{display:flex;justify-content:flex-end}#backup-dialog hr{border:0;border-top:1px solid var(--edge);margin:12px 0}#backup-folder{word-break:break-all}#backup-dialog button.wide{display:block;width:100%}#backup-dialog .primary{background:var(--brand);border-color:transparent;color:var(--on-accent)}#backup-dialog .primary:disabled{opacity:.45}#backup-dialog .hint{margin:6px 0;font-size:12px}#backup-status{min-height:1.2em}
 /* Narrow windows: the drawer floats over the page instead of squeezing it. */
 @media (max-width:900px){#create-drawer{position:absolute;z-index:12;left:76px;top:0;bottom:0;box-shadow:8px 0 24px var(--shadow)}#create-title{width:120px}}
 

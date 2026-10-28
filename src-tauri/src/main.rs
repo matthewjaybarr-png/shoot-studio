@@ -2,6 +2,7 @@
 // Originals are only ever opened for reading; all writes go to <shoot>/.shootstudio/.
 // The one network call is the update check, made here in Rust; the webview stays offline.
 #[allow(dead_code)] // copied whole; not every function is used yet
+mod backup;
 mod creations;
 mod cutout;
 mod focus;
@@ -1031,6 +1032,27 @@ fn create_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(base.join("KB Studio"))
 }
 
+/// Back up Create's designs, templates, elements, class lists and settings into `folder`; `stamp` is the local date and
+/// time for the file name.
+#[tauri::command]
+async fn backup_designs(app: AppHandle, folder: String, stamp: String) -> Result<backup::Made, String> {
+    let (root, config) = (create_root(&app)?, config_dir(&app)?);
+    tauri::async_runtime::spawn_blocking(move || backup::back_up(&root, &config, Path::new(&folder), &stamp)).await.map_err(|e| e.to_string())?
+}
+
+/// Choose a backup file to restore.
+#[tauri::command]
+async fn pick_backup(app: AppHandle) -> Option<String> {
+    app.dialog().file().set_title("Choose a KB Studio backup").add_filter("KB Studio backup", &["zip"]).blocking_pick_file()?.into_path().ok().map(|p| p.display().to_string())
+}
+
+/// Restore a backup without overwriting anything.
+#[tauri::command]
+async fn restore_backup(app: AppHandle, file: String) -> Result<backup::Restored, String> {
+    let (root, config) = (create_root(&app)?, config_dir(&app)?);
+    tauri::async_runtime::spawn_blocking(move || backup::restore(Path::new(&file), &root, &config)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn list_creations(app: AppHandle, kind: String) -> Result<Vec<creations::Entry>, String> {
     Ok(creations::list(&creations::folder(&create_root(&app)?, &kind)?))
@@ -1389,7 +1411,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos, carve_picture, effect_picture, relight_picture,
+            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos, carve_picture, effect_picture, relight_picture, backup_designs, pick_backup, restore_backup,
             load_shoot,
             save_shoot,
             develop_source,

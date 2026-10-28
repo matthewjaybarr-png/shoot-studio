@@ -96,6 +96,9 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'load_create_settings') return JSON.parse(disk.createSettings || 'null');
   if (command === 'save_create_settings') { disk.createSettings = JSON.stringify(args.settings); return null; }
   if (command === 'read_pptx') { if (!(args instanceof Uint8Array)) throw 'read_pptx needs the file as its body'; if (!window.pptxPackage) throw "this is not a PowerPoint file"; return JSON.parse(JSON.stringify(window.pptxPackage)); }
+  if (command === 'backup_designs') { if (window.backupFails) throw "the backup folder isn't there (/media/usb). If it's a USB stick, plug it in."; return { file: args.folder + '/KB Studio backup ' + args.stamp + '.zip', files: 12 }; }
+  if (command === 'pick_backup') return '/media/usb/KB Studio backup 2026-10-01 09-00.zip';
+  if (command === 'restore_backup') return { restored: 3, beside: 1, same: 8 };
   if (command === 'pick_shoot') return args?.title ? '/elsewhere/Out' : '/shoots/Smith Wedding';
   if (command === 'startup_shoot') return null;
   if (command === 'app_version') return '0.1.0';
@@ -2728,6 +2731,34 @@ const test = `<script>
       step(drawer !== 'retouch', 'Done puts Effects away');
       board.remove(board.getObjects().find(o => o.kbName === 'Photo effects')); commitDesign();
     }
+    // 0.39: Backups: the start screen says there are none, choosing a folder backs up at once, a missed one warns, restore reports.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      settings.backup = { folder: '', every: 'week', last: 0, failed: '' }; paintBackup();
+      step(/aren't backed up yet/.test($('#home-backup-text').textContent) && $('#home-backup').classList.contains('warn') && $('#home-backup-go').textContent === 'Set up backups', 'the start screen says nothing is backed up yet');
+      $('#home-backup-go').click();
+      step($('#backup-dialog').open && $('#backup-now').disabled && /Not chosen/.test($('#backup-folder').textContent), 'Set up backups opens the window, Back up now waits for a folder');
+      let n = calls.length;
+      $('#backup-choose').click();
+      await until(() => calls.slice(n).some(c => c.command === 'backup_designs') && !backingUp, 'the first backup');
+      const sent = calls.slice(n).find(c => c.command === 'backup_designs');
+      step(sent.args.folder === '/elsewhere/Out' && /^\\d{4}-\\d{2}-\\d{2} \\d{2}-\\d{2}$/.test(sent.args.stamp) && /Backed up 12 files/.test($('#backup-status').textContent), () => 'choosing a folder backs up right away: ' + JSON.stringify(sent.args) + ' ' + $('#backup-status').textContent);
+      step(/backed up today to Out/.test($('#home-backup-text').textContent) && !$('#home-backup').classList.contains('warn') && JSON.parse(disk.createSettings).backup.folder === '/elsewhere/Out', () => 'the start screen says when, and it is saved: ' + $('#home-backup-text').textContent);
+      $('#backup-close').click();
+      // a week and a half later, with the stick left out: the automatic backup fails and the start screen says so
+      settings.backup.last = Date.now() - 10 * 864e5; window.backupFails = true; n = calls.length;
+      startBackups();
+      await until(() => calls.slice(n).some(c => c.command === 'backup_designs') && !backingUp, 'the automatic backup');
+      step($('#home-backup').classList.contains('warn') && /plug it in/.test($('#home-backup-text').textContent), () => 'a failed automatic backup shows on the start screen: ' + $('#home-backup-text').textContent);
+      window.backupFails = false;
+      settings.backup.last = Date.now() - 2 * 864e5; settings.backup.failed = ''; n = calls.length; startBackups();
+      step(!calls.slice(n).some(c => c.command === 'backup_designs') && /2 days ago/.test($('#home-backup-text').textContent), 'no backup before a week is up');
+      $('#file-backup').click();
+      $('#backup-restore').click();
+      await until(() => /Restored:/.test($('#backup-status').textContent), 'Restore');
+      step(/3 brought back, 1 that had changed since/.test($('#backup-status').textContent) && settings.backup.folder === '/elsewhere/Out', () => 'Restore says what came back and keeps the backup folder: ' + $('#backup-status').textContent);
+      $('#backup-close').click();
+      settings.backup = { folder: '', every: 'week', last: 0, failed: '' }; saveSettings();
+    }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
     { const titleBefore = design.title, c = document.createElement('canvas'); c.width = 1200; c.height = 900; c.getContext('2d').fillRect(0, 0, 1200, 900);
       await settle(editPhoto(new File([await new Promise(r => c.toBlob(r, 'image/jpeg'))], 'Beach day.jpg', { type: 'image/jpeg' })), 'Edit a photo opens it');
@@ -2851,8 +2882,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="bulk.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('bulk.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
