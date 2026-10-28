@@ -4,7 +4,8 @@
 //! licensed under the MIT License or the Apache License, Version 2.0, at your option.
 //! See THIRD_PARTY_NOTICES.md and LICENSES/photocraft-Apache-2.0.txt.
 //!
-//! Modified: let-chains were rewritten as nested `if`s for edition 2021; `unclamped_window_side`
+//! Modified: let-chains were rewritten as nested `if`s for edition 2021; `apply_reaching` was added
+//! (the pupil is looked for within the search radius but followed farther); `unclamped_window_side`
 //! and `MAX_POINTS` are unused here.
 
 #![allow(dead_code)]
@@ -244,11 +245,20 @@ fn blur(src: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
 /// `origin` is the document coordinate of `px[0]`. Returns how many pixels changed.
 /// Pixels farther than [`search_radius`] from `click` are left untouched.
 pub fn apply(px: &mut [[f32; 4]], w: usize, h: usize, click: (i32, i32), origin: (i32, i32), pupil_size: f32, darken: f32) -> u32 {
+    apply_reaching(px, w, h, click, origin, pupil_size, darken, 0.0)
+}
+
+/// [`apply`], except that once the pupil nearest the click is found within [`search_radius`], it
+/// is followed out to `reach` pixels from the click (when that is farther), so a pupil bigger
+/// than the search circle is corrected whole. (KB Studio's addition.)
+#[allow(clippy::too_many_arguments)]
+pub fn apply_reaching(px: &mut [[f32; 4]], w: usize, h: usize, click: (i32, i32), origin: (i32, i32), pupil_size: f32, darken: f32, reach: f32) -> u32 {
     let n = w.saturating_mul(h);
     if w == 0 || h == 0 || px.len() < n {
         return 0;
     }
-    let radius = search_radius(pupil_size);
+    let seek = search_radius(pupil_size);
+    let radius = if reach.is_finite() { seek.max(reach) } else { seek };
     let t_amt = if darken.is_finite() { (darken.clamp(0.0, 100.0) / 100.0).clamp(0.0, 1.0) } else { 0.5 };
     let mut hard = vec![false; n];
     for y in 0..h {
@@ -264,7 +274,7 @@ pub fn apply(px: &mut [[f32; 4]], w: usize, h: usize, click: (i32, i32), origin:
             }
         }
     }
-    let Some(seed) = nearest_seed(&hard, w, h, origin, click, radius) else {
+    let Some(seed) = nearest_seed(&hard, w, h, origin, click, seek) else {
         return 0;
     };
     flood_keep(&mut hard, w, h, seed);
@@ -376,6 +386,18 @@ mod tests {
         }
         let catch = px[16 * w + 16];
         assert!(catch[0] >= 0.9 && catch[1] >= 0.9 && catch[2] >= 0.9, "catchlight {catch:?}");
+    }
+
+    #[test]
+    fn a_pupil_bigger_than_the_search_circle_is_corrected_whole() {
+        let w = 200usize;
+        let mut px = sample(w, w, |x, y| if disc(x, y, 100.0, 100.0, 60.0) { [0.95, 0.10, 0.10, 1.0] } else { [0.38, 0.28, 0.16, 1.0] });
+        let mut small = px.clone();
+        apply(&mut small, w, w, (100, 100), (0, 0), 1.0, 100.0);
+        assert!(small[100 * w + 150][0] > 0.9, "plain apply stops at its search circle");
+        apply_reaching(&mut px, w, w, (100, 100), (0, 0), 1.0, 100.0, 90.0);
+        let edge = px[100 * w + 150];
+        assert!(edge[0] < 0.3, "the far side of the pupil is fixed too: {edge:?}");
     }
 
     #[test]

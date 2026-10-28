@@ -698,7 +698,10 @@ async fn red_eye_picture(request: tauri::ipc::Request<'_>) -> Result<Response, S
     tauri::async_runtime::spawn_blocking(move || {
         let click = ((at[0] * w as f64) as i32, (at[1] * h as f64) as i32);
         let pupil = ((radius - 4.0) / 1.2).clamp(1.0, 100.0);
-        let reach = photocraft_redeye::search_radius(pupil).ceil() as i32 + photocraft_redeye::halo_radius();
+        // The red is looked for within the brush ring, then followed up to REACH pixels out, so a big
+        // pupil is fixed whole whatever the brush size.
+        const REACH: f32 = 200.0;
+        let reach = photocraft_redeye::search_radius(pupil).max(REACH).ceil() as i32 + photocraft_redeye::halo_radius();
         let (x0, y0) = ((click.0 - reach).max(0), (click.1 - reach).max(0));
         let (x1, y1) = ((click.0 + reach + 1).min(w as i32), (click.1 + reach + 1).min(h as i32));
         let (rw, rh) = ((x1 - x0).max(0) as usize, (y1 - y0).max(0) as usize);
@@ -709,7 +712,7 @@ async fn red_eye_picture(request: tauri::ipc::Request<'_>) -> Result<Response, S
                 px.push([0, 1, 2, 3].map(|k| rgba[i + k] as f32 / 255.0));
             }
         }
-        let changed = photocraft_redeye::apply(&mut px, rw, rh, click, (x0, y0), pupil, amount.clamp(0.0, 100.0));
+        let changed = photocraft_redeye::apply_reaching(&mut px, rw, rh, click, (x0, y0), pupil, amount.clamp(0.0, 100.0), REACH);
         let mut out = Vec::with_capacity(16 + rw * rh * 4);
         let rect = if changed > 0 { [x0 as u32, y0 as u32, rw as u32, rh as u32] } else { [0; 4] };
         for v in rect {
