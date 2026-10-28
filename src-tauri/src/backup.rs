@@ -3,7 +3,8 @@
 //! or a cloud folder). Exports are left out, since they can be made again. The newest `KEEP` backups are kept.
 //!
 //! Restoring never overwrites: a file that isn't there comes back as it was, an identical one is skipped, and one that
-//! changed since comes back beside it as "Name (from backup).ext".
+//! changed since comes back beside it as "Name (from backup).ext". Settings files come back only where there are none
+//! (a new computer), since they change all the time.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -153,17 +154,21 @@ pub fn restore(zip_path: &Path, root: &Path, config: &Path) -> Result<Restored, 
         }
         let Some(name) = entry.enclosed_name() else { continue }; // no ../ or absolute paths
         let name = name.to_string_lossy().replace('\\', "/");
-        let target = if let Some(rel) = name.strip_prefix(DESIGNS) {
-            root.join(rel)
+        let (target, setting) = if let Some(rel) = name.strip_prefix(DESIGNS) {
+            (root.join(rel), false)
         } else if let Some(rel) = name.strip_prefix(SETTINGS) {
             if rel.contains('/') {
                 continue;
             }
-            config.join(rel)
+            (config.join(rel), true)
         } else {
             continue;
         };
         found = true;
+        // settings change all the time (the last backup's date is one), so ones already here are kept as they are
+        if setting && target.exists() {
+            continue;
+        }
         if entry.size() as usize > creations::MAX_BYTES {
             return Err(format!("{name} in the backup is too big"));
         }
@@ -271,17 +276,20 @@ mod tests {
         let (base, root, config, dest) = setup("restore");
         back_up(&root, &config, &dest, "2026-10-28 09-00").unwrap();
         let zip = dest.join("KB Studio backup 2026-10-28 09-00.zip");
-        // the class list is lost, the poster changed, the settings are as they were
+        // the class list is lost, the poster changed, and the settings changed (as they always do)
         fs::remove_file(root.join("Classes/Room 12.json")).unwrap();
         fs::write(root.join("Poster.json"), b"{\"poster\":2}").unwrap();
+        fs::write(config.join("create.json"), b"{\"seen\":28}").unwrap();
         let done = restore(&zip, &root, &config).unwrap();
-        assert_eq!(done, Restored { restored: 1, beside: 1, same: 1 });
+        assert_eq!(done, Restored { restored: 1, beside: 1, same: 0 });
+        assert_eq!(fs::read(config.join("create.json")).unwrap(), b"{\"seen\":28}", "settings already here are kept");
+        assert!(!config.join("create (from backup).json").exists());
         assert_eq!(fs::read(root.join("Classes/Room 12.json")).unwrap(), b"[\"Ava\"]");
         assert_eq!(fs::read(root.join("Poster.json")).unwrap(), b"{\"poster\":2}", "the newer poster stays");
         assert_eq!(fs::read(root.join("Poster (from backup).json")).unwrap(), b"{\"poster\":1}");
         // restoring again only adds a second copy beside the changed one
         let again = restore(&zip, &root, &config).unwrap();
-        assert_eq!(again, Restored { restored: 0, beside: 1, same: 2 });
+        assert_eq!(again, Restored { restored: 0, beside: 1, same: 1 });
         assert!(root.join("Poster (from backup 2).json").exists());
         fs::remove_dir_all(base).unwrap();
     }
