@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.36.0
+
+- Bulk create fills a sheet of name tags: when the page has the same box several times (eight "Student Name" boxes, say), each box gets the next name, left to right and then down, and a new page starts when they're used up. Spare boxes on the last page are left blank. Extra columns pair up, so the third tag's room is the third child's. Untick "Fill all … boxes" to get a page per name as before.
+- Make the paper see-through, in Cut out: a drawing, handwriting or a logo photographed or scanned on paper keeps its lines and loses the paper, even where the paper is shadowed or yellowed. Soft pencil and crayon edges stay soft. Clean up clears more paper grain. Use it to turn a child's drawing into a sticker.
+- Make a colour see-through, in Cut out: click a plain colour in the picture (the background behind a logo, say) and it goes.
+- Red eye in Create: one click on a red pupil finds the whole pupil and darkens it with a soft edge, keeping the white catchlight. Painting over it still works.
+- The What's new card appears once more.
+
 ## 0.35.0
 
 - Class lists in Bulk create: 💾 Save this list keeps the names under a name you choose (Room 12, say), and next time you pick the class from Class list instead of pasting. The class you used last is already there when Bulk create opens. Change a name, add a child and Save changes; extra columns (a birthday, a reading group) are kept too. Delete asks once before it removes a list. Lists are kept in KB Studio/Classes on this computer.

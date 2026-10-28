@@ -29,7 +29,7 @@ const FIX_TOOLS = [
 ];
 const BRUSHED = ['smart', 'brush', 'erase', 'restore']; // the tools with a brush size
 const CUT_STEPS = 6; // Step back remembers this many choices (each is a copy of the mask)
-const cut = { loading: false, adjust: null, ghost: null, tool: 'smart', take: false, px: 30, tolerance: 32, soft: 3, image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, pointer: null, view: null };
+const cut = { pickColour: false, clean: 12, loading: false, adjust: null, ghost: null, tool: 'smart', take: false, px: 30, tolerance: 32, soft: 3, image: null, base: null, w: 0, h: 0, mask: null, any: false, steps: [], drag: null, pointer: null, view: null };
 let cutQueue = Promise.resolve();
 const cutting = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'cutout' && !cropSession;
 const cutPictureGone = () => !cut.image || !board.getObjects().includes(cut.image) || (cut.image.kbOriginal || cut.image.getSrc()) !== cut.base;
@@ -56,7 +56,9 @@ function paintCut() {
   }
   $('#cut-actions').hidden = !cut.any || !!cut.adjust;
   $('#cut-back').disabled = !cut.steps.length;
-  $('#cut-hint').textContent = !cut.image ? 'Click the picture you want to cut out.' : CUT_HINTS[cut.tool];
+  $('#cut-hint').textContent = cut.pickColour ? 'Click the colour that should go, such as the plain background behind a logo.' : !cut.image ? 'Click the picture you want to cut out.' : CUT_HINTS[cut.tool];
+  $('#cut-colour').classList.toggle('on', cut.pickColour); $('#cut-colour').textContent = cut.pickColour ? 'Now click the colour to remove…' : 'Make a colour see-through';
+  $('#cut-clean').value = cut.clean; $('#cut-clean-out').textContent = cut.clean;
   $('#cut-picture').hidden = !cut.image;
   paintAdjustPart(); paintFade();
 }
@@ -185,6 +187,14 @@ function cutDown({ e }) {
     return;
   }
   const uv = toPicture(image, at).map(round);
+  if (cut.pickColour) {
+    cut.pickColour = false; paintCut();
+    return void cutQueued(async () => {
+      const work = await touchPixels(cut.base), x = Math.min(cut.w - 1, Math.floor(uv[0] * cut.w)), y = Math.min(cut.h - 1, Math.floor(uv[1] * cut.h));
+      const [r, g, b] = work.ctx.getImageData(x, y, 1, 1).data;
+      await clearColour(`${r},${g},${b}`, 'That colour is see-through now. Undo puts it back.', "That colour wasn't found in the picture.");
+    });
+  }
   if (cut.tool === 'wand') return void cutQueued(() => cutPick({ kind: 'wand', at: uv, tolerance: cut.tolerance }));
   cut.drag = { start: at, points: [uv], scene: [at] };
   board.requestRenderAll();
@@ -421,6 +431,37 @@ $('#cut-focus').onclick = () => cutQueued(async () => {
     cutSay('Background blurred. Undo puts it back.');
   }
 });
+// Make the paper (or a picked colour) see-through: the picture's own pixels gain transparency, so Undo takes it back.
+async function cutWholePicture(first) {
+  if (cut.image && cutPictureGone()) resetCut();
+  if (!cut.image) {
+    const pictures = board.getObjects().filter(o => o.type === 'image' && o.visible !== false);
+    if (pictures.length !== 1) { cutSay(first); return false; }
+    await chooseCutPicture(pictures[0]);
+  }
+  return true;
+}
+async function clearColour(key, done, none) {
+  const image = cut.image, work = await touchPixels(cut.base), { width: w, height: h } = work.canvas;
+  cutSay('Making it see-through…');
+  const out = new Uint8Array(await invoke('see_through_picture', await cutBody(), { headers: { key, clean: String(cut.clean) } }));
+  if (!out.length) return cutSay(none);
+  const canvas = pictureCanvas(w, h);
+  canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out.buffer, 0, w * h * 4), w, h), 0, 0);
+  if (await setPicture(image, { original: canvas.toDataURL('image/png') })) {
+    await chooseCutPicture(image);
+    cutSay(done);
+  }
+}
+$('#cut-paper').onclick = () => cutQueued(async () => {
+  if (await cutWholePicture('First click the drawing or writing whose paper should go.'))
+    await clearColour('paper', 'The paper is see-through now. Clean up clears more of it; Undo puts it back.', 'There was no paper to take away.');
+});
+$('#cut-colour').onclick = () => cutQueued(async () => {
+  if (cut.pickColour) { cut.pickColour = false; return paintCut(); }
+  if (await cutWholePicture('First click the picture, then click Make a colour see-through again.')) { cut.pickColour = true; paintCut(); }
+});
+$('#cut-clean').oninput = e => { cut.clean = +e.target.value; paintCut(); };
 $('#prop-cutout').onclick = () => {
   const image = board.getActiveObject();
   photoTab = 'cutout';

@@ -9,10 +9,12 @@ mod reshape;
 mod straighten;
 mod desktop;
 mod photocraft;
+mod photocraft_redeye;
 mod photocraft_remove;
 mod photocraft_select;
 mod pptx;
 mod retouch;
+mod see_through;
 
 use rawler::formats::tiff::reader::TiffReader;
 use rawler::formats::tiff::GenericTiffReader;
@@ -677,6 +679,79 @@ async fn blur_picture_background(request: tauri::ipc::Request<'_>) -> Result<Res
         .map_err(|e| e.to_string())?
 }
 
+/// Fixes red eye where Create's Red eye brush was clicked: the body is retouch_picture's, `at` is
+/// the click (0–1 across and down, JSON), `radius` how far to look in picture pixels and `amount`
+/// 0–100. PhotoCraft's red-eye code finds the red pupil nearest the click and neutralises it with a
+/// soft edge. Returns what retouch_picture does: the changed rectangle, then its RGBA.
+#[tauri::command]
+async fn red_eye_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("red_eye_picture needs the picture as its body".into());
+    };
+    let at: [f64; 2] = serde_json::from_str(&header(&request, "at")?).map_err(|e| format!("bad place: {e}"))?;
+    let radius: f32 = header(&request, "radius")?.parse().map_err(|_| "bad radius")?;
+    let amount: f32 = header(&request, "amount")?.parse().map_err(|_| "bad amount")?;
+    let (w, h, mut rgba) = picture_body(body, 0)?;
+    if !at.iter().all(|v| (0.0..=1.0).contains(v)) || !radius.is_finite() || !amount.is_finite() {
+        return Err("the click is outside the picture".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let click = ((at[0] * w as f64) as i32, (at[1] * h as f64) as i32);
+        let pupil = ((radius - 4.0) / 1.2).clamp(1.0, 100.0);
+        let reach = photocraft_redeye::search_radius(pupil).ceil() as i32 + photocraft_redeye::halo_radius();
+        let (x0, y0) = ((click.0 - reach).max(0), (click.1 - reach).max(0));
+        let (x1, y1) = ((click.0 + reach + 1).min(w as i32), (click.1 + reach + 1).min(h as i32));
+        let (rw, rh) = ((x1 - x0).max(0) as usize, (y1 - y0).max(0) as usize);
+        let mut px: Vec<[f32; 4]> = Vec::with_capacity(rw * rh);
+        for y in y0 as usize..y1 as usize {
+            for x in x0 as usize..x1 as usize {
+                let i = (y * w + x) * 4;
+                px.push([0, 1, 2, 3].map(|k| rgba[i + k] as f32 / 255.0));
+            }
+        }
+        let changed = photocraft_redeye::apply(&mut px, rw, rh, click, (x0, y0), pupil, amount.clamp(0.0, 100.0));
+        let mut out = Vec::with_capacity(16 + rw * rh * 4);
+        let rect = if changed > 0 { [x0 as u32, y0 as u32, rw as u32, rh as u32] } else { [0; 4] };
+        for v in rect {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        if changed > 0 {
+            for (j, p) in px.iter().enumerate() {
+                let i = ((y0 as usize + j / rw) * w + x0 as usize + j % rw) * 4;
+                for k in 0..3 {
+                    rgba[i + k] = (p[k] * 255.0).round().clamp(0.0, 255.0) as u8;
+                }
+                out.extend_from_slice(&rgba[i..i + 4]);
+            }
+        }
+        Ok(Response::new(out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Make the paper see-through in Cut out: the body is retouch_picture's; `key` is "paper" or a
+/// picked colour as "r,g,b", and `clean` 0–60 clears that much paper grain. Returns the new RGBA,
+/// or an empty reply when nothing would change.
+#[tauri::command]
+async fn see_through_picture(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("see_through_picture needs the picture as its body".into());
+    };
+    let key = match header(&request, "key")?.as_str() {
+        "paper" => see_through::Key::Paper,
+        rgb => {
+            let c: Vec<u8> = rgb.split(',').map(|v| v.trim().parse::<u8>()).collect::<Result<_, _>>().map_err(|_| "bad colour")?;
+            see_through::Key::Colour(c.try_into().map_err(|_| "bad colour")?)
+        }
+    };
+    let clean: f32 = header(&request, "clean")?.parse().map_err(|_| "bad clean-up amount")?;
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(Response::new(see_through::see_through(w, h, &rgba, key, clean / 100.0)?.unwrap_or_default())))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Reshapes a Create picture: the body is [w][h][RGBA] then the displacement field as [gw][gh] (LE
 /// u32s) and gw × gh pairs of LE f32s. Returns the reshaped RGBA, the same size.
 #[tauri::command]
@@ -1213,7 +1288,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background,
+            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture,
             load_shoot,
             save_shoot,
             develop_source,

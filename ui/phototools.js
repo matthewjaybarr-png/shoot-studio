@@ -22,7 +22,7 @@ const TOUCH_HINTS = {
   heal: 'Click Pick where to copy from, click a clean area, then paint. Its texture is blended into the colour around the stroke.',
   clone: 'Click Pick where to copy from, click the area to copy, then paint. An exact copy, with no blending.',
   soften: 'Paint over skin to smooth blotches while keeping pores and fine detail.',
-  redeye: 'Paint over a red pupil. Only strongly red pixels darken; the white catchlight stays.',
+  redeye: 'Click a red pupil, once for each eye: the whole pupil is found and darkened, the white catchlight kept. Or paint over it.',
   blur: 'Paint to blur a busy background. A bigger brush blurs more.',
   dodge: 'Paint to lighten, a little at a time.',
   burn: 'Paint to darken, a little at a time.'
@@ -162,6 +162,10 @@ function touchUp() {
   const done = { tool: s.tool, size: round(s.size), points: s.points };
   if (s.tool === 'soften') Object.assign(done, { strength: round(s.strength), scaled: true });
   else if (s.tool !== 'remove' && s.strength < 1) done.strength = round(s.strength);
+  if (s.tool === 'redeye' && s.points.length === 1) { // a click: Rust finds the whole pupil around it
+    touchQueue = touchQueue.then(() => retouchPicture(s.image, { ...done, click: true })).catch(error => touchSay('Could not fix it: ' + error));
+    return track(touchQueue);
+  }
   if (s.tool === 'spot') done.offset = [0, 0]; // Rust finds the clean patch
   if (['heal', 'clone'].includes(s.tool)) done.offset = touch.offset;
   if (!validStroke(done)) return touchSay("That stroke can't be used.");
@@ -184,19 +188,21 @@ async function touchPixels(src) {
 // One stroke: the pixels go to Rust, the rectangle it changed comes back, and the picture is redrawn (and refiltered).
 async function retouchPicture(image, stroke) {
   if (!board.getObjects().includes(image)) return;
-  touchSay(stroke.tool === 'remove' ? 'Removing…' : 'Retouching…');
+  touchSay(stroke.tool === 'remove' ? 'Removing…' : stroke.click ? 'Fixing the red eye…' : 'Retouching…');
   const base = image.kbOriginal || image.getSrc(), work = await touchPixels(base), { width: w, height: h } = work.canvas;
   const pixels = work.ctx.getImageData(0, 0, w, h).data, body = new Uint8Array(8 + pixels.length);
   new DataView(body.buffer).setUint32(0, w, true); new DataView(body.buffer).setUint32(4, h, true); body.set(pixels, 8);
-  const out = new Uint8Array(await invoke('retouch_picture', body, { headers: { strokes: encodeURIComponent(JSON.stringify([stroke])) } }));
+  const out = new Uint8Array(stroke.click
+    ? await invoke('red_eye_picture', body, { headers: { at: JSON.stringify(stroke.points[0]), radius: String(Math.round(stroke.size * Math.max(w, h))), amount: String(Math.round((stroke.strength ?? 1) * 100)) } })
+    : await invoke('retouch_picture', body, { headers: { strokes: encodeURIComponent(JSON.stringify([stroke])) } }));
   const view = new DataView(out.buffer, out.byteOffset), [x, y, rw, rh] = [0, 4, 8, 12].map(i => view.getUint32(i, true));
-  if (!rw || !rh) return touchSay('Nothing changed there.');
+  if (!rw || !rh) return touchSay(stroke.click ? 'No red pupil there. Click the middle of the red, or make the brush bigger.' : 'Nothing changed there.');
   if (!board.getObjects().includes(image) || (image.kbOriginal || image.getSrc()) !== base) return; // undone or replaced meanwhile
   work.ctx.putImageData(new ImageData(new Uint8ClampedArray(out.subarray(16, 16 + rw * rh * 4)), rw, rh), x, y);
   const next = work.canvas.toDataURL(work.clear || base.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.95);
   work.src = next;
   await setPicture(image, { original: next }); // filtered, adjusted and masked again from the new pixels
-  touchSay(stroke.tool === 'remove' ? 'Removed. Undo brings it back.' : 'Retouched. Undo takes it back.');
+  touchSay(stroke.tool === 'remove' ? 'Removed. Undo brings it back.' : stroke.click ? 'Red eye fixed. Undo takes it back.' : 'Retouched. Undo takes it back.');
 }
 
 // The brush ring, the stroke being painted and where Heal and Clone copy from, drawn with the page overlay.

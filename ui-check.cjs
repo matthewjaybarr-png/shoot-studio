@@ -121,6 +121,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'spot_source') return [0.05, 0];
   if (command === 'reshape_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([200, 40, 120, 255], i); return out.buffer; }
   if (command === 'blur_picture_background') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([128, 128, 128, 255], i); return out.buffer; }
+  if (command === 'see_through_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([20, 20, 20, i < out.length / 2 ? 0 : 255], i); return out.buffer; }
+  if (command === 'red_eye_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255]); return b; }
   if (command === 'find_picture_corners') return window.foundCorners || null;
   if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 900 * 600 * 4); new Uint32Array(b, 0, 2).set([900, 600]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
@@ -1902,6 +1904,24 @@ const test = `<script>
       $('#bulk-class-delete').click();
       await until(() => !classLists.has('Room 12') && !disk['c:classes:Room 12'] && $('#bulk-class').options.length === 1, 'the second deletes it');
       $('#bulk-cancel').click(); $('#bulk-list').value = '';
+      // 0.36: a sheet with the same box several times (four name tags) gets a different name in each, in reading order.
+      await settle(newDesign(), 'a sheet of name tags');
+      const tag = (left, top) => new fabric.Textbox('Student Name', { left, top, width: 200, fontSize: 24, fontFamily: 'Lexend' });
+      board.add(tag(300, 200), tag(16, 200), tag(300, 30), tag(16, 30), new fabric.Textbox('Our class', { left: 16, top: 400, width: 200, fontSize: 24 }));
+      commitDesign();
+      $('#file-bulk').click();
+      $('#bulk-list').value = 'Ava\\nBen\\nCy\\nDee\\nEd'; $('#bulk-list').dispatchEvent(new Event('input'));
+      step(!$('#bulk-fill-row').hidden && $('#bulk-fill').checked && $('#bulk-fill-label').textContent.includes('all 4 boxes') && $('#bulk-make').textContent === 'Make 2 pages', () => 'four alike boxes offer to fill them all: ' + $('#bulk-fill-label').textContent + ' / ' + $('#bulk-make').textContent);
+      $('#bulk-fill').click();
+      step($('#bulk-make').textContent === 'Make 5 pages', () => 'unticked, it is a page per name again: ' + $('#bulk-make').textContent);
+      $('#bulk-fill').click();
+      const tagsFrom = design.title;
+      $('#bulk-make').click();
+      await until(() => design.title !== tagsFrom && designPages.length === 2, () => 'two pages of name tags: ' + $('#bulk-count').textContent);
+      const at = (page, left, top) => page.objects.find(o => /textbox/i.test(o.type) && o.left === left && o.top === top)?.text;
+      const [sheet1, sheet2] = allPages();
+      step([at(sheet1, 16, 30), at(sheet1, 300, 30), at(sheet1, 16, 200), at(sheet1, 300, 200)].join() === 'Ava,Ben,Cy,Dee' && at(sheet1, 16, 400) === 'Our class', () => 'page 1 reads left to right, then down: ' + sheet1.objects.map(o => o.text).join('|'));
+      step(at(sheet2, 16, 30) === 'Ed' && [at(sheet2, 300, 30), at(sheet2, 16, 200), at(sheet2, 300, 200)].every(t => t === ''), () => 'the last page leaves its spare tags blank: ' + sheet2.objects.map(o => o.text).join('|'));
     }
     // 0.17: Import from Canva (PowerPoint, or a picture).
     await settle($('#create-home').onclick(), 'home for import');
@@ -2366,6 +2386,16 @@ const test = `<script>
       await until(() => sentStrokes().length === before + 1, 'a Clone stroke');
       const cloned = JSON.parse(decodeURIComponent(sentStrokes().at(-1).options.headers.strokes))[0];
       step(cloned.tool === 'clone' && Math.abs(cloned.offset[0] + 170 / 300) < 0.01 && Math.abs(cloned.offset[1] + 70 / 200) < 0.01, () => 'it copies from the picked place: ' + JSON.stringify(cloned.offset));
+      // Red eye: a click (no drag) asks Rust to find the whole pupil around it.
+      $('#touch-tools [data-touch=redeye]').click();
+      const eyePic = () => board.getObjects().find(o => o.type === 'image' && o.kbName === 'Photo retouch'), eyeSrc = eyePic().getSrc(), eyeN = calls.filter(c => c.command === 'red_eye_picture').length, retouchN = sentStrokes().length;
+      paint([[250, 200]]);
+      await until(() => eyePic().getSrc() !== eyeSrc && !adding.size, () => 'a red-eye click: ' + $('#create-saved').textContent);
+      const eye = calls.filter(c => c.command === 'red_eye_picture').at(-1), eyeAt = JSON.parse(eye.options.headers.at);
+      step(calls.filter(c => c.command === 'red_eye_picture').length === eyeN + 1 && sentStrokes().length === retouchN && Math.abs(eyeAt[0] - 150 / 300) < 0.02 && Math.abs(eyeAt[1] - 100 / 200) < 0.02 && +eye.options.headers.radius > 0 && eye.options.headers.amount === '100', () => 'a click fixes the red eye where it was clicked: ' + JSON.stringify(eye.options.headers));
+      paint([[240, 200], [270, 200]]);
+      await until(() => sentStrokes().length === retouchN + 1, 'a red-eye stroke');
+      step(JSON.parse(decodeURIComponent(sentStrokes().at(-1).options.headers.strokes))[0].tool === 'redeye', 'dragging still paints red eye as before');
       $('#touch-done').click();
       step(drawer !== 'retouch' && !touchMode && board.selection && !board.skipTargetFind, 'Done puts the brush away and selecting works again');
       await until(() => !adding.size, 'retouching finishes');
@@ -2467,6 +2497,31 @@ const test = `<script>
       undoDesign(); await until(() => board.getObjects().some(o => o.kbOriginal === focusBefore), 'Undo takes the blur back');
       restored = board.getObjects().find(o => o.kbOriginal === focusBefore);
       await chooseCutPicture(restored); // Undo loads new objects
+      // Make the paper see-through, then a picked colour: the picture becomes a PNG with transparency (one Undo each).
+      const paperBefore = restored.kbOriginal, seeN = () => calls.filter(c => c.command === 'see_through_picture').length, paperN = seeN();
+      step(seen('#cut-paper') && seen('#cut-colour') && seen('#cut-clean'), 'Cut out has the see-through buttons');
+      $('#cut-paper').click();
+      await until(() => restored.kbOriginal !== paperBefore && !adding.size && cut.base === restored.kbOriginal, 'Make the paper see-through');
+      let seeCall = calls.filter(c => c.command === 'see_through_picture').at(-1);
+      step(seeN() === paperN + 1 && seeCall.options.headers.key === 'paper' && seeCall.options.headers.clean === '12' && restored.kbOriginal.startsWith('data:image/png'), () => 'Rust takes the paper away, and the picture keeps its transparency: ' + JSON.stringify(seeCall.options.headers));
+      undoDesign(); await until(() => board.getObjects().some(o => o.kbOriginal === paperBefore), 'Undo brings the paper back');
+      restored = board.getObjects().find(o => o.kbOriginal === paperBefore);
+      await chooseCutPicture(restored);
+      $('#cut-clean').value = 20; $('#cut-clean').dispatchEvent(new Event('input'));
+      $('#cut-colour').click();
+      await until(() => cut.pickColour, 'Make a colour see-through waits for a click');
+      step($('#cut-colour').textContent.includes('click the colour'), 'and says so on the button');
+      const colourN = seeN(); restored.setCoords();
+      const spot = restored.getCenterPoint();
+      { const r = board.upperCanvasEl.getBoundingClientRect(), p = spot.transform(board.viewportTransform), at = { clientX: r.left + p.x, clientY: r.top + p.y };
+        board.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', { ...at, bubbles: true, button: 0, buttons: 1 }));
+        document.dispatchEvent(new MouseEvent('mouseup', { ...at, bubbles: true, button: 0 })); }
+      await until(() => seeN() === colourN + 1 && !adding.size, 'the picked colour goes');
+      seeCall = calls.filter(c => c.command === 'see_through_picture').at(-1);
+      step(/^\\d+,\\d+,\\d+$/.test(seeCall.options.headers.key) && seeCall.options.headers.clean === '20' && !cut.pickColour && !cut.drag, () => 'Rust gets the clicked colour and the clean-up amount: ' + JSON.stringify(seeCall.options.headers) + ' pick=' + cut.pickColour + ' drag=' + JSON.stringify(cut.drag));
+      undoDesign(); await until(() => board.getObjects().some(o => o.kbOriginal === paperBefore), 'Undo brings the colour back');
+      restored = board.getObjects().find(o => o.kbOriginal === paperBefore);
+      await chooseCutPicture(restored);
       // Touch up: Erase hides part of the picture and Bring back shows it again, straight into its mask.
       $('#cut-size').value = 4; $('#cut-size').dispatchEvent(new Event('input'));
       $('#cut-fix [data-cut=erase]').click();

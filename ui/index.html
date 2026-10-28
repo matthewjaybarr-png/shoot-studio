@@ -44,6 +44,7 @@
         <label id="bulk-headings-row" class="check" hidden><input id="bulk-headings" type="checkbox" checked> The first line is the column names</label>
         <h4>Which text box gets each one</h4>
         <div id="bulk-fields"></div>
+        <label id="bulk-fill-row" class="check" hidden><input id="bulk-fill" type="checkbox" checked> <span id="bulk-fill-label"></span></label>
         <p class="hint">Tip: type {Name} in a text box to fill in just that part, as in “Happy birthday, {Name}!”</p>
         <p id="bulk-count" role="status"></p>
         <div class="bulk-actions"><button id="bulk-cancel" type="button">Cancel</button><button id="bulk-make" type="button" class="primary">Make the pages</button></div>
@@ -166,6 +167,9 @@
           <button id="cut-auto" type="button" class="wide primary">Remove the background</button>
           <button id="cut-focus" type="button" class="wide">Blur the background</button>
           <label>Blur amount <input id="cut-focus-amount" type="range" min="10" max="100" step="5" value="50"></label>
+          <button id="cut-paper" type="button" class="wide">Make the paper see-through</button>
+          <button id="cut-colour" type="button" class="wide">Make a colour see-through</button>
+          <label>Clean up <output id="cut-clean-out"></output><input id="cut-clean" type="range" min="0" max="40" step="1" value="12"></label>
           <p class="hint">Or choose what to keep yourself:</p>
           <div id="cut-tools" class="effect-grid" role="group" aria-label="Ways to choose"></div>
           <div id="cut-mode" class="segmented" role="group" aria-label="Add or take away"><button type="button" data-cut-mode="add">Add to it</button><button type="button" data-cut-mode="take">Take away</button></div>
@@ -355,6 +359,8 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Name tag sheets</b>: Bulk create now fills every name box on the page, a different child in each, and starts a new page when they're full.</li>
+        <li><b>Make the paper see-through</b> in Cut out (Edit photo): a child's drawing or your handwriting loses its paper and becomes a sticker. <b>Red eye</b> fixes a pupil in one click.</li>
         <li><b>Class lists</b>: in Bulk create, <b>💾 Save this list</b> keeps your class by name. Next time, pick it from <b>Class list</b> and it's ready, with no pasting.</li>
         <li><b>👥 Bulk create</b> (in File and Text): paste your class list and get a name tag, desk plate or certificate for each child. New <b>label sheets</b> (Avery address labels, name badges, business cards and more) under Resize print right onto the labels.</li>
         <li><b>Print</b> now opens the print window. <b>Download</b> asks where to save, then shows where it went with <b>Open it</b> and <b>Show in folder</b>. Drag pictures in from your files. <b>My elements</b> can save to Shapes, Graphics, Text and more. <b>✨ Auto fix</b> in Filters fixes a dark or tinted picture in one click.</li>

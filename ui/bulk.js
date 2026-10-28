@@ -1,5 +1,7 @@
 // Bulk create: one copy of the design for each line of a list, so a class list makes name tags, desk plates or
-// certificates. It makes a new design with a page per line (every page of the design, per line). Each column of the
+// certificates. It makes a new design with a page per line (every page of the design, per line). A one-page design
+// with the same box several times (a sheet of eight name tags) instead fills each box with the next line, in reading
+// order, and starts a new page when they're used up. Each column of the
 // list goes into the text box chosen for it, or into {Column} wherever that is typed. Needs create.js and doctools.js.
 const isTextJSON = o => /^(textbox|i-?text|text)$/i.test(o?.type || '');
 
@@ -16,6 +18,22 @@ function bulkList() {
 // Every text box in the design, as "page:index" with what it says.
 const bulkTexts = () => allPages().flatMap((page, p) => page.objects.flatMap((o, i) => isTextJSON(o) && o.text ? [{ key: `${p}:${i}`, p, text: o.text }] : []));
 const hasToken = (name, texts) => texts.some(t => new RegExp('\\{' + escapeRe(name) + '\\}', 'i').test(t.text));
+
+// Fill every box: for a one-page design, each column's boxes (the chosen box and every box saying the same, plus every
+// box with {Column} typed in it), in reading order: top to bottom, and left to right along a row.
+function bulkSlots() {
+  const { names } = bulkList(), template = allPages();
+  if (template.length !== 1) return { per: 1, slots: [] };
+  const objects = template[0].objects, texts = bulkTexts();
+  const slots = names.map((name, c) => {
+    const pick = $('#bulk-field-' + c)?.value, chosen = pick ? objects[+pick.split(':')[1]] : null;
+    return texts.filter(t => (chosen && objects[+t.key.split(':')[1]].text.trim() === chosen.text.trim()) || hasToken(name, [t])).map(t => +t.key.split(':')[1]);
+  });
+  const box = i => { const o = objects[i]; return { top: o.top, left: o.left, h: (o.height || 0) * Math.abs(o.scaleY || 1) }; };
+  for (const list of slots) list.sort((a, b) => { const A = box(a), B = box(b); return Math.abs(A.top - B.top) < Math.max(4, Math.min(A.h, B.h) / 2) ? A.left - B.left : A.top - B.top; });
+  return { per: Math.max(1, ...slots.map(list => list.length)), slots };
+}
+const bulkFilling = () => { const fill = bulkSlots(); return fill.per > 1 && $('#bulk-fill').checked ? fill : null; };
 
 // The column-to-text-box choices, guessed from the words: a box saying "Student Name" gets the Name column.
 function paintBulk() {
@@ -38,7 +56,10 @@ function paintBulk() {
   paintBulkCount();
 }
 function paintBulkCount() {
-  const { names, rows } = bulkList(), texts = bulkTexts(), pages = rows.length * allPages().length;
+  const { names, rows } = bulkList(), texts = bulkTexts(), { per } = bulkSlots(), fill = bulkFilling();
+  const pages = fill ? Math.ceil(rows.length / per) : rows.length * allPages().length;
+  $('#bulk-fill-row').hidden = per < 2;
+  $('#bulk-fill-label').textContent = `Fill all ${per} boxes on the page, a different name in each`;
   const used = names.some((name, c) => $('#bulk-field-' + c)?.value || hasToken(name, texts));
   const make = $('#bulk-make');
   make.disabled = !rows.length || !used || pages > MAX_PAGES;
@@ -46,7 +67,8 @@ function paintBulkCount() {
   $('#bulk-count').textContent = !rows.length ? 'Type or paste your list above, one name per line.'
     : pages > MAX_PAGES ? `That makes ${pages} pages; ${MAX_PAGES} is the most one design holds. Split the list in two.`
       : !used ? 'Choose the text box each column goes into, or type {Name} in a text box.'
-        : `${rows.length} line${rows.length === 1 ? '' : 's'} → ${pages} page${pages === 1 ? '' : 's'} in a new design. This design stays as it is.`;
+        : fill ? `${rows.length} name${rows.length === 1 ? '' : 's'}, ${per} to a page → ${pages} page${pages === 1 ? '' : 's'} in a new design. This design stays as it is.`
+          : `${rows.length} line${rows.length === 1 ? '' : 's'} → ${pages} page${pages === 1 ? '' : 's'} in a new design. This design stays as it is.`;
 }
 
 // A text box with new words: one look for all of it (the first letter's), and a single line stays a single line by
@@ -63,7 +85,26 @@ async function refillText(json, text) {
 }
 async function bulkPages() {
   const { names, rows } = bulkList(), template = allPages(), picks = names.map((_, c) => $('#bulk-field-' + c)?.value || '');
-  const pages = [];
+  const pages = [], fill = bulkFilling();
+  if (fill) { // each box takes the next line; boxes past the end of the list are left blank
+    const page = template[0];
+    for (let first = 0; first < rows.length; first += fill.per) {
+      const objects = [];
+      for (const [i, o] of page.objects.entries()) {
+        if (!isTextJSON(o)) { objects.push(o); continue; }
+        let text = o.text;
+        for (const [c, name] of names.entries()) {
+          const slot = fill.slots[c].indexOf(i);
+          if (slot < 0) continue;
+          const value = rows[first + slot]?.[c] ?? '';
+          text = hasToken(name, [{ text: o.text }]) ? text.replace(new RegExp('\\{' + escapeRe(name) + '\\}', 'gi'), value) : value;
+        }
+        objects.push(text === o.text ? o : await refillText(o, text));
+      }
+      pages.push({ ...page, objects });
+    }
+    return pages;
+  }
   for (const row of rows) for (const [p, page] of template.entries()) {
     const objects = [];
     for (const [i, o] of page.objects.entries()) {
@@ -86,7 +127,7 @@ async function makeBulk() {
     const doc = { format: 2, page: design.page, size: design.size, tile: TILES[design.page] ? 'fill' : design.tile, copies: 1, fonts: designFonts.length ? designFonts : undefined, pages };
     closeBulk();
     await navigateDesign(async () => { await open(doc, title, null); schedule(); });
-    $('#create-saved').textContent = `Made ${pages.length} pages, one for each line of your list`;
+    $('#create-saved').textContent = bulkFilling() ? `Made ${pages.length} page${pages.length === 1 ? '' : 's'}, every box filled from your list` : `Made ${pages.length} pages, one for each line of your list`;
   } catch (error) {
     $('#bulk-count').textContent = 'Could not make them: ' + error;
     $('#bulk-make').disabled = false;
@@ -169,6 +210,7 @@ function closeBulk() { $('#bulk').hidden = true; }
 $('#bulk-list').oninput = () => { paintBulk(); paintClassSave(); };
 $('#bulk-headings').onchange = () => { paintBulk(); paintClassSave(); };
 $('#bulk-make').onclick = () => makeBulk();
+$('#bulk-fill').onchange = paintBulkCount;
 $('#bulk-cancel').onclick = closeBulk;
 $('#bulk').onkeydown = e => { if (e.key === 'Escape') { e.stopPropagation(); closeBulk(); } };
 $('#bulk').onclick = e => { if (e.target === $('#bulk')) closeBulk(); };
