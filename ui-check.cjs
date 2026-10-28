@@ -92,7 +92,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'save_output') { const h = options.headers, name = decodeURIComponent(h.name) + '.' + h.ext; if (window.saveCancel && h.ask !== 'no') return ''; (window.outputs ??= {})[name] = { bytes: args, ask: h.ask }; return '/home/me/Downloads/' + name; }
   if (command === 'show_output') { (window.shown ??= []).push(args); return null; }
   if (command === 'read_dropped') return window.droppedPng.arrayBuffer();
-  if (command === 'print_page') { window.printed = (window.printed || 0) + 1; return null; }
+  if (command === 'print_page') { window.printed = (window.printed || 0) + 1; window.printPaper = [args.width, args.height]; return null; }
   if (command === 'load_create_settings') return JSON.parse(disk.createSettings || 'null');
   if (command === 'save_create_settings') { disk.createSettings = JSON.stringify(args.settings); return null; }
   if (command === 'read_pptx') { if (!(args instanceof Uint8Array)) throw 'read_pptx needs the file as its body'; if (!window.pptxPackage) throw "this is not a PowerPoint file"; return JSON.parse(JSON.stringify(window.pptxPackage)); }
@@ -1870,7 +1870,7 @@ const test = `<script>
       $('#create-print').click();
       await until(() => window.printed === printedBefore + 1, 'print the badges');
       const badgeSheets = [...document.querySelectorAll('#print-sheets .print-sheet')];
-      step(badgeSheets.length === 1 && badgeSheets[0].querySelectorAll('img').length === 3 && !badgeSheets[0].querySelector('svg'), () => 'all three badges on one sheet, no cut marks: ' + badgeSheets.length);
+      step(badgeSheets.length === 1 && badgeSheets[0].querySelectorAll('img').length === 3 && !badgeSheets[0].querySelector('svg') && window.printPaper.join() === '8.5,11', () => 'all three badges on one Letter sheet, no cut marks: ' + badgeSheets.length + ' ' + window.printPaper);
       $('#create-pdf').click();
       await until(() => window.outputs?.[design.title + '.pdf'], 'the badges as a PDF');
       step((new TextDecoder('latin1').decode(window.outputs[design.title + '.pdf'].bytes).match(/\\/Type\\s*\\/Page\\b/g) || []).length === 1, 'one sheet in the PDF too');

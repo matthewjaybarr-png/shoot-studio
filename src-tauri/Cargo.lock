@@ -3711,6 +3711,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-updater",
+ "webkit2gtk",
  "zip 9.1.2",
 ]
 

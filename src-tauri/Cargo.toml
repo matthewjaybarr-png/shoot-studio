@@ -20,3 +20,4 @@ zip = { version = "9.1.2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+webkit2gtk = "=2.0.2"

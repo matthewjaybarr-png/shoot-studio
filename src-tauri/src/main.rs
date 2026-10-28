@@ -1001,9 +1001,38 @@ async fn read_dropped(uri: String) -> Result<Response, String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Print: the system's print dialog, with its preview, for what the page has laid out for printing.
+/// Print: the system's print dialog for what the page has laid out for printing, on paper of `width` × `height`
+/// inches with no margins. GTK's own margins would shift and shrink everything a little, enough to miss a sheet of
+/// labels; the page already keeps its words clear of the edge.
 #[tauri::command]
-async fn print_page(webview: tauri::Webview) -> Result<(), String> {
+async fn print_page(webview: tauri::Webview, width: f64, height: f64) -> Result<(), String> {
+    if !(1.0..=36.0).contains(&width) || !(1.0..=36.0).contains(&height) {
+        return Err("the paper must be 1–36 inches a side".into());
+    }
+    #[cfg(target_os = "linux")]
+    return webview
+        .with_webview(move |page| {
+            use gtk::{PageOrientation, PageSetup, PaperSize, Unit};
+            use webkit2gtk::PrintOperationExt;
+            let (short, long) = (width.min(height), width.max(height));
+            // Letter by its proper name, so the printer picks the paper it already has; anything else as itself.
+            let paper = if (short - 8.5).abs() < 1e-6 && (long - 11.0).abs() < 1e-6 {
+                PaperSize::new(Some(gtk::PAPER_NAME_LETTER))
+            } else {
+                PaperSize::new_custom("kb-studio", "KB Studio page", short * 72.0, long * 72.0, Unit::Points)
+            };
+            let setup = PageSetup::new();
+            setup.set_paper_size(&paper);
+            setup.set_orientation(if width > height { PageOrientation::Landscape } else { PageOrientation::Portrait });
+            for margin in [PageSetup::set_top_margin, PageSetup::set_bottom_margin, PageSetup::set_left_margin, PageSetup::set_right_margin] {
+                margin(&setup, 0.0, Unit::Points);
+            }
+            let print = webkit2gtk::PrintOperation::new(&page.inner());
+            print.set_page_setup(&setup);
+            print.run_dialog(None::<&gtk::Window>);
+        })
+        .map_err(|e| e.to_string());
+    #[cfg(not(target_os = "linux"))]
     webview.print().map_err(|e| e.to_string())
 }
 

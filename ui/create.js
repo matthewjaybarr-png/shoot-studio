@@ -1873,7 +1873,7 @@ async function printDesign() {
       box.append(sheet);
     }
     await Promise.all([...box.querySelectorAll('img')].map(img => img.decode()));
-    await invoke('print_page');
+    await invoke('print_page', { width: sw, height: sh });
     status.textContent = 'Opened the print window';
   } catch (error) { status.textContent = 'Could not print: ' + error; }
 }
