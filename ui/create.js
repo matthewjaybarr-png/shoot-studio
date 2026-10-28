@@ -2001,7 +2001,7 @@ const STARTERS = {
   'Birthday card': async page => {
     const dots = ['#f6b26b', '#93c47d', '#6fa8dc', '#e06666', '#ffd966', '#c27ba0'];
     page.add(R(0, 0, 816, 1056, { fill: '#fdf3f8', stroke: '#fdf3f8', kbName: 'Background' }));
-    for (let i = 0; i < 24; i++) page.add(new fabric.Circle({ left: (i * 151) % 776 + 20, top: (i * 89) % 220 + 20 + (i % 2) * 790, radius: 8 + (i * 7) % 12, fill: dots[i % dots.length], kbName: 'Confetti' }));
+    for (let i = 0; i < 24; i++) page.add(new fabric.Circle({ left: 40 + (i * 151) % 700, top: 40 + (i * 89) % 180 + (i % 2) * 760, radius: 8 + (i * 7) % 12, fill: dots[i % dots.length], kbName: 'Confetti' }));
     page.add(T('Happy Birthday', 48, 300, { width: 720, fontSize: 96, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', fill: '#c2185b', kbName: 'Title' }),
       T('Name', 48, 460, { width: 720, fontSize: 88, textAlign: 'center', fontFamily: 'Caveat', kbName: 'Name' }),
       T('Have a wonderful day!', 48, 610, { width: 720, fontSize: 36, textAlign: 'center' }),
