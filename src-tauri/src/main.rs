@@ -11,6 +11,7 @@ mod desktop;
 mod photocraft;
 mod photocraft_redeye;
 mod photocraft_remove;
+mod photocraft_scancrop;
 mod photocraft_select;
 mod pptx;
 mod retouch;
@@ -679,6 +680,26 @@ async fn blur_picture_background(request: tauri::ipc::Request<'_>) -> Result<Res
         .map_err(|e| e.to_string())?
 }
 
+/// Split a scan in Straighten: the body is retouch_picture's. Returns the photos found on it, in
+/// reading order, each as four corners (top left, then clockwise) the way straighten_picture
+/// takes them, as shares of the scan's width and height.
+#[tauri::command]
+async fn find_scan_photos(request: tauri::ipc::Request<'_>) -> Result<Vec<[[f64; 2]; 4]>, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("find_scan_photos needs the picture as its body".into());
+    };
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let px: Vec<[f32; 4]> = rgba.as_chunks::<4>().0.iter().map(|p| p.map(|v| v as f32 / 255.0)).collect();
+        photocraft_scancrop::find_photos(w, h, &px)
+            .iter()
+            .map(|p| p.corners().map(|[x, y]| [(x / w as f64).clamp(0.0, 1.0), (y / h as f64).clamp(0.0, 1.0)]))
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Fixes red eye where Create's Red eye brush was clicked: the body is retouch_picture's, `at` is
 /// the click (0–1 across and down, JSON), `radius` how far to look in picture pixels and `amount`
 /// 0–100. PhotoCraft's red-eye code finds the red pupil nearest the click and neutralises it with a
@@ -1291,7 +1312,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture,
+            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos,
             load_shoot,
             save_shoot,
             develop_source,

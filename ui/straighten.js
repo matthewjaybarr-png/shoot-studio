@@ -115,6 +115,46 @@ async function straightenPicture() {
     straightTool.busy = false; $('#straight-go').disabled = false;
   }
 }
+// Split a scan: Rust finds each print laid on the scanner glass (PhotoCraft's Crop and Straighten Photos), each comes out
+// upright through straighten_picture as its own picture where it lay, at the scan's pixel scale, and the scan goes.
+// One Undo puts the scan back.
+async function splitScan() {
+  const image = straightTool.image;
+  if (!image || straightGone() || straightTool.busy) return;
+  straightTool.busy = true; paintStraighten(); straightSay('Looking for the photos on the scan…');
+  try {
+    const work = await touchPixels(image.kbOriginal || image.getSrc()), { width: w, height: h } = work.canvas, pixels = work.ctx.getImageData(0, 0, w, h).data;
+    const body = new Uint8Array(8 + pixels.length), view = new DataView(body.buffer);
+    view.setUint32(0, w, true); view.setUint32(4, h, true); body.set(pixels, 8);
+    const found = await invoke('find_scan_photos', body);
+    if (found.length < 2) return straightSay(found.length ? 'Only one photo there. Click Straighten to straighten it.' : "Couldn't find separate photos. Leave a little gap between them on the scanner.");
+    const photos = [];
+    for (const [i, corners] of found.entries()) {
+      straightSay(`Straightening photo ${i + 1} of ${found.length}…`);
+      const out = new Uint8Array(await invoke('straighten_picture', body, { headers: { corners: encodeURIComponent(JSON.stringify(corners)) } }));
+      const ow = new DataView(out.buffer).getUint32(0, true), oh = new DataView(out.buffer).getUint32(4, true);
+      const canvas = pictureCanvas(ow, oh);
+      canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out.buffer, 8, ow * oh * 4), ow, oh), 0, 0);
+      const photo = await fabric.FabricImage.fromURL(canvas.toDataURL(work.clear ? 'image/png' : 'image/jpeg', 0.92));
+      const middle = corners.map(uv => fromPicture(image, uv)).reduce((m, p) => ({ x: m.x + p.x / 4, y: m.y + p.y / 4 }), { x: 0, y: 0 });
+      photo.set({ scaleX: Math.abs(image.scaleX), scaleY: Math.abs(image.scaleY), kbName: `Photo ${i + 1} from the scan` });
+      photo.setPositionByOrigin(new fabric.Point(middle.x, middle.y), 'center', 'center'); photo.setCoords();
+      photos.push(photo);
+    }
+    if (straightGone()) return;
+    const at = board.getObjects().indexOf(image);
+    board.remove(image); board.insertAt(at, ...photos);
+    Object.assign(straightTool, { image: null, corners: null, drag: null });
+    remember(); schedule(); board.requestRenderAll();
+    straightSay(`Found ${photos.length} photos. Each is its own picture now; Undo puts the scan back.`);
+  } catch (error) {
+    straightSay(`Couldn't split the scan: ${error}`);
+  } finally {
+    straightTool.busy = false; $('#straight-go').disabled = false;
+    if (!straightTool.image) $('#straight-actions').hidden = true;
+  }
+}
+$('#straight-scan').onclick = splitScan;
 $('#straight-go').onclick = straightenPicture;
 $('#straight-find').onclick = () => findStraightEdges(false);
 $('#straight-reset').onclick = () => { if (straightTool.image) { straightTool.corners = STRAIGHT_START.map(c => c.slice()); board.requestRenderAll(); } };

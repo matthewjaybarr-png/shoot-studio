@@ -123,6 +123,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'blur_picture_background') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([128, 128, 128, 255], i); return out.buffer; }
   if (command === 'see_through_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([20, 20, 20, i < out.length / 2 ? 0 : 255], i); return out.buffer; }
   if (command === 'red_eye_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255]); return b; }
+  if (command === 'find_scan_photos') return window.scanPhotos || [];
   if (command === 'find_picture_corners') return window.foundCorners || null;
   if (command === 'straighten_picture') { const b = new ArrayBuffer(8 + 900 * 600 * 4); new Uint32Array(b, 0, 2).set([900, 600]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([30, 160, 60, 255], i); return b; }
   // A picture retouched in Create: a 2×2 magenta patch at the top left.
@@ -2608,6 +2609,25 @@ const test = `<script>
       const mid = pic.getCenterPoint();
       step(Math.abs(mid.x - (110 + 370 + 370 + 130) / 4) < 2 && Math.abs(mid.y - (105 + 120 + 280 + 280) / 4) < 2, () => 'it sits where the corners were: ' + [mid.x, mid.y]);
       undoDesign(); await until(() => board.getObjects().find(o => o.kbName === "Photo straighten")?.width === 300, 'Undo puts the tilted picture back');
+      // 0.37: Split a scan: each photo Rust finds comes out straight as its own picture where it lay; Undo brings the scan back.
+      const scan = board.getObjects().find(o => o.kbName === 'Photo straighten');
+      chooseStraighten(scan); await until(() => !straightTool.busy, 'the scan is chosen');
+      step(seen('#straight-scan'), 'Straighten offers Split a scan into photos');
+      window.scanPhotos = [];
+      $('#straight-scan').click();
+      await until(() => !straightTool.busy && /separate photos/.test($('#straight-hint').textContent), 'a scan with no photos says so');
+      step(board.getObjects().includes(scan), 'and leaves the picture alone');
+      window.scanPhotos = [[[0.05, 0.1], [0.45, 0.1], [0.45, 0.6], [0.05, 0.6]], [[0.55, 0.3], [0.95, 0.3], [0.95, 0.9], [0.55, 0.9]]];
+      const scanCalls = calls.length;
+      $('#straight-scan').click();
+      await until(() => !straightTool.busy && !board.getObjects().includes(scan), 'Split a scan');
+      const parts = board.getObjects().filter(o => /from the scan/.test(o.kbName || ''));
+      const sentCorners = calls.slice(scanCalls).filter(c => c.command === 'straighten_picture').map(c => JSON.parse(decodeURIComponent(c.options.headers.corners)));
+      step(parts.length === 2 && parts[0].kbName === 'Photo 1 from the scan' && parts.every(o => o.width === 900) && JSON.stringify(sentCorners) === JSON.stringify(window.scanPhotos), () => 'each photo is straightened into its own picture: ' + parts.map(o => o.kbName + ' ' + o.width).join(', '));
+      const c1 = parts[0].getCenterPoint(), c2 = parts[1].getCenterPoint();
+      step(Math.abs(c1.x - (100 + 0.25 * 300)) < 2 && Math.abs(c1.y - (100 + 0.35 * 200)) < 2 && Math.abs(c2.x - (100 + 0.75 * 300)) < 2 && Math.abs(c2.y - (100 + 0.6 * 200)) < 2 && /Found 2 photos/.test($('#straight-hint').textContent), () => 'each sits where it was on the scan: ' + [c1.x, c1.y, c2.x, c2.y]);
+      window.scanPhotos = null;
+      undoDesign(); await until(() => board.getObjects().some(o => o.kbName === 'Photo straighten') && !board.getObjects().some(o => /from the scan/.test(o.kbName || '')), 'Undo puts the scan back');
       $('#straight-done').click();
       step(drawer !== 'retouch' && !touchMode, 'Done puts Straighten away');
       board.remove(board.getObjects().find(o => o.kbName === 'Photo straighten')); commitDesign();

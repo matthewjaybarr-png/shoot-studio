@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.37.0
+
+- Split a scan into photos, in Edit photo → Straighten: scan several prints at once, open the scan, and each print is found, turned straight and cropped, and becomes its own picture where it lay. Undo puts the scan back. Leave a small gap between the prints on the scanner glass.
+- The What's new card appears once more.
+
 ## 0.36.0
 
 - Bulk create fills a sheet of name tags: when the page has the same box several times (eight "Student Name" boxes, say), each box gets the next name, left to right and then down, and a new page starts when they're used up. Spare boxes on the last page are left blank. Extra columns pair up, so the third tag's room is the third child's. Untick "Fill all … boxes" to get a page per name as before.
