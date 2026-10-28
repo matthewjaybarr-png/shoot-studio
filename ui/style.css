@@ -139,8 +139,8 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 #prop-font{max-width:190px}
 .stepper input{width:52px;text-align:center}
 .create-body{position:relative;display:flex;flex:1;min-height:0}
-#create-rail{display:flex;flex-direction:column;gap:2px;width:76px;padding:8px 4px;background:var(--deep);border-right:1px solid var(--edge)}
-#create-rail button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px}
+#create-rail{display:flex;flex-direction:column;gap:2px;width:76px;padding:8px 4px;background:var(--deep);border-right:1px solid var(--edge);overflow-y:auto;min-height:0;scrollbar-width:thin}
+#create-rail button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;flex-shrink:0}
 #create-rail button:hover{color:var(--text);background:var(--panel)}
 #create-rail button.on{outline:0;color:var(--text);background:var(--panel)}
 #create svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
@@ -324,6 +324,7 @@ header>*{flex:none;white-space:nowrap}header>#status{flex:1 1 0;min-width:0;over
 /* The theme's finishing touches: gradient main buttons, soft corners, a pink line under the bars. */
 #create button.primary,#deliver-go,.segmented button.on,#photo-bar button.on:not([data-flag=reject]):not([data-stars]),#sliders .tools button.active,.folder-bar button.drop,#name-dialog .primary{background:var(--brand);border-color:transparent;color:var(--on-accent)}
 #create button.primary:disabled{opacity:.45;cursor:default}
+#create-drawer button:disabled{opacity:.45;cursor:default}
 #create button.primary:hover,#deliver-go:hover{filter:brightness(1.06)}
 header,.create-bar{border-bottom-color:var(--pink)}
 #create-rail,#develop-rail{background:linear-gradient(180deg,var(--deep),#eef3fc)}

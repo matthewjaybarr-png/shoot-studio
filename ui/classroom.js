@@ -28,7 +28,7 @@ function paintClassroom() {
   }));
   for (const [key] of CLASS_DETAILS) { const input = $('#class-' + key); if (document.activeElement !== input) input.value = c[key]; $(`#class-details [data-detail=${key}]`).disabled = !c[key]; }
   $('#class-logo-img').hidden = !c.logo; if (c.logo) $('#class-logo-img').src = c.logo;
-  $('#class-logo-add').disabled = $('#class-logo-remove').disabled = !c.logo;
+  $('#class-logo-add').disabled = $('#class-logo-remove').hidden = !c.logo;
   $('#class-logo-pick').textContent = c.logo ? 'Change the logo…' : 'Choose a logo…';
   paintLists(); paintBirthdays();
 }
@@ -131,6 +131,18 @@ async function bulkFromRows(rows, name) {
 }
 $('#list-bulk').onclick = () => bulkFromRows(listEdit.rows, listEdit.name);
 
+// A birthday card for one child: a new design from the Birthday card starter, their name already on it.
+async function birthdayCard(name) {
+  await newDesign('Birthday card', 'starter');
+  const teacher = classroom().teacher;
+  for (const o of board.getObjects()) {
+    if (o.kbName === 'Name') o.set({ text: name });
+    if (o.kbName === 'From' && teacher) o.set({ text: `From ${teacher}` });
+  }
+  design.title = $('#create-title').value = await uniqueTitle(`${name}'s birthday card`);
+  board.requestRenderAll(); commitDesign();
+}
+
 // ---- Birthdays in the next 30 days, from any saved list with a Birthday column ----
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 // Month and day from "March 4", "4 March", "3/4" (month first), "2019-03-04" or "3/4/2019"; null when it isn't a date.
@@ -163,7 +175,7 @@ function paintBirthdays() {
   $('#class-birthdays-none').hidden = soon.length > 0;
   out.replaceChildren(...soon.map(b => {
     const li = document.createElement('li'), when = b.days === 0 ? 'today! 🎉' : b.days === 1 ? 'tomorrow' : `${b.next.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} (in ${b.days} days)`;
-    li.append(Object.assign(document.createElement('span'), { textContent: `${b.name}: ${when}` }), button('🎂 Make a card', () => bulkFromRows([b.heads, b.row])));
+    li.append(Object.assign(document.createElement('span'), { textContent: `${b.name}: ${when}` }), button('🎂 Make a card', () => birthdayCard(b.name).catch(() => {})));
     return li;
   }));
 }

@@ -1001,7 +1001,7 @@ const test = `<script>
     // Starter templates, saved templates, fonts, colours and clip art.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
     const names = [...$('#home-templates').children].map(b => b.textContent);
-    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet,Student of the week,Mini session flyer,Photo card,Instagram post,Square collage,Story', () => 'fifteen starter templates: ' + names);
+    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet,Birthday card,Student of the week,Mini session flyer,Photo card,Instagram post,Square collage,Story', () => 'sixteen starter templates: ' + names);
     for (const name of names) {
       await settle(Promise.resolve($('#home-templates').children[names.indexOf(name)].click()));
       await until(() => !navigating && mode === 'create' && design.title === 'My ' + name && board.getObjects().length >= 4, 'the ' + name + ' template opens');
@@ -2795,17 +2795,19 @@ const test = `<script>
       step(JSON.parse(disk['c:classes:Room 12']).text === 'Name\\tBirthday\\nAva\\t' + md + '\\nBen\\tnot a date' && $('#list-save').textContent === '✓ Saved' && $('#list-pick').value === 'Room 12', () => "saved in Bulk create's format: " + disk['c:classes:Room 12']);
       step($('#class-birthdays').children.length === 1 && /Ava: tomorrow/.test($('#class-birthdays').textContent), () => 'a birthday tomorrow shows: ' + $('#class-birthdays').textContent);
       step(['March 4', '4 March', '3/4', '2019-03-04', 'Mar. 4th, 2019', '3/4/2019'].every(d => JSON.stringify(birthday(d)) === '[3,4]') && birthday('soon') === null, 'birthdays read in the usual ways');
-      $('#class-birthdays button').click();
-      await until(() => !$('#bulk').hidden && /Birthday/.test($('#bulk-list').value), 'Make a card');
-      step($('#bulk-list').value === 'Name\\tBirthday\\nAva\\t' + md, () => 'Make a card opens Bulk create with just that child: ' + JSON.stringify($('#bulk-list').value));
-      closeBulk();
       $('#list-bulk').click();
       await until(() => !$('#bulk').hidden && $('#bulk-class').value === 'Room 12', 'Make one for each row');
       step(/Ben/.test($('#bulk-list').value), 'the list opens in Bulk create, picked by name');
       closeBulk();
+      board.getObjects().filter(o => !before.includes(o)).forEach(o => board.remove(o)); commitDesign();
+      const titleBefore = design.title;
+      $('#class-birthdays button').click();
+      await until(() => design.title !== titleBefore && /birthday card/.test(design.title), 'Make a card');
+      const said = board.getObjects().filter(o => o.text).map(o => o.text);
+      step(design.title === "Ava's birthday card" && said.includes('Happy Birthday') && said.includes('Ava') && said.includes('From Mrs. "B"'), () => 'Make a card starts a birthday card with her name and the teacher: ' + design.title + ' ' + said);
+      await settle(openDesign(titleBefore), 'back to the design being tested');
       $('#list-delete').click(); step(/Really delete/.test($('#list-delete').textContent), 'Delete asks once');
       $('#list-delete').click(); await until(() => !disk['c:classes:Room 12'], 'Delete');
-      board.getObjects().filter(o => !before.includes(o)).forEach(o => board.remove(o)); commitDesign();
       settings.classroom = {}; saveSettings(); showDrawer('classroom');
     }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.

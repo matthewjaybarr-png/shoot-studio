@@ -1998,6 +1998,15 @@ const STARTERS = {
     page.add(T('Handwriting Practice', 48, 40, { width: 720, fontSize: 48 }), T('Name: __________   Date: __________', 48, 120, { width: 720, fontSize: 26 }));
     for (let r = 0; r < 8; r++) page.add(handwritingLines(720).set({ left: 48, top: 230 + r * 96 }), T(r === 0 ? 'Trace your words here' : ' ', 52, 216 + r * 96, { width: 700, fontSize: 42, fontFamily: 'Patrick Hand', fill: '#aaaaaa' }));
   },
+  'Birthday card': async page => {
+    const dots = ['#f6b26b', '#93c47d', '#6fa8dc', '#e06666', '#ffd966', '#c27ba0'];
+    page.add(R(0, 0, 816, 1056, { fill: '#fdf3f8', stroke: '#fdf3f8', kbName: 'Background' }));
+    for (let i = 0; i < 24; i++) page.add(new fabric.Circle({ left: (i * 151) % 776 + 20, top: (i * 89) % 220 + 20 + (i % 2) * 790, radius: 8 + (i * 7) % 12, fill: dots[i % dots.length], kbName: 'Confetti' }));
+    page.add(T('Happy Birthday', 48, 300, { width: 720, fontSize: 96, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', fill: '#c2185b', kbName: 'Title' }),
+      T('Name', 48, 460, { width: 720, fontSize: 88, textAlign: 'center', fontFamily: 'Caveat', kbName: 'Name' }),
+      T('Have a wonderful day!', 48, 610, { width: 720, fontSize: 36, textAlign: 'center' }),
+      T('From your teacher', 48, 690, { width: 720, fontSize: 28, textAlign: 'center', fill: '#777777', kbName: 'From' }));
+  },
   // Photography: frames to drop photos into. Social pages are 540 px wide (saved at 1080).
   'Student of the week': async page => {
     page.add(R(0, 0, 816, 1056, { fill: '#fff6e0', stroke: '#fff6e0', kbName: 'Background' }),

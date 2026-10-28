@@ -6,7 +6,7 @@
   - **About my class**: your name, school, class, room and school year, typed once. Click + beside one to put it on the page. Type {Teacher}, {School}, {Class}, {Room} or {Year} in a design you save as a template, and every design you start from it fills them in, so next year you change them once. **Fill in my details** does it on the design that's open.
   - **School logo**: choose it once, then + Add to page whenever you need it.
   - **My lists**: your class lists, and any other list you use again (spelling words, classroom jobs), as a table you click in to type: + Add a row, + Add a column, × to take one out. **Make one of this design for each row** opens Bulk create with the list. They're the same lists as Bulk create's Class list.
-  - **Birthdays coming up**: give a class list a Birthday column (March 4, or 3/4) and the next 30 days' birthdays show here, each with 🎂 Make a card.
+  - **Birthdays coming up**: give a class list a Birthday column (March 4, or 3/4) and the next 30 days' birthdays show here, each with 🎂 Make a card, which starts a new birthday card with the child's name (and yours) already on it. The card is also a new Birthday card starter template.
 - Your class details and logo are in your settings, so backups include them.
 - Fixed: starting KB Studio wrote the default settings over yours for a moment (since 0.21, when Elements sections began to fold). They came back as soon as anything else was saved, but closing KB Studio before that lost them: folders, saved colours, favourite fonts, and now backups. Settings are never saved before they have loaded.
 - The What's new card appears once more.
