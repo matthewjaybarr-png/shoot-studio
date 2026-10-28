@@ -2759,6 +2759,51 @@ const test = `<script>
       $('#backup-close').click();
       settings.backup = { folder: '', every: 'week', last: 0, failed: '' }; saveSettings();
     }
+    // 0.40: My classroom: details go on the page and into {Teacher}; lists are a table she clicks in; birthdays coming up.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const before = board.getObjects().slice();
+      showDrawer('classroom');
+      step(seen('#class-details') && $('#class-details').children.length === 5 && $('#class-details [data-detail=teacher]').disabled, 'My classroom shows five details, + waits for one to be typed');
+      const teacher = $('#class-teacher'); teacher.value = 'Mrs. "B"'; teacher.dispatchEvent(new Event('change'));
+      step(JSON.parse(disk.createSettings).classroom.teacher === 'Mrs. "B"' && !$('#class-details [data-detail=teacher]').disabled, 'a detail is saved as it is typed');
+      $('#class-details [data-detail=teacher]').click();
+      step(board.getObjects().some(o => o.text === 'Mrs. "B"' && o.kbName === 'Teacher'), '+ puts it on the page');
+      const t = new fabric.Textbox("{Teacher}'s class, {Room}", { left: 50, top: 300, width: 400 }); board.add(t); commitDesign();
+      $('#class-fill').click();
+      step(t.text === 'Mrs. "B"' + "'s class, {Room}", () => 'Fill in my details fills what is set and leaves the rest: ' + t.text);
+      const doc = fillClassDoc({ pages: [{ objects: [{ type: 'Textbox', text: 'From {Teacher}' }] }], title: 'x' });
+      step(doc.pages[0].objects[0].text === 'From Mrs. "B"' && JSON.parse(JSON.stringify(doc)).title === 'x', 'a template fills in safely, quotes and all');
+      // a list: name it, type in the table, add a row, save
+      await paintLists();
+      $('#list-name').value = 'Room 12'; $('#list-name').dispatchEvent(new Event('input'));
+      $('#list-add-col').click(); await new Promise(r => setTimeout(r, 0));
+      const head = $('#list-grid').rows[0].cells; head[1].firstChild.value = 'Birthday'; head[1].firstChild.dispatchEvent(new Event('input'));
+      const tomorrow = new Date(Date.now() + 864e5), md = (tomorrow.getMonth() + 1) + '/' + tomorrow.getDate();
+      for (const [name, day] of [['Ava', md], ['Ben', 'not a date']]) {
+        $('#list-add-row').click(); await new Promise(r => setTimeout(r, 0));
+        const cells = $('#list-grid').rows[$('#list-grid').rows.length - 1].cells;
+        cells[0].firstChild.value = name; cells[0].firstChild.dispatchEvent(new Event('input'));
+        cells[1].firstChild.value = day; cells[1].firstChild.dispatchEvent(new Event('input'));
+      }
+      step(!$('#list-save').disabled && /2 rows/.test($('#list-count').textContent), 'two rows typed, ready to save');
+      $('#list-save').click();
+      await until(() => disk['c:classes:Room 12'], 'Save the list');
+      step(JSON.parse(disk['c:classes:Room 12']).text === 'Name\\tBirthday\\nAva\\t' + md + '\\nBen\\tnot a date' && $('#list-save').textContent === '✓ Saved' && $('#list-pick').value === 'Room 12', () => "saved in Bulk create's format: " + disk['c:classes:Room 12']);
+      step($('#class-birthdays').children.length === 1 && /Ava: tomorrow/.test($('#class-birthdays').textContent), () => 'a birthday tomorrow shows: ' + $('#class-birthdays').textContent);
+      step(['March 4', '4 March', '3/4', '2019-03-04', 'Mar. 4th, 2019', '3/4/2019'].every(d => JSON.stringify(birthday(d)) === '[3,4]') && birthday('soon') === null, 'birthdays read in the usual ways');
+      $('#class-birthdays button').click();
+      await until(() => !$('#bulk').hidden && /Birthday/.test($('#bulk-list').value), 'Make a card');
+      step($('#bulk-list').value === 'Name\\tBirthday\\nAva\\t' + md, () => 'Make a card opens Bulk create with just that child: ' + JSON.stringify($('#bulk-list').value));
+      closeBulk();
+      $('#list-bulk').click();
+      await until(() => !$('#bulk').hidden && $('#bulk-class').value === 'Room 12', 'Make one for each row');
+      step(/Ben/.test($('#bulk-list').value), 'the list opens in Bulk create, picked by name');
+      closeBulk();
+      $('#list-delete').click(); step(/Really delete/.test($('#list-delete').textContent), 'Delete asks once');
+      $('#list-delete').click(); await until(() => !disk['c:classes:Room 12'], 'Delete');
+      board.getObjects().filter(o => !before.includes(o)).forEach(o => board.remove(o)); commitDesign();
+      settings.classroom = {}; saveSettings(); showDrawer('classroom');
+    }
     // Edit a photo: a page exactly the photo's size at 300 dpi, the photo filling it, Remove ready.
     { const titleBefore = design.title, c = document.createElement('canvas'); c.width = 1200; c.height = 900; c.getContext('2d').fillRect(0, 0, 1200, 900);
       await settle(editPhoto(new File([await new Promise(r => c.toBlob(r, 'image/jpeg'))], 'Beach day.jpg', { type: 'image/jpeg' })), 'Edit a photo opens it');
@@ -2882,8 +2927,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="backup.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

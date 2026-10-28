@@ -448,6 +448,7 @@ function newDesign(template, source) {
     startBoard();
     let doc = { page: source === 'starter' ? starterPage(template) : 'letter' };
     if (template && source === 'mine') doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name: template }));
+    if (template && source === 'mine' && typeof fillClassDoc === 'function') doc = fillClassDoc(doc);
     const title = await uniqueTitle(template ? `My ${template}` : 'Untitled');
     await open(doc, title, null);
     if (template && source === 'starter') { await STARTERS[template](board); remember(); }
@@ -1547,6 +1548,7 @@ function paintDrawer() {
   if (board?.isDrawingMode && drawer !== 'draw') toggleDraw(false);
   if (drawer === 'templates') paintTemplates();
   if (drawer === 'shoot') paintShoot();
+  if (drawer === 'classroom' && typeof paintClassroom === 'function') paintClassroom();
   if (typeof paintTouch === 'function') paintTouch(); // the Retouch brushes paint only while their drawer is open
 }
 for (const b of document.querySelectorAll('#create-rail [data-drawer]')) b.onclick = () => showDrawer(b.dataset.drawer);
@@ -1584,7 +1586,8 @@ async function useTemplate(name, source) {
   if (board.getObjects().length || designPages.length > 1) return newDesign(name, source);
   if (source === 'starter') { design.page = starterPage(name); design.size = sizeIn(design.page); design.tile = 'single'; await STARTERS[name](board); }
   else {
-    const doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
+    let doc = JSON.parse(await invoke('load_creation', { kind: 'templates', name }));
+    if (typeof fillClassDoc === 'function') doc = fillClassDoc(doc);
     if ((doc.format ?? 1) > FORMAT) throw Error('it was made by a newer KB Studio; update KB Studio to use it');
     restoring = true;
     try {
@@ -1600,7 +1603,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 28;
+const WHATS_NEW = 29;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -1719,7 +1722,7 @@ function paintBw() { $('#create-stage').classList.toggle('bw', $('#create-bw').c
 
 async function loadSettings() {
   const s = await invoke('load_create_settings').catch(() => null);
-  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, rulers: s.rulers === true, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects), lastClass: typeof s.lastClass === 'string' ? s.lastClass.slice(0, 80) : '', backup: s.backup };
+  if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, rulers: s.rulers === true, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects), lastClass: typeof s.lastClass === 'string' ? s.lastClass.slice(0, 80) : '', backup: s.backup, classroom: s.classroom };
   paintWhatsNew();
   if (typeof paintFolds === 'function') paintFolds();
 }

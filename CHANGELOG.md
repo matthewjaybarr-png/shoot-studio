@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.40.0
+
+- 🍎 Classroom, a new drawer in Create, for what you use again and again:
+  - **About my class**: your name, school, class, room and school year, typed once. Click + beside one to put it on the page. Type {Teacher}, {School}, {Class}, {Room} or {Year} in a design you save as a template, and every design you start from it fills them in, so next year you change them once. **Fill in my details** does it on the design that's open.
+  - **School logo**: choose it once, then + Add to page whenever you need it.
+  - **My lists**: your class lists, and any other list you use again (spelling words, classroom jobs), as a table you click in to type: + Add a row, + Add a column, × to take one out. **Make one of this design for each row** opens Bulk create with the list. They're the same lists as Bulk create's Class list.
+  - **Birthdays coming up**: give a class list a Birthday column (March 4, or 3/4) and the next 30 days' birthdays show here, each with 🎂 Make a card.
+- Your class details and logo are in your settings, so backups include them.
+- The What's new card appears once more.
+
 ## 0.39.0
 
 - 🛟 Back up my designs, on the start screen and in File: choose a folder (a USB stick, or a Google Drive or OneDrive folder) and every design, template, saved element and class list, with your saved colours, folders and settings, is copied into one backup file there. It backs up straight away, then automatically every week (or every day, or only when you click). The newest 8 backups are kept.
