@@ -812,6 +812,18 @@ async fn relight_picture(request: tauri::ipc::Request<'_>) -> Result<Response, S
         .map_err(|e| e.to_string())?
 }
 
+/// What Stretch's Keep people steers seams around: the main thing in the picture (Cut out's Select subject, so a
+/// person's clothes count too, not only their skin) and any skin tones elsewhere.
+fn carve_protection(w: usize, h: usize, rgba: &[u8], img: &[f32]) -> Vec<f32> {
+    let mut protect = photocraft_seam::skin_mask(w, h, 4, img);
+    if let Ok(Some(subject)) = cutout::select(w, h, rgba, &cutout::Pick::Subject) {
+        for (i, p) in protect.iter_mut().enumerate() {
+            *p = p.max(subject.at((i % w) as i32, (i / w) as i32));
+        }
+    }
+    protect
+}
+
 /// Content-aware resize in Edit a photo: the body is retouch_picture's; `width` and `height` are
 /// the new size and `people` "1" steers seams around skin tones. Returns [w][h] (LE u32s) and the
 /// resized RGBA.
@@ -829,7 +841,7 @@ async fn carve_picture(request: tauri::ipc::Request<'_>) -> Result<Response, Str
     let (w, h, rgba) = picture_body(body, 0)?;
     tauri::async_runtime::spawn_blocking(move || {
         let img: Vec<f32> = rgba.iter().map(|&v| v as f32 / 255.0).collect();
-        let protect = people.then(|| photocraft_seam::skin_mask(w, h, 4, &img));
+        let protect = people.then(|| carve_protection(w, h, &rgba, &img));
         let out = photocraft_seam::carve(w, h, 4, &img, protect.as_deref(), nw, nh);
         let mut reply = Vec::with_capacity(8 + out.len());
         reply.extend((nw as u32).to_le_bytes());

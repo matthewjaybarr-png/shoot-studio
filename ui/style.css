@@ -316,6 +316,7 @@ header>*{flex:none;white-space:nowrap}header>#status{flex:1 1 0;min-width:0;over
 .cell-rate button.on,#photo-bar .stars button.on{outline:0}
 /* The theme's finishing touches: gradient main buttons, soft corners, a pink line under the bars. */
 #create button.primary,#deliver-go,.segmented button.on,#photo-bar button.on:not([data-flag=reject]):not([data-stars]),#sliders .tools button.active,.folder-bar button.drop,#name-dialog .primary{background:var(--brand);border-color:transparent;color:var(--on-accent)}
+#create button.primary:disabled{opacity:.45;cursor:default}
 #create button.primary:hover,#deliver-go:hover{filter:brightness(1.06)}
 header,.create-bar{border-bottom-color:var(--pink)}
 #create-rail,#develop-rail{background:linear-gradient(180deg,var(--deep),#eef3fc)}
