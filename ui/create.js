@@ -1722,11 +1722,14 @@ function paintBw() { $('#create-stage').classList.toggle('bw', $('#create-bw').c
 
 async function loadSettings() {
   const s = await invoke('load_create_settings').catch(() => null);
+  settingsLoaded = true;
   if (s && typeof s === 'object') settings = { colours: Array.isArray(s.colours) ? s.colours.filter(c => hex(c)).slice(0, 12) : [], fonts: Array.isArray(s.fonts) ? s.fonts.filter(f => FONTS.includes(f)) : [], seen: Number.isInteger(s.seen) ? s.seen : 0, rulers: s.rulers === true, closed: Array.isArray(s.closed) ? s.closed.filter(x => typeof x === 'string').slice(0, 20) : ['frames', 'grids', 'graphics'], projects: cleanProjects(s.projects), lastClass: typeof s.lastClass === 'string' ? s.lastClass.slice(0, 80) : '', backup: s.backup, classroom: s.classroom };
   paintWhatsNew();
   if (typeof paintFolds === 'function') paintFolds();
 }
-const saveSettings = () => invoke('save_create_settings', { settings }).catch(() => {});
+// Nothing is saved until her settings have loaded: a save before then would write the defaults over them.
+let settingsLoaded = false;
+const saveSettings = () => settingsLoaded ? invoke('save_create_settings', { settings }).catch(() => {}) : Promise.resolve();
 function paintFonts() {
   const sorted = [...settings.fonts, ...FONTS.filter(f => !settings.fonts.includes(f))];
   $('#prop-font').replaceChildren(...sorted.map(f => Object.assign(document.createElement('option'), { value: f, textContent: (settings.fonts.includes(f) ? '★ ' : '') + f })),

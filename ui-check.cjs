@@ -73,7 +73,7 @@ const pptxFixture = (() => {
   };
 })();
 const mock = `<script>
-window.calls = []; window.disk = {}; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
+window.calls = []; window.disk = { createSettings: '{"lastClass":"Startup probe"}' }; window.gates = {}; window.failing = null; window.failSave = false; window.offer = null; window.sourceSize = [4, 2]; window.exportSize = [8, 6]; window.delivered = {}; window.onerror = m => document.body.dataset.testResult = 'FAIL: page error ' + m;
 // Half floats for develop_source's layout: width and height as u32s, then RGB.
 const half = v => { const i = new Uint32Array(new Float32Array([v]).buffer)[0], e = ((i >>> 23) & 255) - 112; return ((i >>> 16) & 0x8000) | (e <= 0 ? 0 : e >= 31 ? 0x7c00 : (e << 10) | ((i & 0x7fffff) >>> 13)); };
 // rgb: every value in order, or one value for them all.
@@ -158,6 +158,10 @@ const test = `<script>
   const tick = () => new Promise(r => setTimeout(r, 50));
   const lastSave = () => calls.filter(c => c.command === 'save_shoot').at(-1)?.args.data.ratings;
   try {
+    // 0.40: settings saved before they have loaded would overwrite hers with the defaults.
+    await new Promise(r => setTimeout(r, 300));
+    { const first = calls.find(c => c.command === 'save_create_settings');
+      step(!first || first.args.settings.lastClass === 'Startup probe', () => 'startup never saves the default settings over hers: ' + JSON.stringify(first?.args.settings)); }
     step(!$('#home').hidden && mode === 'home', 'the app starts on the home screen');
     await until(() => $('#home-templates').children.length === Object.keys(STARTERS).length, 'the home screen is filled in at launch with no shoot');
     $('#home-photos').click();

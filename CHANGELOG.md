@@ -8,6 +8,7 @@
   - **My lists**: your class lists, and any other list you use again (spelling words, classroom jobs), as a table you click in to type: + Add a row, + Add a column, × to take one out. **Make one of this design for each row** opens Bulk create with the list. They're the same lists as Bulk create's Class list.
   - **Birthdays coming up**: give a class list a Birthday column (March 4, or 3/4) and the next 30 days' birthdays show here, each with 🎂 Make a card.
 - Your class details and logo are in your settings, so backups include them.
+- Fixed: starting KB Studio wrote the default settings over yours for a moment (since 0.21, when Elements sections began to fold). They came back as soon as anything else was saved, but closing KB Studio before that lost them: folders, saved colours, favourite fonts, and now backups. Settings are never saved before they have loaded.
 - The What's new card appears once more.
 
 ## 0.39.0

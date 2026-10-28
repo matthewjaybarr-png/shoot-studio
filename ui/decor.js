@@ -171,6 +171,6 @@ function paintFolds() {
 for (const fold of document.querySelectorAll('#create-drawer details.fold')) fold.addEventListener('toggle', () => {
   const closed = settings.closed.filter(name => name !== fold.dataset.fold);
   if (!fold.open) closed.push(fold.dataset.fold);
-  if (closed.join() !== settings.closed.join()) { settings.closed = closed; saveSettings(); }
+  if ([...closed].sort().join() !== [...settings.closed].sort().join()) { settings.closed = closed; saveSettings(); }
 });
 paintFolds();
