@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.0
+
+- Class lists in Bulk create: 💾 Save this list keeps the names under a name you choose (Room 12, say), and next time you pick the class from Class list instead of pasting. The class you used last is already there when Bulk create opens. Change a name, add a child and Save changes; extra columns (a birthday, a reading group) are kept too. Delete asks once before it removes a list. Lists are kept in KB Studio/Classes on this computer.
+- The What's new card appears once more.
+
 ## 0.34.0
 
 - 👥 Bulk create, in File and in the Text drawer: type or paste a list of names and get one copy of the design for each, as a new design with a page per name, for name tags, desk plates, certificates or birthday cards. Pasted from a spreadsheet, each column can go into its own text box (a name and a room, say). KB Studio guesses which text box each column goes into, and typing {Name} in a text box fills in just that part. A long name gets smaller so it stays on one line. The design you started from stays as it is.

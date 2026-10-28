@@ -93,19 +93,83 @@ async function makeBulk() {
   }
 }
 
-function openBulk() {
+// ---- Saved class lists: a list kept by name in KB Studio/Classes, to pick again for the next thing she makes ----
+const classLists = new Map(); // name → { text, headings }
+async function loadClasses() {
+  classLists.clear();
+  for (const { name } of await invoke('list_creations', { kind: 'classes' }).catch(() => [])) {
+    try { const c = JSON.parse(await invoke('load_creation', { kind: 'classes', name })); if (c?.format === 1 && typeof c.text === 'string') classLists.set(name, { text: c.text, headings: c.headings !== false }); }
+    catch { /* a damaged file is left out */ }
+  }
+}
+const chosenClass = () => $('#bulk-class').value;
+const listChanged = () => { const c = classLists.get(chosenClass()); return !c || c.text !== $('#bulk-list').value || c.headings !== $('#bulk-headings').checked; };
+function paintClasses() {
+  const pick = $('#bulk-class'), keep = pick.value, names = [...classLists.keys()].sort((a, b) => a.localeCompare(b));
+  pick.replaceChildren(new Option('A new list', ''), ...names.map(n => new Option(n, n)));
+  pick.value = classLists.has(keep) ? keep : '';
+  paintClassSave();
+}
+function paintClassSave() {
+  const name = chosenClass(), changed = listChanged(), has = $('#bulk-list').value.trim() !== '', del = $('#bulk-class-delete');
+  del.hidden = !name; del.classList.remove('sure'); del.textContent = 'Delete';
+  const save = $('#bulk-class-save');
+  save.textContent = name ? (changed ? `💾 Save changes to ${name}` : `✓ Saved as ${name}`) : '💾 Save this list';
+  save.disabled = !has || (name && !changed);
+  if (name && changed) $('#bulk-class-note').textContent = '';
+}
+function showClass(name) {
+  const c = classLists.get(name);
+  $('#bulk-class').value = c ? name : '';
+  if (c) { $('#bulk-list').value = c.text; $('#bulk-headings').checked = c.headings; }
+  settings.lastClass = c ? name : ''; saveSettings();
+  $('#bulk-class-name-row').hidden = true; $('#bulk-class-note').textContent = '';
+  paintBulk(); paintClassSave();
+}
+async function saveClass(name) {
+  name = name.replace(/[\/\\:*?"<>|]/g, ' ').trim().slice(0, 60);
+  if (!name) { $('#bulk-class-note').textContent = 'Give the list a name first.'; return; }
+  const c = { text: $('#bulk-list').value, headings: $('#bulk-headings').checked };
+  await invoke('save_creation', new TextEncoder().encode(JSON.stringify({ format: 1, ...c })), { headers: { kind: 'classes', name: encodeURIComponent(name) } });
+  classLists.set(name, c); paintClasses();
+  $('#bulk-class').value = name; settings.lastClass = name; saveSettings();
+  $('#bulk-class-name-row').hidden = true;
+  paintClassSave();
+  $('#bulk-class-note').textContent = `Saved. Pick ${name} here next time.`;
+}
+$('#bulk-class').onchange = () => showClass(chosenClass());
+$('#bulk-class-save').onclick = () => {
+  if (chosenClass()) return saveClass(chosenClass()).catch(e => { $('#bulk-class-note').textContent = 'Could not save it: ' + e; });
+  $('#bulk-class-name-row').hidden = false; $('#bulk-class-name').value = ''; $('#bulk-class-name').focus();
+};
+const nameAndSave = () => saveClass($('#bulk-class-name').value).catch(e => { $('#bulk-class-note').textContent = 'Could not save it: ' + e; });
+$('#bulk-class-name-ok').onclick = nameAndSave;
+$('#bulk-class-name').onkeydown = e => { if (e.key === 'Enter') nameAndSave(); if (e.key === 'Escape') { e.stopPropagation(); $('#bulk-class-name-row').hidden = true; } };
+$('#bulk-class-delete').onclick = async () => {
+  const del = $('#bulk-class-delete'), name = chosenClass();
+  if (!del.classList.contains('sure')) { del.classList.add('sure'); del.textContent = 'Delete this list?'; return; }
+  await invoke('delete_creation', { kind: 'classes', name }).catch(e => { $('#bulk-class-note').textContent = 'Could not delete it: ' + e; });
+  classLists.delete(name); paintClasses(); showClass('');
+  $('#bulk-class-note').textContent = `Deleted ${name}. The names are still here until you close this.`;
+};
+
+async function openBulk() {
   if (!board || !design || $('#create').inert || cropSession) return;
   closeMenus();
   board.discardActiveObject(); board.requestRenderAll();
   $('#bulk').hidden = false;
   paintBulk();
+  await loadClasses(); paintClasses();
+  // The class used last comes back, so a second thing for the same class is one click.
+  if (!$('#bulk-list').value.trim() && classLists.has(settings.lastClass)) showClass(settings.lastClass);
+  paintBulk(); paintClassSave();
   $('#bulk-list').focus();
 }
 function closeBulk() { $('#bulk').hidden = true; }
-$('#bulk-list').oninput = paintBulk;
-$('#bulk-headings').onchange = paintBulk;
+$('#bulk-list').oninput = () => { paintBulk(); paintClassSave(); };
+$('#bulk-headings').onchange = () => { paintBulk(); paintClassSave(); };
 $('#bulk-make').onclick = () => makeBulk();
 $('#bulk-cancel').onclick = closeBulk;
 $('#bulk').onkeydown = e => { if (e.key === 'Escape') { e.stopPropagation(); closeBulk(); } };
 $('#bulk').onclick = e => { if (e.target === $('#bulk')) closeBulk(); };
-for (const id of ['#file-bulk', '#text-bulk']) $(id).onclick = openBulk;
+for (const id of ['#file-bulk', '#text-bulk']) $(id).onclick = () => openBulk().catch(e => { $('#create-saved').textContent = 'Could not open Bulk create: ' + e; });

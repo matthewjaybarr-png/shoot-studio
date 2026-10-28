@@ -15,13 +15,14 @@ pub struct Entry {
     pub modified: u64,
 }
 
-/// Which folder a call is for: your designs, your templates, your saved elements, or exported files.
+/// Which folder a call is for: your designs, your templates, your saved elements, your class lists, or exported files.
 pub fn folder(root: &Path, kind: &str) -> Result<PathBuf, String> {
     match kind {
         "designs" => Ok(root.to_path_buf()),
         "templates" => Ok(root.join("Templates")),
         "elements" => Ok(root.join("Elements")),
         "exports" => Ok(root.join("Exports")),
+        "classes" => Ok(root.join("Classes")),
         _ => Err("unknown folder".into()),
     }
 }
@@ -185,5 +186,6 @@ mod tests {
         assert_eq!(clean("  Ms. Smith's chart ").unwrap(), "Ms. Smith's chart");
         assert!(folder(Path::new("/d"), "elsewhere").is_err());
         assert_eq!(folder(Path::new("/d"), "elements").unwrap(), Path::new("/d/Elements"));
+        assert_eq!(folder(Path::new("/d"), "classes").unwrap(), Path::new("/d/Classes"));
     }
 }

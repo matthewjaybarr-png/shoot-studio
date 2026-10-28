@@ -401,3 +401,6 @@ header,.create-bar{border-bottom-color:var(--pink)}
 .bulk-field{display:flex;align-items:center;gap:10px}.bulk-field span{flex:none;min-width:90px;font-weight:600}.bulk-field select{flex:1;min-width:0}
 #bulk-count{margin:4px 0 0;color:var(--muted)}
 .bulk-actions{display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:-18px;padding:8px 0 0;background:var(--panel)}
+.bulk-class-row,.bulk-save-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.bulk-class-row label{font-weight:600}.bulk-class-row select{flex:1;min-width:0}
+#bulk-class-name-row{display:inline-flex;gap:6px;flex:1;min-width:220px}#bulk-class-name{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--edge);border-radius:8px;font:inherit}
+#bulk-class-note{color:var(--muted);font-size:13px}#bulk-class-delete.sure{color:#fff;background:#d6455d}

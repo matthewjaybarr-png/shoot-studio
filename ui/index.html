@@ -36,8 +36,10 @@
       <div class="bulk-card" role="dialog" aria-labelledby="bulk-title">
         <h3 id="bulk-title">👥 Bulk create</h3>
         <p class="hint">One copy of this design for each name: name tags, desk plates, certificates, birthday cards. Each name gets its own page in a new design.</p>
+        <div class="bulk-class-row"><label for="bulk-class">Class list</label><select id="bulk-class"><option value="">A new list</option></select><button id="bulk-class-delete" type="button" hidden>Delete</button></div>
         <label for="bulk-list">Your list, one per line</label>
         <textarea id="bulk-list" rows="8" spellcheck="false" placeholder="Ava&#10;Ben&#10;Charlie"></textarea>
+        <div class="bulk-save-row"><button id="bulk-class-save" type="button">💾 Save this list</button><span id="bulk-class-name-row" hidden><input id="bulk-class-name" type="text" maxlength="60" placeholder="Room 12, 2026–27" aria-label="Name for this class list"><button id="bulk-class-name-ok" type="button" class="primary">Save</button></span><span id="bulk-class-note" role="status"></span></div>
         <p class="hint">Pasted from a spreadsheet, each column can go in a different text box (a name and a birthday, say).</p>
         <label id="bulk-headings-row" class="check" hidden><input id="bulk-headings" type="checkbox" checked> The first line is the column names</label>
         <h4>Which text box gets each one</h4>
@@ -353,11 +355,11 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Class lists</b>: in Bulk create, <b>💾 Save this list</b> keeps your class by name. Next time, pick it from <b>Class list</b> and it's ready, with no pasting.</li>
         <li><b>👥 Bulk create</b> (in File and Text): paste your class list and get a name tag, desk plate or certificate for each child. New <b>label sheets</b> (Avery address labels, name badges, business cards and more) under Resize print right onto the labels.</li>
         <li><b>Print</b> now opens the print window. <b>Download</b> asks where to save, then shows where it went with <b>Open it</b> and <b>Show in folder</b>. Drag pictures in from your files. <b>My elements</b> can save to Shapes, Graphics, Text and more. <b>✨ Auto fix</b> in Filters fixes a dark or tinted picture in one click.</li>
         <li><b>Blur the background</b> in Cut out keeps the main thing sharp and makes the rest soft. <b>Straighten</b> now finds a page's corners for you.</li>
         <li><b>Straighten</b> and <b>Reshape</b> in Edit photo: drag four corners onto a worksheet or poster photographed at an angle to flatten it, or push, grow and shrink parts of a picture. <b>Filters</b> has Highlights, Shadows, Sharpen and Smooth grain.</li>
-        <li><b>Photo layers</b>: Cut out now hides instead of deleting, with <b>Erase</b> and <b>Bring back</b> brushes. <b>Adjust this part</b> brightens or warms just what you choose, <b>Fade</b> melts a picture into the page, and <b>Blend</b> (under Transparency) mixes it with what's underneath. <b>Layers</b> shows each picture and can rename it.</li>
       </ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>

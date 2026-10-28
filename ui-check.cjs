@@ -1875,6 +1875,33 @@ const test = `<script>
       await until(() => window.outputs?.[design.title + '.pdf'], 'the badges as a PDF');
       step((new TextDecoder('latin1').decode(window.outputs[design.title + '.pdf'].bytes).match(/\\/Type\\s*\\/Page\\b/g) || []).length === 1, 'one sheet in the PDF too');
       $('#saved-close').click();
+      // 0.35: class lists saved by name, picked again next time.
+      $('#text-bulk').click();
+      await until(() => !$('#bulk').hidden && $('#bulk-class').options.length === 1, 'Bulk create opens with no saved classes');
+      $('#bulk-list').value = 'Ava\\nBen\\nCy'; $('#bulk-list').dispatchEvent(new Event('input'));
+      step($('#bulk-class-save').textContent === '💾 Save this list' && !$('#bulk-class-save').disabled && $('#bulk-class-delete').hidden, 'a typed list can be saved');
+      $('#bulk-class-save').click();
+      step(!$('#bulk-class-name-row').hidden, 'Save asks for a name');
+      $('#bulk-class-name').value = 'Room 12'; $('#bulk-class-name-ok').click();
+      await until(() => classLists.has('Room 12') && disk['c:classes:Room 12'], 'the class list is saved');
+      step($('#bulk-class').value === 'Room 12' && $('#bulk-class-save').disabled && $('#bulk-class-save').textContent === '✓ Saved as Room 12' && settings.lastClass === 'Room 12' && JSON.parse(disk['c:classes:Room 12']).text === 'Ava\\nBen\\nCy', () => 'it is chosen and remembered: ' + $('#bulk-class-save').textContent);
+      $('#bulk-list').value = 'Ava\\nBen\\nCy\\nDee'; $('#bulk-list').dispatchEvent(new Event('input'));
+      step($('#bulk-class-save').textContent === '💾 Save changes to Room 12' && !$('#bulk-class-save').disabled, 'a change can be saved to the same list');
+      $('#bulk-class-save').click();
+      await until(() => JSON.parse(disk['c:classes:Room 12']).text.endsWith('Dee'), 'the change is saved');
+      $('#bulk-cancel').click(); $('#bulk-list').value = '';
+      classLists.clear();
+      $('#file-bulk').click();
+      await until(() => $('#bulk-class').value === 'Room 12' && $('#bulk-list').value.endsWith('Dee'), () => 'next time the class is there already: ' + $('#bulk-class').value + ' / ' + $('#bulk-list').value);
+      step($('#bulk-make').textContent === 'Make ' + 4 * designPages.length + ' pages', () => 'and ready to make, every page once per name: ' + $('#bulk-make').textContent);
+      put($('#bulk-class'), '', 'change');
+      step($('#bulk-class-save').textContent === '💾 Save this list' && $('#bulk-class-delete').hidden, 'A new list starts fresh');
+      put($('#bulk-class'), 'Room 12', 'change');
+      $('#bulk-class-delete').click();
+      step($('#bulk-class-delete').textContent === 'Delete this list?' && classLists.has('Room 12'), 'the first Delete asks');
+      $('#bulk-class-delete').click();
+      await until(() => !classLists.has('Room 12') && !disk['c:classes:Room 12'] && $('#bulk-class').options.length === 1, 'the second deletes it');
+      $('#bulk-cancel').click(); $('#bulk-list').value = '';
     }
     // 0.17: Import from Canva (PowerPoint, or a picture).
     await settle($('#create-home').onclick(), 'home for import');
