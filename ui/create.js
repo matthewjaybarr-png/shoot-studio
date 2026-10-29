@@ -142,7 +142,7 @@ async function paintHome() {
   $('#home-latest-list').replaceChildren(...latest.map(card));
   $('#home-latest').hidden = !latest.length;
   $('#home-designs').hidden = !all.length && !projects().folders.length;
-  starters.replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, () => newDesign(n, 'starter').catch(tell(n)))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, () => newDesign(t.name, 'mine').catch(tell(t.name)))));
+  starters.replaceChildren(...groupedTemplates(n => templateButton(n, 'starter', 0, () => newDesign(n, 'starter').catch(tell(n))), mine, t => templateButton(t.name, 'mine', t.modified, () => newDesign(t.name, 'mine').catch(tell(t.name)))));
 }
 $('#home-see-all').onclick = () => $('#home-designs').scrollIntoView({ behavior: 'smooth', block: 'start' });
 function button(text, onclick, small) {
@@ -1612,7 +1612,7 @@ function templateButton(name, source, modified, onclick) {
 async function paintTemplates() {
   const mine = await invoke('list_creations', { kind: 'templates' }).catch(() => []);
   const pick = (name, source) => () => useTemplate(name, source).catch(error => { $('#create-saved').textContent = 'Could not use the template: ' + (error.message || error); });
-  $('#drawer-templates').replaceChildren(...Object.keys(STARTERS).map(n => templateButton(n, 'starter', 0, pick(n, 'starter'))), ...mine.map(t => templateButton(t.name, 'mine', t.modified, pick(t.name, 'mine'))));
+  $('#drawer-templates').replaceChildren(...groupedTemplates(n => templateButton(n, 'starter', 0, pick(n, 'starter')), mine, t => templateButton(t.name, 'mine', t.modified, pick(t.name, 'mine'))));
 }
 // A blank page takes the template in place, like Canva; a page with work on it keeps it and opens a new design.
 async function useTemplate(name, source) {
@@ -1637,7 +1637,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 36;
+const WHATS_NEW = 37;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 
@@ -2078,6 +2078,19 @@ const STARTERS = {
 };
 const STARTER_PAGE = { 'Photo card': 'photo-7x5', 'Instagram post': 'social-portrait', 'Square collage': 'social-square', 'Story': 'social-story' };
 const starterPage = name => STARTER_PAGE[name] || 'letter';
+// The templates in groups, in this order; prestarters.js adds Preschool. One not listed goes under Classroom.
+const STARTER_GROUP_ORDER = ['Preschool', 'Classroom', 'Photos and social'];
+const STARTER_GROUP = { 'Mini session flyer': 'Photos and social', 'Photo card': 'Photos and social', 'Instagram post': 'Photos and social', 'Square collage': 'Photos and social', 'Story': 'Photos and social' };
+const starterGroup = name => STARTER_GROUP[name] || 'Classroom';
+// Template buttons under their group headings, then hers under My templates.
+function groupedTemplates(starterButton, mine, mineButton) {
+  const heading = text => Object.assign(document.createElement('h4'), { className: 'template-group', textContent: text });
+  const out = STARTER_GROUP_ORDER.flatMap(group => {
+    const names = Object.keys(STARTERS).filter(n => starterGroup(n) === group);
+    return names.length ? [heading(group), ...names.map(starterButton)] : [];
+  });
+  return mine.length ? [...out, heading('My templates'), ...mine.map(mineButton)] : out;
+}
 
 loadSettings().then(() => { if (typeof startBackups === 'function') startBackups(); });
 

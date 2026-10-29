@@ -165,7 +165,7 @@ const test = `<script>
     { const first = calls.find(c => c.command === 'save_create_settings');
       step(!first || first.args.settings.lastClass === 'Startup probe', () => 'startup never saves the default settings over hers: ' + JSON.stringify(first?.args.settings)); }
     step(!$('#home').hidden && mode === 'home', 'the app starts on the home screen');
-    await until(() => $('#home-templates').children.length === Object.keys(STARTERS).length, 'the home screen is filled in at launch with no shoot');
+    await until(() => $('#home-templates').querySelectorAll('button').length === Object.keys(STARTERS).length && [...$('#home-templates').querySelectorAll('h4')].map(h => h.textContent).join() === 'Preschool,Classroom,Photos and social', 'the home screen is filled in at launch with no shoot, the templates under their groups');
     $('#home-photos').click();
     step($('#home').hidden && mode === 'photos', 'Photos leaves the home screen');
     $('#open').click();
@@ -1002,23 +1002,24 @@ const test = `<script>
     await until(() => mode === 'create' && board.getObjects().length === 7 && design.title === 'Poster', 'a recent design reopens');
     // Starter templates, saved templates, fonts, colours and clip art.
     await settle($('#create-home').onclick(), 'Start saves and leaves');
-    const names = [...$('#home-templates').children].map(b => b.textContent);
-    step(names.join() === 'Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet,Birthday card,Student of the week,Mini session flyer,Photo card,Instagram post,Square collage,Story', () => 'sixteen starter templates: ' + names);
+    const homeTemplates = () => [...$('#home-templates').querySelectorAll('button')], names = homeTemplates().map(b => b.textContent);
+    step(names.join() === 'Daily report,Sign-in sheet,Visual schedule,Class helpers,Weekly lesson plan,Monthly attendance,Allergy alert,All about me,Permission slip,Class rules,Welcome letter,Our week newsletter,Behaviour chart,Labels,Word wall,Newsletter,Certificate,Name tags,Flash cards,Calendar,Handwriting worksheet,Birthday card,Student of the week,Mini session flyer,Photo card,Instagram post,Square collage,Story', () => 'the starter templates, Preschool first: ' + names);
     for (const name of names) {
-      await settle(Promise.resolve($('#home-templates').children[names.indexOf(name)].click()));
+      await settle(Promise.resolve(homeTemplates()[names.indexOf(name)].click()));
       await until(() => !navigating && mode === 'create' && design.title === 'My ' + name && board.getObjects().length >= 4, 'the ' + name + ' template opens');
       step(board.getObjects().some(o => (o.type === 'textbox' && o.text) || emptyFrame(o)) && board.getObjects().every(o => !o.text || o.text.length < 120), 'the ' + name + ' has placeholder text or photo frames');
       step(history.length === 2, 'the ' + name + ' template is one undo step');
+      if (window.uiDump) uiDump.push(['Template ' + name, await render(0.6, 'png', 0.92, allPages()[0])]);
       await settle($('#create-home').onclick(), 'Start saves and leaves');
-      await until(() => $('#home-templates').children.length >= 4, 'home again');
+      await until(() => homeTemplates().length >= 4, 'home again');
     }
-    await settle(Promise.resolve($('#home-templates').children[0].click()));
+    await settle(Promise.resolve(homeTemplates().find(b => b.textContent === 'Behaviour chart').click()));
     await until(() => mode === 'create' && design.title === 'My Behaviour chart 2', 'a template opens');
     $('#create-save-template').click();
     await until(() => disk['c:templates:My Behaviour chart 2'], 'Save as template stores it');
     await settle($('#create-home').onclick(), 'Start saves and leaves');
-    await until(() => [...$('#home-templates').children].some(b => b.textContent === 'My Behaviour chart 2'), 'a saved template is offered on the home screen');
-    [...$('#home-templates').children].find(b => b.textContent === 'My Behaviour chart 2').click();
+    await until(() => homeTemplates().some(b => b.textContent === 'My Behaviour chart 2') && [...$('#home-templates').querySelectorAll('h4')].at(-1).textContent === 'My templates', 'a saved template is offered on the home screen, under My templates');
+    homeTemplates().find(b => b.textContent === 'My Behaviour chart 2').click();
     await until(() => mode === 'create' && design.title === 'My My Behaviour chart 2' && board.getObjects().length > 5, 'a saved template makes a new design');
     // Fonts.
     step([...$('#prop-font').options].map(o => o.value).join() === FONTS.join() && FONTS.length === 11, 'eleven fonts are offered');

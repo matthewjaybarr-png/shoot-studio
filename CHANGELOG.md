@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.48.0
+
+- 🍎 Twelve preschool templates, in a new **Preschool** group at the top of Templates (and on the start screen). Your class, teacher name, school and year from the Classroom drawer go straight in:
+  - **Daily report**: what they ate (all, most, some, none), naps, diapers and potty, a mood to circle, what to bring, and notes.
+  - **Sign-in sheet**: a week of sign in and sign out, with times and signatures.
+  - **Visual schedule**: twelve picture cards for the day (circle time, snack, outside, nap, story…) to cut out.
+  - **Class helpers**: twelve job cards (line leader, door holder, weather…) with a name on each.
+  - **Weekly lesson plan** (landscape): circle time, letters, numbers, art, science, music and outside for each day.
+  - **Monthly attendance** (landscape): names and days 1 to 31.
+  - **Allergy alert**: six children with a photo frame, the allergy and what to do.
+  - **All about me**: a photo frame, age, birthday, favourites and "when I grow up".
+  - **Permission slip**: two field trip slips to a page, with a cut line.
+  - **Class rules**: six friendly rules with pictures.
+  - **Welcome letter** to families, with a frame for your photo.
+  - **Our week** newsletter: what we learned, letter, number, colour and shape of the week, reminders and coming up.
+- Templates are now in groups: Preschool, Classroom, Photos and social, and your own under My templates.
+- The What's new card appears once more.
+
 ## 0.47.0
 
 - ✂️ Preschool pages for little hands and thinking, in Classroom → Puzzles and worksheets:

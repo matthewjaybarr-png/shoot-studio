@@ -163,7 +163,7 @@ body.away>header,body.away>#photo-bar,body.away>#filmstrip,body.away>#grid,body.
 #emoji-list{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin:6px 0}#emoji-list button{padding:3px !important}#emoji-list img{width:30px;height:30px;display:block;margin:auto}#emoji-results{font-size:12px;color:var(--muted)}
 .text-preset{display:block;width:100%;margin:0 0 8px;padding:12px !important;text-align:left;font-family:Lexend,system-ui,sans-serif}
 .text-preset.heading{font-size:26px;font-weight:700}.text-preset.subheading{font-size:18px;font-weight:700}.text-preset.body{font-size:13px}
-.template-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.template-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.template-group{grid-column:1/-1;flex-basis:100%;margin:8px 0 0;font-size:12px;font-weight:600;color:var(--muted)}
 .template-grid button,.home-list button.template{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px !important;font-size:12px}
 .template-grid img,.home-list img{display:block;width:100%;aspect-ratio:8.5/11;object-fit:contain;border-radius:4px}
 .home-list button.template{width:140px}
