@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.43.0
+
+- 🧩 Puzzles and worksheets, in Classroom: type your words and get a printable page, with the answer key on page 2:
+  - **Word search**: easy (across and down), medium (diagonals too) or hard (backwards as well).
+  - **Crossword**: one word per line with its clue after a colon (cat: a pet that purrs); it builds the grid and numbers the clues.
+  - **Math practice**: adding, taking away, both, times tables or dividing, up to the number you choose.
+  - Click again for a different puzzle from the same words.
+- 📷 Photo name tags: in Bulk create, **Choose their photos** and each child's photo goes in the design's photo frame, matched by file name (Ava.jpg goes with Ava). It says which names have no photo, and their frame stays empty to fill by hand.
+- ✏️ The Eraser rubs out **just where you rub**, so part of a line can go and the rest stays. **Whole lines** is still there.
+- In Photos, **Use in a design** asks what to send: this photo, the selected ones or **My picks**, as **a page each**, a **Collage** (up to nine to a page) or **Photo strips** (two strips of four on a 4 × 6, to cut apart).
+- The What's new card appears once more.
+
 ## 0.42.0
 
 - ✏️ Draw has more than a pen now:
