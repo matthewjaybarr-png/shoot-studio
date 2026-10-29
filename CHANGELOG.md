@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.42.0
+
+- ✏️ Draw has more than a pen now:
+  - **Marker**: a thick, solid line.
+  - **Highlighter**: wide and see-through, so the words or picture under it still show.
+  - **Glow pen**: a line that glows in its colour.
+  - **Eraser**: drag over a drawn line to take it away (the whole line). Undo brings it back.
+- Ten colours to click, plus More colours for any other, and a **Transparency** slider for any pen.
+- The What's new card appears once more.
+
 ## 0.41.0
 
 - 🙂 Faces, a new tab in Edit photo: it finds the faces in the photo and circles them (a row of bottles that only looks a little like a face is ignored). Then move a slider:

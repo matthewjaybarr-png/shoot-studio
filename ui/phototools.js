@@ -115,7 +115,7 @@ function paintTouch() {
   $('#touch-source').classList.toggle('on', touch.picking);
   $('#touch-source').textContent = touch.picking ? 'Now click where to copy from…' : touch.source ? 'Pick a different place to copy from' : 'Pick where to copy from';
   $('#touch-hint').textContent = touch.tool ? TOUCH_HINTS[touch.tool] : 'Pick a brush, then paint on any picture on the page.';
-  setTouchMode(brushing() || cuttingOut() || (typeof straightening === 'function' && straightening()) || (typeof reshaping === 'function' && reshaping()));
+  setTouchMode(brushing() || cuttingOut() || (typeof straightening === 'function' && straightening()) || (typeof reshaping === 'function' && reshaping()) || (typeof erasing === 'function' && erasing()));
 }
 for (const b of document.querySelectorAll('#photo-tabs [data-photo-tab]')) b.onclick = () => { photoTab = b.dataset.photoTab; paintTouch(); board?.requestRenderAll(); };
 $('#touch-size').oninput = e => { touch.px = +e.target.value; paintTouch(); board?.requestRenderAll(); };

@@ -222,9 +222,10 @@ function startBoard() {
     board.requestRenderAll(); paintPanel();
     openMenu(e.clientX, e.clientY);
   });
-  board.on('path:created', e => { e.path.kbName = 'Drawing'; commitDesign(); });
+  board.on('path:created', e => { e.path.kbName = 'Drawing'; if (typeof drawnPath === 'function') drawnPath(e.path); commitDesign(); });
   board.freeDrawingBrush = new fabric.PencilBrush(board);
   board.freeDrawingBrush.color = '#444444'; board.freeDrawingBrush.width = 3;
+  if (typeof startDrawTools === 'function') startDrawTools();
   // Ctrl+wheel zooms at the pointer; the wheel alone moves around (Shift for sideways).
   board.on('mouse:wheel', ({ e }) => {
     e.preventDefault(); e.stopPropagation();
@@ -303,6 +304,7 @@ function drawPageOverlay() {
   if (typeof drawStraighten === 'function') drawStraighten(ctx);
   if (typeof drawReshape === 'function') drawReshape(ctx);
   if (typeof drawFaces === 'function') drawFaces(ctx);
+  if (typeof drawDrawTools === 'function') drawDrawTools(ctx);
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
@@ -414,7 +416,7 @@ async function open(doc, title, name) {
   board.discardActiveObject();
   restoring = false;
   history = []; here = 0; historyBytes = 0; historyImages.clear(); imageIds.clear(); pageGuides = [];
-  board.isDrawingMode = false; $('#create-draw').classList.remove('on');
+  board.isDrawingMode = false;
   remember();
   setMode('create');
   paintAll();
@@ -848,7 +850,7 @@ function paintShoot() {
   }));
 }
 function toggleDraw(on = !board.isDrawingMode) {
-  board.isDrawingMode = on; $('#create-draw').classList.toggle('on', on);
+  board.isDrawingMode = on && (typeof drawing === 'undefined' || drawing.tool !== 'eraser'); // the Eraser picks lines, it doesn't draw
   if (on) board.discardActiveObject();
   board.requestRenderAll(); paintFloat();
 }
@@ -872,9 +874,6 @@ function paintCreateTools() {
   paintCombos();
   for (const preset of Object.keys(TEXT_PRESETS)) { $('#add-' + preset).onclick = () => addText(preset); draggable($('#add-' + preset), ['text', preset]); }
   $('#add-image').onclick = () => $('#create-file').click();
-  $('#create-draw').onclick = () => toggleDraw();
-  $('#draw-colour').oninput = e => { board.freeDrawingBrush.color = e.target.value; };
-  $('#draw-width').oninput = e => { board.freeDrawingBrush.width = +e.target.value; };
   emojiReady.then(() => {
     $('#emoji-category').replaceChildren(Object.assign(document.createElement('option'), { value: '', textContent: 'All categories' }), ...[...new Set(emojiEntries.map(e => e.group))].map(group => Object.assign(document.createElement('option'), { value: group, textContent: group })));
     paintEmoji();
@@ -1605,7 +1604,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 30;
+const WHATS_NEW = 31;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

@@ -1360,12 +1360,32 @@ const test = `<script>
     step(board.getObjects().every((o, i) => o === [stack[0], stack[1], stack[3], stack[2]][i]), 'selected block moves backward with its order intact');
     await settle(newDesign(), 'shapes and draw design');
     for (const kind of ['triangle', 'star', 'rounded', 'bubble']) $('#add-' + kind).click();
-    $('#create-draw').click(); step(board.isDrawingMode && board.freeDrawingBrush instanceof fabric.PencilBrush, 'Draw enables Fabric PencilBrush');
-    const brush = board.freeDrawingBrush;
-    brush.onMouseDown(new fabric.Point(40, 40), { e: new MouseEvent('mousedown', { button: 0 }) });
-    brush.onMouseMove(new fabric.Point(100, 80), { e: new MouseEvent('mousemove', { buttons: 1 }) });
-    brush.onMouseUp({ e: new MouseEvent('mouseup', { button: 0 }) }); $('#create-draw').click();
-    step(board.getObjects().length === 5 && board.getObjects().at(-1).kbName === 'Drawing' && !board.isDrawingMode, 'new shapes and free drawing create saved objects');
+    showDrawer('draw'); step(board.isDrawingMode && board.freeDrawingBrush instanceof fabric.PencilBrush && $('#draw-tools').children.length === 5 && $('#draw-swatches').children.length === 10, 'Draw enables Fabric PencilBrush, with five pens and ten colours');
+    const stroke = (x0, y0, x1, y1) => { const brush = board.freeDrawingBrush;
+      brush.onMouseDown(new fabric.Point(x0, y0), { e: new MouseEvent('mousedown', { button: 0 }) });
+      brush.onMouseMove(new fabric.Point((x0 + x1) / 2, (y0 + y1) / 2 + 5), { e: new MouseEvent('mousemove', { buttons: 1 }) });
+      brush.onMouseMove(new fabric.Point(x1, y1), { e: new MouseEvent('mousemove', { buttons: 1 }) });
+      brush.onMouseUp({ e: new MouseEvent('mouseup', { button: 0 }) }); return board.getObjects().at(-1); };
+    stroke(40, 40, 100, 80);
+    step(board.getObjects().length === 5 && board.getObjects().at(-1).kbName === 'Drawing', 'new shapes and free drawing create saved objects');
+    // 0.42: Marker, Highlighter, Glow pen, swatches, Transparency and the Eraser.
+    $('#draw-tools [data-draw=highlighter]').click(); $('#draw-swatches [data-colour="#fdd835"]').click();
+    const lit = stroke(200, 200, 400, 200);
+    step(lit.kbName === 'Highlighter' && lit.opacity === 0.45 && lit.globalCompositeOperation === 'multiply' && lit.stroke === '#fdd835' && lit.strokeWidth === 18 && board.isDrawingMode, () => 'the highlighter is wide, yellow and see-through: ' + [lit.kbName, lit.opacity, lit.globalCompositeOperation, lit.stroke, lit.strokeWidth]);
+    $('#draw-tools [data-draw=glow]').click(); const see = $('#draw-see'); see.value = 50; see.dispatchEvent(new Event('input'));
+    const glow = stroke(200, 300, 400, 320);
+    step(glow.kbName === 'Glow pen' && glow.shadow?.blur >= 8 && glow.opacity === 0.5 && JSON.parse(JSON.stringify(glow.toObject(KEEP))).shadow, 'the glow pen glows, Transparency applies, and both are saved');
+    see.value = 0; see.dispatchEvent(new Event('input'));
+    $('#draw-tools [data-draw=eraser]').click();
+    step(!board.isDrawingMode && board.skipTargetFind && /Undo brings it back/.test($('#draw-hint').textContent) && $('#draw-pen-options').hidden, 'the Eraser stops drawing and takes the mouse');
+    const count = board.getObjects().length, history0 = here;
+    drawing.down = true; eraseAt(new fabric.Point(300, 200)); drawToolsUp();
+    step(board.getObjects().length === count - 1 && !board.getObjects().includes(lit) && board.getObjects().includes(glow) && here === history0 + 1, 'the Eraser takes away the line it touches, and only that line, as one Undo step');
+    drawing.down = true; eraseAt(new fabric.Point(300, 600)); drawToolsUp();
+    step(board.getObjects().length === count - 1 && here === history0 + 1, 'erasing empty page changes nothing');
+    $('#draw-tools [data-draw=pen]').click(); showDrawer('elements');
+    step(!board.isDrawingMode && !board.skipTargetFind, 'leaving Draw stops drawing and gives the mouse back');
+    [glow].forEach(o => board.remove(o)); commitDesign();
     await settle(newDesign(), 'blank margin export');
     $('#create-margin').checked = true; board.renderAll();
     step(board.contextTop.getImageData(0, 0, board.upperCanvasEl.width, board.upperCanvasEl.height).data.some((v, i) => i % 4 === 3 && v > 0), 'print-safe margin is visible on the top context');
@@ -2967,8 +2987,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
