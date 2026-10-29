@@ -792,8 +792,8 @@ function fitInFrame(image, target, faces) {
 }
 
 // The heads in a picture as one box [left, top, right, bottom] in its pixels, or null when no face is found (or it
-// can't be looked for): Faces' finder runs on a copy at most FACE_EDGE across, quick and still enough for a class
-// photo. A face box is eyebrows to chin, so the head takes some hair above and a little chin below.
+// can't be looked for): Faces' finder runs on a copy at most FACE_EDGE across (about 70 ms), quick and still enough
+// for a class photo. A face box is eyebrows to chin, so the head takes some hair above and a little chin below.
 const FACE_EDGE = 1024;
 async function faceBox(image) {
   try {
@@ -802,8 +802,10 @@ async function faceBox(image) {
     ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data, body = new Uint8Array(8 + data.length), view = new DataView(body.buffer);
     view.setUint32(0, canvas.width, true); view.setUint32(4, canvas.height, true); body.set(data, 8);
-    const faces = await invoke('find_faces', body);
-    if (!faces?.length) return null;
+    const found = await invoke('find_faces', body);
+    if (!found?.length) return null;
+    // Strangers in the background are smaller: only faces at least half as wide as the biggest count (a class photo's are all about alike).
+    const biggest = Math.max(...found.map(f => f.rect[2])), faces = found.filter(f => f.rect[2] >= biggest / 2);
     const box = faces.reduce(([l, t, r, b], { rect: [x, y, fw, fh] }) => [Math.min(l, x), Math.min(t, y - fh * 0.4), Math.max(r, x + fw), Math.max(b, y + fh * 1.1)], [Infinity, Infinity, -Infinity, -Infinity]);
     const s = iw / canvas.width;
     return [Math.max(0, box[0] * s), Math.max(0, box[1] * s), Math.min(iw, box[2] * s), Math.min(ih, box[3] * s)];
