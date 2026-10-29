@@ -1374,7 +1374,7 @@ const test = `<script>
     step(lit.kbName === 'Highlighter' && lit.opacity === 0.45 && lit.globalCompositeOperation === 'multiply' && lit.stroke === '#fdd835' && lit.strokeWidth === 18 && board.isDrawingMode, () => 'the highlighter is wide, yellow and see-through: ' + [lit.kbName, lit.opacity, lit.globalCompositeOperation, lit.stroke, lit.strokeWidth]);
     $('#draw-tools [data-draw=glow]').click(); const see = $('#draw-see'); see.value = 50; see.dispatchEvent(new Event('input'));
     const glow = stroke(200, 300, 400, 320);
-    step(glow.kbName === 'Glow pen' && glow.shadow?.blur >= 8 && glow.opacity === 0.5 && JSON.parse(JSON.stringify(glow.toObject(KEEP))).shadow, 'the glow pen glows, Transparency applies, and both are saved');
+    step(glow.kbName === 'Glow pen' && glow.shadow?.blur >= 14 && glow.shadow.color === '#fdd835' && glow.stroke === '#feefae' && glow.opacity === 0.5 && JSON.parse(JSON.stringify(glow.toObject(KEEP))).shadow, 'the glow pen glows, Transparency applies, and both are saved');
     see.value = 0; see.dispatchEvent(new Event('input'));
     $('#draw-tools [data-draw=eraser]').click();
     step(!board.isDrawingMode && board.skipTargetFind && /Undo brings it back/.test($('#draw-hint').textContent) && $('#draw-pen-options').hidden, 'the Eraser stops drawing and takes the mouse');
@@ -1383,6 +1383,11 @@ const test = `<script>
     step(board.getObjects().length === count - 1 && !board.getObjects().includes(lit) && board.getObjects().includes(glow) && here === history0 + 1, 'the Eraser takes away the line it touches, and only that line, as one Undo step');
     drawing.down = true; eraseAt(new fabric.Point(300, 600)); drawToolsUp();
     step(board.getObjects().length === count - 1 && here === history0 + 1, 'erasing empty page changes nothing');
+    // A thin pen line, zoomed out, is about a pixel wide on screen: the eraser still catches it a few pixels away.
+    const zoom0 = board.getZoom(); zoomBoard(0.32); $('#draw-tools [data-draw=pen]').click(); const thin = stroke(100, 700, 400, 700); $('#draw-tools [data-draw=eraser]').click();
+    drawing.down = true; eraseAt(new fabric.Point(250, 708)); drawToolsUp();
+    step(!board.getObjects().includes(thin), 'the eraser catches a thin line when zoomed out');
+    zoomBoard(zoom0);
     $('#draw-tools [data-draw=pen]').click(); showDrawer('elements');
     step(!board.isDrawingMode && !board.skipTargetFind, 'leaving Draw stops drawing and gives the mouse back');
     [glow].forEach(o => board.remove(o)); commitDesign();

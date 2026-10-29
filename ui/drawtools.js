@@ -50,8 +50,13 @@ function pickDrawTool(key) {
 function setDrawBrush() {
   if (!board) return;
   const look = DRAW_LOOKS[drawing.tool] || DRAW_LOOKS.pen, brush = board.freeDrawingBrush;
-  brush.color = drawing.colour; brush.width = Math.max(1, drawing.width * look.k); brush.strokeLineCap = look.cap; brush.strokeLineJoin = 'round';
-  brush.shadow = look.glow ? new fabric.Shadow({ color: drawing.colour, blur: Math.max(8, drawing.width * 4), offsetX: 0, offsetY: 0 }) : null;
+  brush.color = look.glow ? mixWhite(drawing.colour, 0.6) : drawing.colour; brush.width = Math.max(1, drawing.width * look.k); brush.strokeLineCap = look.cap; brush.strokeLineJoin = 'round';
+  brush.shadow = look.glow ? new fabric.Shadow({ color: drawing.colour, blur: Math.max(14, drawing.width * 6), offsetX: 0, offsetY: 0 }) : null;
+}
+// The glow pen's bright middle: its colour most of the way to white.
+function mixWhite(colour, k) {
+  const n = parseInt(colour.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v + (255 - v) * k));
+  return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
 }
 // A finished line gets the tool's name, how see-through it is, and (for the highlighter) a blend so what's under it shows.
 function drawnPath(path) {
@@ -65,17 +70,18 @@ $('#draw-see').oninput = e => { drawing.see = +e.target.value; paintDrawTools();
 // ---- The Eraser ----
 const eraserRadius = () => Math.max(6, drawing.width * 3) / board.getZoom();
 function eraseAt(at) {
-  const r = eraserRadius(), probes = [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r], [r * 0.7, r * 0.7], [-r * 0.7, r * 0.7], [r * 0.7, -r * 0.7], [-r * 0.7, -r * 0.7]];
-  for (const o of board.getObjects().filter(o => o.type === 'path' && DRAWN.has(o.kbName) && !o.kbLocked)) {
-    const box = o.getBoundingRect();
-    if (at.x < box.left - r || at.x > box.left + box.width + r || at.y < box.top - r || at.y > box.top + box.height + r) continue;
-    // Touching the line itself, not just its box: the drawn pixels under the eraser's ring.
-    const vp = board.viewportTransform, hit = probes.some(([dx, dy]) => {
-      const x = (at.x + dx) * vp[0] + vp[4], y = (at.y + dy) * vp[3] + vp[5];
-      return !board.isTargetTransparent(o, x, y);
-    });
-    if (hit) { board.remove(o); drawing.erased = true; }
-  }
+  const r = eraserRadius(), vp = board.viewportTransform, x = at.x * vp[0] + vp[4], y = at.y * vp[3] + vp[5];
+  // Touching the line itself, not just its box: any drawn pixel in a square the eraser's size. Fabric looks at one
+  // pixel unless told a tolerance, and a thin pen zoomed out is only a pixel wide.
+  const tolerance = board.targetFindTolerance;
+  board.setTargetFindTolerance(Math.max(2, r * board.getZoom()));
+  try {
+    for (const o of board.getObjects().filter(o => o.type === 'path' && DRAWN.has(o.kbName) && !o.kbLocked)) {
+      const box = o.getBoundingRect();
+      if (at.x < box.left - r || at.x > box.left + box.width + r || at.y < box.top - r || at.y > box.top + box.height + r) continue;
+      if (!board.isTargetTransparent(o, x, y)) { board.remove(o); drawing.erased = true; }
+    }
+  } finally { board.setTargetFindTolerance(tolerance); }
 }
 function drawToolsDown({ e }) {
   if (!erasing() || spacePan || e.button !== 0) return;
