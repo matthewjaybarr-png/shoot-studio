@@ -2918,7 +2918,7 @@ const test = `<script>
         step(Math.abs(at.left - 68) < 8 && Math.abs(at.top - 200) < 8 && Math.abs(at.top + at.height - 280) < 8 && ava.strokeDashArray, () => 'a traced word sits on its writing lines, dotted: ' + JSON.stringify(at));
         step(traceable('Zoë-Lynn O\\'Brien!') === 'Zoe-Lynn O\\'Brien', () => 'accents become plain letters and unknown marks are left out: ' + traceable('Zoë-Lynn O\\'Brien!'));
         await emojiReady;
-        const picNames = [...Object.values(LETTER_PICS).flat(), ...COUNT_PICS, ...MATCH_PICS, ...PATTERN_PICS, ...Object.values(MAZE_PAIRS).flat(), ...Object.values(SORTS).flatMap(g => g.flatMap(([, icon, pics]) => [icon, ...pics])), ...Object.values(DOT_SHAPES).map(s => s.pic), 'scissors', 'snail'], missingPics = picNames.filter(n => !emojiEntries.some(e => e.name === n));
+        const picNames = [...Object.values(LETTER_PICS).flat(), ...COUNT_PICS, ...MATCH_PICS, ...PATTERN_PICS, ...Object.values(MAZE_PAIRS).flat(), ...Object.values(SORTS).flatMap(g => g.flatMap(([, icon, pics]) => [icon, ...pics])), ...Object.values(DOT_SHAPES).map(s => s.pic), 'scissors', 'snail', ...COLOUR_CARDS.flatMap(c => c[2]), ...WALL_MONTHS.map(m => m[1]), ...WALL_SEASONS.map(m => m[1]), ...WALL_WEATHER.map(m => m[1])], missingPics = picNames.filter(n => !emojiEntries.some(e => e.name === n));
         step(!missingPics.length && Object.values(LETTER_PICS).every(l => l.length), () => 'every preschool picture is in the clip art and every letter has one: ' + missingPics);
         step(nameToTrace('SMITH, AVA', 'nice', true) === 'Ava' && nameToTrace('McKenzie Lee', 'nice', true) === 'McKenzie' && nameToTrace("mary-kate o'brien", 'nice', false) === "Mary-Kate O'Brien" && nameToTrace('Zoë', 'caps', true) === 'ZOE' && nameToTrace('李明', 'nice', true) === '' && nameToTrace('J.J. Watt', 'typed', true) === 'J.J.',
           () => 'names: turned round, first name, big first letter, capitals: ' + [nameToTrace('SMITH, AVA', 'nice', true), nameToTrace('McKenzie Lee', 'nice', true), nameToTrace("mary-kate o'brien", 'nice', false), nameToTrace('J.J. Watt', 'typed', true)]);
@@ -2986,6 +2986,13 @@ const test = `<script>
         const gs = spyScene(seededRandom(13), 4, GRAPH_AREA, 46);
         step(gs.counts.every(c => c >= 2 && c <= 8) && gs.spots.every((s, i) => gs.spots.every((t, j) => i === j || Math.hypot(s.x - t.x, s.y - t.y) > 46)), () => 'graph pictures fit their box without overlapping, at most 8 a kind: ' + gs.counts);
         await made('#sheet-graph', null, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Graph box').length === 32 && pages[1].objects.filter(o => o.kbName === 'Answer').length >= 8, 'Count and graph');
+        await made('#sheet-abc-cards', () => { step(shownRow('#sheet-card-layout') && !shownRow('#sheet-key') && !shownRow('#sheet-card-numbers'), 'alphabet cards ask one or four a page'); $('#sheet-card-layout').value = 'four'; },
+          pages => pages.length === 7 && pages[0].objects.filter(o => o.kbName === 'Card').length === 4 && pages[6].objects.filter(o => o.kbName === 'Card').length === 2 && pages[0].objects.filter(o => o.kbName === 'Big letters').length === 4, 'Alphabet cards');
+        await made('#sheet-number-cards', () => { step(shownRow('#sheet-card-numbers'), 'number cards ask which numbers'); $('#sheet-card-numbers').value = '0-10'; $('#sheet-card-layout').value = 'one'; },
+          pages => pages.length === 11 && pages[0].objects.filter(o => /^image$/i.test(o.type)).length === 0 && pages[7].objects.filter(o => /^image$/i.test(o.type)).length === 7, 'Number cards');
+        await made('#sheet-colour-cards', () => { $('#sheet-card-layout').value = 'four'; }, pages => pages.length === 3 && pages[0].objects.filter(o => o.kbName === 'Colour').length === 4, 'Colour cards');
+        await made('#sheet-shape-cards', null, pages => pages.length === 3 && pages.flatMap(p => p.objects).filter(o => o.kbName === 'Shape').length === 10, 'Shape cards');
+        await made('#sheet-calendar-cards', () => step(!shownRow('#sheet-card-layout'), 'the calendar set has no choices'), pages => pages.length === 1 + 2 + 1 + 2 && pages[0].objects.filter(o => o.kbName === 'Day strip').length === 7, 'Calendar and weather');
         $('#sheet-math').click(); step(!shownRow('#sheet-maze-size') && !shownRow('#sheet-count-upto') && shownRow('#sheet-key'), 'Math practice hides the preschool choices'); $('#sheet-close').click();
       }
       $('#sheet-key').checked = true;

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.49.0
+
+- 🅰️ Posters and wall cards, a new part of Classroom → Puzzles and worksheets. Each comes four to a page (to cut apart) or one big card a page:
+  - **Alphabet cards**: big Aa to Zz in ball-and-stick letters, each with a picture and its word (apple, banana, cat…).
+  - **Number cards**: the number, its word and that many pictures to count. 0 to 10, 1 to 10, 1 to 20 or 0 to 20.
+  - **Colours**: ten colours, each a big circle of the colour with its name and three things that colour.
+  - **Shapes**: circle, square, triangle, rectangle, oval, star, heart, diamond, pentagon and hexagon, with how many sides.
+  - **Calendar and weather**: days of the week strips, the twelve months with a picture each, the four seasons and eight kinds of weather.
+- The What's new card appears once more.
+
 ## 0.48.0
 
 - 🍎 Twelve preschool templates, in a new **Preschool** group at the top of Templates (and on the start screen). Your class, teacher name, school and year from the Classroom drawer go straight in:

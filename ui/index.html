@@ -70,6 +70,8 @@
       <label data-kinds="dots">Picture <select id="sheet-dots-shape"><option value="surprise">A surprise</option><option value="star">Star</option><option value="heart">Heart</option><option value="house">House</option><option value="fish">Fish</option><option value="tree">Tree</option></select></label>
       <label data-kinds="dots">Dots <select id="sheet-dots-upto"><option>10</option><option selected>15</option><option>20</option></select></label>
       <label data-kinds="sort">Sort into <select id="sheet-sort"><option value="animals-food">Animals and food</option><option value="land-water">Lives on land or in water</option><option value="hot-cold">Hot and cold</option><option value="go-fly">On the road or in the sky</option></select></label>
+      <label data-kinds="number-cards">Numbers <select id="sheet-card-numbers"><option value="0-10">0 to 10</option><option value="1-10">1 to 10</option><option value="1-20" selected>1 to 20</option><option value="0-20">0 to 20</option></select></label>
+      <label data-kinds="abc-cards number-cards colour-cards shape-cards">Cards <select id="sheet-card-layout"><option value="four">Four to a page (cut them apart)</option><option value="one">One big card a page</option></select></label>
       <label data-kinds="maze">How big <select id="sheet-maze-size"><option value="easy">Easy: 5 × 5</option><option value="medium" selected>Medium: 8 × 8</option><option value="hard">Hard: 12 × 12</option></select></label>
       <label data-kinds="maze">Who's going where <select id="sheet-maze-pair"><option value="rabbit">Bunny to the carrot</option><option value="bee">Bee to the flower</option><option value="mouse">Mouse to the cheese</option><option value="dog">Dog to the bone</option><option value="monkey">Monkey to the banana</option><option value="chick">Chick to the corn</option></select></label>
     </div>
@@ -271,6 +273,14 @@
             <button id="sheet-pattern-pics" type="button">🧩 What comes next?</button>
             <button id="sheet-dots" type="button">⭐ Dot-to-dot</button>
             <button id="sheet-maze" type="button">🐰 Maze</button>
+          </div>
+          <h4 class="sheet-group">Posters and wall cards</h4>
+          <div class="sheet-buttons">
+            <button id="sheet-abc-cards" type="button">🅰️ Alphabet cards</button>
+            <button id="sheet-number-cards" type="button">🔟 Number cards</button>
+            <button id="sheet-colour-cards" type="button">🎨 Colours</button>
+            <button id="sheet-shape-cards" type="button">🔷 Shapes</button>
+            <button id="sheet-calendar-cards" type="button">📅 Calendar and weather</button>
           </div>
           <p class="hint" id="sheet-done" role="status"></p>
         </section>
@@ -538,6 +548,7 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>🅰️ Posters and wall cards</b> (Classroom → Puzzles and worksheets): alphabet cards, number cards, colours, shapes, and a calendar set with days, months, seasons and weather.</li>
         <li><b>🍎 Preschool templates</b>, at the top of Templates: daily report, sign-in sheet, visual schedule, class helpers, lesson plan, attendance, allergy alert, All about me, permission slip, class rules, welcome letter and newsletter. Your class details go straight in.</li>
         <li><b>✂️ Cutting practice, Match the shadows, Odd one out, Big and small, Cut and paste sorting and Count and graph</b> (Classroom → Puzzles and worksheets).</li>
         <li><b>🖍️ More preschool pages</b> (Classroom → Puzzles and worksheets): number tracing, beginning sounds, find the letter, ten frames, I spy and count, and dot-to-dot. Trace your name now handles real class lists (first names, “Smith, Ava”, ALL CAPS).</li>
@@ -632,6 +643,7 @@
   <script src="worksheets.js"></script>
   <script src="preschool.js"></script>
   <script src="prestarters.js"></script>
+  <script src="posters.js"></script>
   <script src="photolayouts.js"></script>
   <script src="bulk.js"></script>
   <script src="classroom.js"></script>
