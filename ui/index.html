@@ -44,6 +44,24 @@
     <p class="hint">Nothing is overwritten: anything missing comes back, and a design that changed since comes back beside it as “… (from backup)”.</p>
     <div class="row"><button id="backup-close" type="button">Close</button></div>
   </dialog>
+  <dialog id="sheet-dialog" aria-labelledby="sheet-heading"><h3 id="sheet-heading">Word search</h3>
+    <label>Title <input id="sheet-title" type="text" maxlength="60"></label>
+    <div id="sheet-words-part">
+      <label id="sheet-list-row">Use one of my lists <select id="sheet-list"></select></label>
+      <label for="sheet-words">Your words</label>
+      <textarea id="sheet-words" rows="8" spellcheck="true"></textarea>
+      <p class="hint" id="sheet-words-hint"></p>
+      <label id="sheet-level-row">How hard <select id="sheet-level"><option value="easy">Easy: across and down</option><option value="medium" selected>Medium: diagonals too</option><option value="hard">Hard: backwards too</option></select></label>
+    </div>
+    <div id="sheet-math-part" hidden>
+      <label>Problems <select id="sheet-op"><option value="add">Adding</option><option value="sub">Taking away</option><option value="mixed">Adding and taking away</option><option value="mul">Times tables</option><option value="div">Dividing</option></select></label>
+      <label>Numbers up to <select id="sheet-upto"><option>5</option><option selected>10</option><option>12</option><option>20</option><option>100</option><option>1000</option></select></label>
+      <label>How many <select id="sheet-count"><option>10</option><option selected>20</option><option>30</option></select></label>
+    </div>
+    <label class="check"><input id="sheet-key" type="checkbox" checked> Answer key on page 2</label>
+    <p id="sheet-note" role="status"></p>
+    <div class="row"><button id="sheet-close" type="button">Cancel</button><button id="sheet-make" type="button" class="primary">Make it</button></div>
+  </dialog>
   <section id="create" aria-label="Create" hidden>
     <div id="bulk" hidden>
       <div class="bulk-card" role="dialog" aria-labelledby="bulk-title">
@@ -183,6 +201,14 @@
           <h3>Birthdays coming up</h3>
           <ul id="class-birthdays" class="class-birthdays"></ul>
           <p class="hint" id="class-birthdays-none">None in the next 30 days. Add a Birthday column to a class list (March 4, or 3/4) to see them here.</p>
+          <h3>Puzzles and worksheets</h3>
+          <p class="hint">Made from your words, ready to print, with the answer key on page 2.</p>
+          <div class="sheet-buttons">
+            <button id="sheet-search" type="button">🔎 Word search</button>
+            <button id="sheet-crossword" type="button">✏️ Crossword</button>
+            <button id="sheet-math" type="button">➕ Math practice</button>
+          </div>
+          <p class="hint" id="sheet-done" role="status"></p>
         </section>
         <section data-panel="draw" hidden>
           <h3>Draw</h3>
@@ -532,6 +558,7 @@
   <script src="effects.js"></script>
   <script src="faces.js"></script>
   <script src="drawtools.js"></script>
+  <script src="worksheets.js"></script>
   <script src="bulk.js"></script>
   <script src="classroom.js"></script>
   <script src="backup.js"></script>

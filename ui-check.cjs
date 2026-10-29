@@ -2792,6 +2792,38 @@ const test = `<script>
       step(drawer !== 'retouch', 'Done puts Faces away');
       [pic, back].forEach(o => board.remove(o)); commitDesign();
     }
+    // 0.43: Puzzles and worksheets: the generators are right, and the dialog makes a new two-page design.
+    { const titleBefore = design.title, drawerBefore = drawer;
+      const words = ['apple', 'banana', 'cherry', 'grape', 'lemon', 'mango', 'peach', 'pear', 'plum', 'kiwi', 'Ice cream!'];
+      for (const level of ['easy', 'medium', 'hard']) {
+        const s = wordSearch(words, level, 7);
+        const read = p => Array.from(p.word, (_, i) => s.grid[p.y + p.dy * i][p.x + p.dx * i]).join('');
+        step(s.placed.length === 11 && !s.skipped.length && s.placed.every(p => read(p) === p.word) && s.grid.every(r => r.length === s.size && r.every(c => /^[A-Z]$/.test(c))) && s.placed.some(p => p.word === 'ICECREAM'), () => level + ' word search hides every word where it says: ' + s.placed.map(read));
+        step(level !== 'easy' || s.placed.every(p => (p.dx === 1 && p.dy === 0) || (p.dx === 0 && p.dy === 1)), 'easy goes only across and down');
+      }
+      step(wordSearch(['abcdefghijklmnopqrstu', 'cat'], 'easy', 1).skipped.join() === 'ABCDEFGHIJKLMNOPQRSTU' && wordSearch([' ', '!'], 'easy', 1) === null, 'a word too long for the biggest grid is left out, and no words is no puzzle');
+      const entries = cluesFrom('cat: A pet that purrs\\nrat - A small rodent\\ntack\\tA short nail\\nact: Do something\\ncar: It has four wheels\\nart: Painting and drawing\\nx');
+      step(entries.length === 6 && entries[2].word === 'TACK' && entries[2].clue === 'A short nail' && entries[1].clue === 'A small rodent', () => 'clues read with a colon, a dash or a tab: ' + JSON.stringify(entries));
+      const x = crossword(entries, 3);
+      const letters = new Map();
+      const agree = x.placed.every(p => Array.from(p.word).every((c, i) => { const k = (p.x + p.dx * i) + ',' + (p.y + p.dy * i); if (letters.has(k) && letters.get(k) !== c) return false; letters.set(k, c); return x.cells.get(k) === c; }));
+      step(x.placed.length >= 5 && agree && letters.size === x.cells.size && x.placed.every(p => p.n >= 1) && Math.min(...x.placed.map(p => p.n)) === 1, () => 'the crossword words cross on shared letters and are numbered: ' + x.placed.map(p => p.n + ':' + p.word));
+      const check = (op, upTo) => mathProblems(op, upTo, 30, 5).every(p => { const [a, sign, b] = p.text.split(' '); const A = +a, B = +b; const v = sign === '+' ? A + B : sign === '−' ? A - B : sign === '×' ? A * B : A / B; return v === p.answer && Number.isInteger(v) && v >= 0 && (sign !== '+' || v <= upTo); });
+      step(['add', 'sub', 'mixed', 'mul', 'div'].every(op => check(op, 10) && check(op, 100)), 'math problems have whole answers, never below zero, and sums stay within the limit');
+      showDrawer('classroom');
+      $('#sheet-search').click();
+      step($('#sheet-dialog').open && $('#sheet-title').value === 'Word search' && !$('#sheet-level-row').hidden && $('#sheet-math-part').hidden, 'Word search opens its dialog');
+      $('#sheet-words').value = words.join('\\n'); $('#sheet-make').click();
+      await until(() => design.title.startsWith('Word search') && designPages.length === 2 && !$('#sheet-dialog').open, 'Make it');
+      step(board.getObjects().some(o => o.kbName === 'Word search grid' && o.type === 'group') && JSON.stringify(designPages[1]).includes('answer key') && /answer key on page 2/.test($('#sheet-done').textContent), 'a word search design: the grid on page 1, the answers on page 2');
+      $('#sheet-math').click(); step(!$('#sheet-math-part').hidden && $('#sheet-words-part').hidden, 'Math practice shows its own choices');
+      $('#sheet-op').value = 'mul'; $('#sheet-key').checked = false; $('#sheet-make').click();
+      await until(() => design.title.startsWith('Math practice') && !$('#sheet-dialog').open, 'Make the math page');
+      step(designPages.length === 1 && board.getObjects().filter(o => /^Problem /.test(o.kbName)).length === 20 && board.getObjects().every(o => !/answer key/.test(o.text || '')), 'twenty problems and no answer key when it is unticked');
+      $('#sheet-key').checked = true;
+      await settle(openDesign(titleBefore), 'back to the design being tested');
+      if (drawer !== drawerBefore) showDrawer(drawerBefore || drawer); // as it was: open on the same drawer, or closed
+    }
     // 0.39: Backups: the start screen says there are none, choosing a folder backs up at once, a missed one warns, restore reports.
     { const seen = sel => !$(sel).closest('[hidden]');
       settings.backup = { folder: '', every: 'week', last: 0, failed: '' }; paintBackup();
@@ -2992,8 +3024,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="worksheets.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('worksheets.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
