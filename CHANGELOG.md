@@ -10,6 +10,7 @@
 - 📷 Photo name tags: in Bulk create, **Choose their photos** and each child's photo goes in the design's photo frame, matched by file name (Ava.jpg goes with Ava). It says which names have no photo, and their frame stays empty to fill by hand.
 - ✏️ The Eraser rubs out **just where you rub**, so part of a line can go and the rest stays. **Whole lines** is still there.
 - In Photos, **Use in a design** asks what to send: this photo, the selected ones or **My picks**, as **a page each**, a **Collage** (up to nine to a page) or **Photo strips** (two strips of four on a 4 × 6, to cut apart).
+- A long **File** menu scrolls inside itself, instead of scrolling the whole window up and leaving a blank strip.
 - The What's new card appears once more.
 
 ## 0.42.0

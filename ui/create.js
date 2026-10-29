@@ -1487,6 +1487,8 @@ function togglePop(anchor) {
   const host = $('#create').getBoundingClientRect();
   el.style.left = Math.max(8, Math.min(a.left - host.left, host.width - el.offsetWidth - 8)) + 'px';
   el.style.top = a.bottom - host.top + 6 + 'px';
+  // A long menu (File) scrolls inside itself; taller than the window, it used to scroll the whole app up instead.
+  el.style.maxHeight = Math.max(160, innerHeight - a.bottom - 14) + 'px';
 }
 for (const b of document.querySelectorAll('#create [data-pop]')) b.onclick = () => togglePop(b);
 document.addEventListener('mousedown', e => {

@@ -52,8 +52,9 @@ function useCells(layout, count) {
       return [margin + shift + (i % cols) * (cw + gap), margin + row * (ch + gap), cw, ch];
     });
   }
-  // Two strips of four side by side on a 4 × 6, the same photos in each, with room for words at the bottom.
-  const margin = 12, gap = 8, sw = (4 * PX - 3 * margin) / 2, ph = (6 * PX - margin - 56 - 3 * gap) / 4;
+  // Two strips of four side by side on a 4 × 6, the same photos in each, with room for words at the bottom; all of it
+  // inside the dashed safe line, so a home printer's edge doesn't cut a photo or the words.
+  const margin = 24, gap = 8, sw = (4 * PX - 3 * margin) / 2, ph = (6 * PX - margin - 64 - 3 * gap) / 4;
   return [0, 1].flatMap(s => Array.from({ length: 4 }, (_, i) => [margin + s * (sw + margin), margin + i * (ph + gap), sw, ph]));
 }
 async function usePage(layout, pictures) {
@@ -72,7 +73,7 @@ async function usePage(layout, pictures) {
     image.kbName = 'Photo ' + picture.id;
     objects.push(fitInFrame(image, frame).toObject(KEEP));
   }
-  if (layout === 'strip') for (const s of [0, 1]) objects.push(new fabric.Textbox('Say cheese!', { left: 12 + s * (cells[4][0] - 12), top: 6 * PX - 46, width: cells[0][2], fontSize: 24, fontFamily: 'Caveat', textAlign: 'center', fill: '#333333', kbName: 'Strip words' }).toObject(KEEP));
+  if (layout === 'strip') for (const s of [0, 1]) objects.push(new fabric.Textbox('Say cheese!', { left: cells[s * 4][0], top: 6 * PX - 64, width: cells[0][2], fontSize: 24, fontFamily: 'Caveat', textAlign: 'center', fill: '#333333', kbName: 'Strip words' }).toObject(KEEP));
   return { objects, background: '#ffffff' };
 }
 

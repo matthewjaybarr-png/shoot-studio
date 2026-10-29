@@ -1698,6 +1698,8 @@ const test = `<script>
       await until(() => mode === 'create' && design.title !== stripFrom && designPages.length === Math.ceil(usePicked / 4), () => 'a 4 x 6 per four picks: ' + designPages.length);
       const strip1 = allPages()[0].objects, lastStrip = allPages().at(-1).objects;
       step(design.page === 'photo-4x6' && strip1.filter(o => /^image$/i.test(o.type)).length === 8 && strip1[0].kbName === strip1[4].kbName && strip1.filter(o => o.kbName === 'Strip words').length === 2, () => 'two matching strips of four on each print, with words under them: ' + strip1.map(o => o.kbName));
+      const safe = 0.25 * PX, inside = strip1.every(o => { const w = o.width * (o.scaleX || 1), h = (o.height || 0) * (o.scaleY || 1), l = o.originX === 'center' ? o.left - w / 2 : o.left, t = o.originY === 'center' ? o.top - h / 2 : o.top; return l >= safe - 0.5 && t >= safe - 0.5 && l + w <= 4 * PX - safe + 0.5 && t + h <= 6 * PX - safe + 0.5; });
+      step(inside, () => 'everything on the strips is inside the safe line: ' + strip1.map(o => [o.left, o.top, o.width * (o.scaleX || 1), o.height * (o.scaleY || 1)].map(Math.round)).join(' | '));
       step(usePicked % 4 === 0 || lastStrip.some(o => o.kbFrame === 'rect' && !/^image$/i.test(o.type)), 'a short last strip keeps empty frames to fill');
       pickIds.forEach((id, i) => { ratings[id] = { ...ratings[id], flag: flagsBefore[i] }; });
       $('#home-photos').click(); move(2);
@@ -2008,6 +2010,7 @@ const test = `<script>
       commitDesign();
       $('#file-bulk').click();
       $('#bulk-list').value = 'Ava\\nBen\\nCy'; $('#bulk-list').dispatchEvent(new Event('input'));
+      step($('#bulk-list').getBoundingClientRect().height > 100, () => 'the list box keeps its eight lines with the photo part showing: ' + $('#bulk-list').getBoundingClientRect().height);
       step(!$('#bulk-photo-row').hidden && $('#bulk-photo-box').options.length === 2 && $('#bulk-photo-note').textContent.includes('Ava.jpg'), () => 'a design with photo frames offers to fill them: ' + $('#bulk-photo-row').textContent);
       const kidPhoto = async (name, colour) => { const c = Object.assign(document.createElement('canvas'), { width: 80, height: 60 }), x = c.getContext('2d'); x.fillStyle = colour; x.fillRect(0, 0, 80, 60); return new File([await new Promise(done => c.toBlob(done, 'image/png'))], name, { type: 'image/png' }); };
       const picked = new DataTransfer();
@@ -2022,6 +2025,9 @@ const test = `<script>
       const [ph1, ph2] = allPages(), pic = (page, left) => page.objects.find(o => Math.abs(o.left - left) < 2 && o.top < 160);
       step(pic(ph1, 16).kbName === 'Photo Ava' && pic(ph1, 300).kbName === 'Photo ben smith 2026' && /^image$/i.test(pic(ph1, 16).type) && pic(ph1, 16).clipPath && Math.round(pic(ph1, 16).width * pic(ph1, 16).scaleX) === 120, () => 'Ava and Ben are in the frames above their names, cropped round: ' + ph1.objects.map(o => o.type + ' ' + o.kbName).join('|'));
       step(at(ph1, 16, 170) === 'Ava' && at(ph1, 300, 170) === 'Ben' && pic(ph2, 16).kbFrame === 'circle' && !/^image$/i.test(pic(ph2, 16).type) && at(ph2, 16, 170) === 'Cy', () => 'Cy has no photo, so the frame stays empty: ' + ph2.objects.map(o => o.type + ' ' + o.kbName).join('|'));
+      $('#file-open').click();
+      step(!$('#pop-file').hidden && $('#pop-file').getBoundingClientRect().bottom <= innerHeight + 1 && document.scrollingElement.scrollTop === 0, () => 'the File menu fits the window and scrolls inside itself: ' + [$('#pop-file').getBoundingClientRect().bottom, innerHeight]);
+      $('#file-open').click();
     }
     // 0.17: Import from Canva (PowerPoint, or a picture).
     await settle($('#create-home').onclick(), 'home for import');
@@ -2867,10 +2873,16 @@ const test = `<script>
       step(wordSearch(['abcdefghijklmnopqrstu', 'cat'], 'easy', 1).skipped.join() === 'ABCDEFGHIJKLMNOPQRSTU' && wordSearch([' ', '!'], 'easy', 1) === null, 'a word too long for the biggest grid is left out, and no words is no puzzle');
       const entries = cluesFrom('cat: A pet that purrs\\nrat - A small rodent\\ntack\\tA short nail\\nact: Do something\\ncar: It has four wheels\\nart: Painting and drawing\\nx');
       step(entries.length === 6 && entries[2].word === 'TACK' && entries[2].clue === 'A short nail' && entries[1].clue === 'A small rodent', () => 'clues read with a colon, a dash or a tab: ' + JSON.stringify(entries));
+      const late = crossword(['scarecrow', 'pumpkin', 'apple', 'acorn', 'leaves', 'harvest', 'cider'].map(word => ({ word: word.toUpperCase(), clue: '' })), 5);
+      step(!late.skipped.length && late.placed.length === 7, () => 'a word with nothing to cross at first is placed once a word it shares a letter with is in: ' + late.skipped.map(e => e.word));
       const x = crossword(entries, 3);
       const letters = new Map();
       const agree = x.placed.every(p => Array.from(p.word).every((c, i) => { const k = (p.x + p.dx * i) + ',' + (p.y + p.dy * i); if (letters.has(k) && letters.get(k) !== c) return false; letters.set(k, c); return x.cells.get(k) === c; }));
       step(x.placed.length >= 5 && agree && letters.size === x.cells.size && x.placed.every(p => p.n >= 1) && Math.min(...x.placed.map(p => p.n)) === 1, () => 'the crossword words cross on shared letters and are numbered: ' + x.placed.map(p => p.n + ':' + p.word));
+      const ten = mathProblems('add', 10, 20, 7), page = mathPage('M', ten, false).objects.filter(o => /^Problem /.test(o.kbName));
+      step(new Set(ten.map(p => p.text)).size === 20 && ten.filter(p => / 0\b|^0 /.test(p.text)).length <= 2, () => 'twenty different problems, hardly any with a 0: ' + ten.map(p => p.text));
+      const lines = await Promise.all(page.map(async o => (await fabric.util.enlivenObjects([o]))[0].textLines.length));
+      step(lines.every(l => l === 1), () => 'every problem and its blank fit on one line: ' + lines);
       const check = (op, upTo) => mathProblems(op, upTo, 30, 5).every(p => { const [a, sign, b] = p.text.split(' '); const A = +a, B = +b; const v = sign === '+' ? A + B : sign === '−' ? A - B : sign === '×' ? A * B : A / B; return v === p.answer && Number.isInteger(v) && v >= 0 && (sign !== '+' || v <= upTo); });
       step(['add', 'sub', 'mixed', 'mul', 'div'].every(op => check(op, 10) && check(op, 100)), 'math problems have whole answers, never below zero, and sums stay within the limit');
       showDrawer('classroom');
@@ -2878,8 +2890,12 @@ const test = `<script>
       step($('#sheet-dialog').open && $('#sheet-title').value === 'Word search' && !$('#sheet-level-row').hidden && $('#sheet-math-part').hidden, 'Word search opens its dialog');
       $('#sheet-words').value = words.join('\\n'); $('#sheet-make').click();
       await until(() => design.title.startsWith('Word search') && designPages.length === 2 && !$('#sheet-dialog').open, 'Make it');
+      { const fits = n => { const s = wordSearch(Array.from({ length: n }, (_, i) => 'butterfly'.slice(0, 4 + i % 6) + String.fromCharCode(97 + i)), 'medium', 3), page = searchPage('Fit', s, false), g = page.objects.find(o => o.kbName === 'Word search grid'), w = page.objects.filter(o => o.kbName === 'Words');
+          return [g.width, w.every(o => o.top + o.fontSize * 1.16 * o.text.split('\\n').length < 1030)]; };
+        const few = fits(6), many = fits(30);
+        step(few[0] > 560 && few[1] && many[1], () => 'a short list gets a big grid, and a long list still fits the page: ' + JSON.stringify([few, many])); }
       step(board.getObjects().some(o => o.kbName === 'Word search grid' && o.type === 'group') && JSON.stringify(designPages[1]).includes('answer key') && /answer key on page 2/.test($('#sheet-done').textContent), 'a word search design: the grid on page 1, the answers on page 2');
-      $('#sheet-math').click(); step(!$('#sheet-math-part').hidden && $('#sheet-words-part').hidden, 'Math practice shows its own choices');
+      $('#sheet-math').click(); step(!$('#sheet-math-part').hidden && $('#sheet-words-part').hidden && getComputedStyle($('#sheet-level-row')).display === 'none' && getComputedStyle($('#sheet-words-part')).display === 'none', 'Math practice shows its own choices, and only those (hidden rows really are hidden)');
       $('#sheet-op').value = 'mul'; $('#sheet-key').checked = false; $('#sheet-make').click();
       await until(() => design.title.startsWith('Math practice') && !$('#sheet-dialog').open, 'Make the math page');
       step(designPages.length === 1 && board.getObjects().filter(o => /^Problem /.test(o.kbName)).length === 20 && board.getObjects().every(o => !/answer key/.test(o.text || '')), 'twenty problems and no answer key when it is unticked');

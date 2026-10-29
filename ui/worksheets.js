@@ -74,7 +74,18 @@ function crossword(entries, seed = 1) {
     };
     const put = (e, x, y, dx, dy) => { [...e.word].forEach((c, i) => cells.set((x + dx * i) + ',' + (y + dy * i), c)); placed.push({ ...e, x, y, dx, dy }); };
     put(order[0], 0, 0, 1, 0);
-    for (const e of order.slice(1)) {
+    // A word with nothing to cross yet waits for a later pass: PUMPKIN shares no letter with SCARECROW, but does with APPLE.
+    let waiting = order.slice(1), progress = true;
+    while (waiting.length && progress) {
+      progress = false;
+      const pass = waiting; waiting = [];
+      for (const e of pass) {
+        const choice = bestSpot(e);
+        if (choice) { put(e, choice.x, choice.y, choice.dx, choice.dy); progress = true; } else waiting.push(e);
+      }
+    }
+    skipped.push(...waiting);
+    function bestSpot(e) {
       let choice = null;
       for (const p of placed) for (let i = 0; i < p.word.length; i++) for (let j = 0; j < e.word.length; j++) {
         if (p.word[i] !== e.word[j]) continue;
@@ -83,7 +94,7 @@ function crossword(entries, seed = 1) {
         const score = n * 10 - Math.abs(x) - Math.abs(y) + rand();
         if (!choice || score > choice.score) choice = { x, y, dx, dy, score };
       }
-      if (choice) put(e, choice.x, choice.y, choice.dx, choice.dy); else skipped.push(e);
+      return choice;
     }
     const xs = [...cells.keys()].map(k => +k.split(',')[0]), ys = [...cells.keys()].map(k => +k.split(',')[1]);
     const minX = Math.min(...xs), minY = Math.min(...ys), w = Math.max(...xs) - minX + 1, h = Math.max(...ys) - minY + 1;
@@ -102,13 +113,21 @@ function crossword(entries, seed = 1) {
 // ---- Math ----
 // Problems for one operation (or + and − mixed), with whole-number answers and nothing below zero.
 function mathProblems(op = 'add', upTo = 10, count = 20, seed = 1) {
-  const rand = seededRandom(seed), n = max => Math.floor(rand() * (max + 1)), out = [];
+  const rand = seededRandom(seed), n = max => Math.floor(rand() * (max + 1)), out = [], seen = new Set();
+  const make = kind => {
+    const small = Math.min(upTo, 12);
+    if (kind === 'add') { const a = n(upTo), b = n(upTo - a); return { text: `${a} + ${b}`, answer: a + b, easy: !a || !b }; }
+    if (kind === 'sub') { const a = n(upTo), b = n(a); return { text: `${a} − ${b}`, answer: a - b, easy: !b || a === b }; }
+    if (kind === 'mul') { const a = n(upTo), b = n(small); return { text: `${a} × ${b}`, answer: a * b, easy: a < 2 || b < 2 }; }
+    const b = 1 + n(small - 1), q = n(upTo); return { text: `${b * q} ÷ ${b}`, answer: q, easy: b < 2 || q < 2 };
+  };
+  // No problem twice, and few with a 0 or a 1 in them, while there are enough others to choose from.
   for (let i = 0; i < count; i++) {
-    const kind = op === 'mixed' ? (rand() < 0.5 ? 'add' : 'sub') : op, small = Math.min(upTo, 12);
-    if (kind === 'add') { const a = n(upTo), b = n(upTo - a); out.push({ text: `${a} + ${b}`, answer: a + b }); }
-    else if (kind === 'sub') { const a = n(upTo), b = n(a); out.push({ text: `${a} − ${b}`, answer: a - b }); }
-    else if (kind === 'mul') { const a = n(upTo), b = n(small); out.push({ text: `${a} × ${b}`, answer: a * b }); }
-    else { const b = 1 + n(small - 1), q = n(upTo); out.push({ text: `${b * q} ÷ ${b}`, answer: q }); }
+    const kind = op === 'mixed' ? (rand() < 0.5 ? 'add' : 'sub') : op;
+    let p = make(kind);
+    for (let tries = 0; tries < 60 && (seen.has(p.text) || (p.easy && tries < 40)); tries++) p = make(kind);
+    seen.add(p.text);
+    out.push({ text: p.text, answer: p.answer });
   }
   return out;
 }
@@ -122,11 +141,12 @@ function sheetHeader(title, answers) {
 const toPage = objects => ({ objects: objects.map(o => o.toObject(KEEP)), background: '#ffffff' });
 
 function searchPage(title, s, answers) {
-  const cell = Math.min(40, 680 / s.size), left = (816 - cell * s.size) / 2, top = 170, mark = new Set();
+  // As big as the page allows once the word list has room below: a short list gets big letters for small hands.
+  const per = Math.ceil(s.placed.length / 3), cell = Math.min(64, 680 / s.size, (1000 - 170 - 44 - per * 30) / s.size), left = (816 - cell * s.size) / 2, top = 170, mark = new Set();
   if (answers) for (const p of s.placed) for (let i = 0; i < p.word.length; i++) mark.add((p.x + p.dx * i) + ',' + (p.y + p.dy * i));
   const letters = s.grid.flatMap((row, y) => row.map((c, x) => T(c, left + x * cell, top + y * cell + cell * 0.18, { width: cell, fontSize: cell * 0.58, textAlign: 'center', fontWeight: mark.has(x + ',' + y) ? 'bold' : 'normal', fill: mark.has(x + ',' + y) ? SHEET_PINK : '#222222', kbName: 'Letter' })));
   const grid = new fabric.Group([R(left - 8, top - 8, cell * s.size + 16, cell * s.size + 16, { rx: 12, ry: 12, stroke: '#9b6bd6', strokeWidth: 3, kbName: 'Border' }), ...letters], { kbName: 'Word search grid' });
-  const words = s.placed.map(p => p.word).sort(), cols = 3, per = Math.ceil(words.length / cols), below = top + cell * s.size + 36;
+  const words = s.placed.map(p => p.word).sort(), cols = 3, below = top + cell * s.size + 36;
   const lists = Array.from({ length: cols }, (_, c) => words.slice(c * per, (c + 1) * per)).filter(l => l.length)
     .map((l, c) => T(l.join('\n'), 96 + c * 220, below, { width: 200, fontSize: Math.min(24, (1000 - below) / per / 1.3), kbName: 'Words' }));
   return toPage([...sheetHeader(title, answers), grid, ...lists]);
@@ -148,7 +168,11 @@ function crosswordPage(title, x, answers) {
     T('Down\n' + down.map(clue).join('\n'), 424, below, { width: 330, fontSize: size, kbName: 'Down clues' })]);
 }
 function mathPage(title, problems, answers) {
-  const rows = Math.ceil(problems.length / 2), gap = Math.min(80, 840 / rows), size = Math.min(34, gap * 0.45);
+  const rows = Math.ceil(problems.length / 2), gap = Math.min(80, 840 / rows);
+  // Every problem on one line, blank and all: the longest one sets the size.
+  let size = Math.min(34, gap * 0.45);
+  const longest = problems.reduce((a, p, i) => { const t = `${i + 1}.   ${p.text} = ______`; return t.length > a.length ? t : a; }, ''), probe = T(longest, 0, 0, { width: 320, fontSize: size });
+  while (probe.textLines.length > 1 && size > 12) { size *= 0.94; probe.set('fontSize', size); probe.initDimensions(); }
   const items = problems.map((p, i) => T(`${i + 1}.   ${p.text} = ${answers ? p.answer : '______'}`, i < rows ? 80 : 440, 180 + (i % rows) * gap, { width: 320, fontSize: size, fill: '#222222', kbName: 'Problem ' + (i + 1) }));
   if (answers) items.forEach((t, i) => { const at = t.text.lastIndexOf('= ') + 2; t.styles = { 0: Object.fromEntries([...String(problems[i].answer)].map((_, k) => [at + k, { fill: SHEET_PINK, fontWeight: 'bold' }])) }; });
   return toPage([...sheetHeader(title, answers), ...items]);
