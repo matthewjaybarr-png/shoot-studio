@@ -71,6 +71,7 @@ const GLYPHS = {
   8: [60, BALL(30, 24, 22, 24) + ' ' + BALL(30, 74, 28, 26)],
   9: [60, BALL(30, 28, 28) + ' M58 28 L58 100'],
   '-': [30, 'M0 70 L30 70'],
+  '.': [10, 'M5 99.5 L5 100'],
   "'": [10, 'M5 0 L5 20']
 };
 const GLYPH_GAP = 16, GLYPH_SPACE = 45;
@@ -137,16 +138,16 @@ async function pic(name, cx, cy, size, o = {}) {
   image.set({ left: cx - size / 2, top: cy - size / 2, scaleX: size / image.width, scaleY: size / image.height, kbName: picLabel(name), ...o });
   return image;
 }
-const PIC_LABELS = { 'red apple': 'apple', 'nest with eggs': 'nest', 'red heart': 'heart', 'blue heart': 'heart', 'soccer ball': 'ball', 'cheese wedge': 'cheese', 'honeybee': 'bee', 'baby chick': 'chick', 'lady beetle': 'ladybug', 'ear of corn': 'corn', 'teddy bear': 'teddy bear' };
+const PIC_LABELS = { 'person with crown': 'queen', 'fox': 'fox (ends in x)', 'red apple': 'apple', 'nest with eggs': 'nest', 'red heart': 'heart', 'blue heart': 'heart', 'soccer ball': 'ball', 'cheese wedge': 'cheese', 'honeybee': 'bee', 'baby chick': 'chick', 'lady beetle': 'ladybug', 'ear of corn': 'corn', 'teddy bear': 'teddy bear' };
 const picLabel = name => PIC_LABELS[name] || name;
 const shuffled = (list, rand) => { const a = list.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 const LETTER_PICS = {
   A: ['red apple', 'ant'], B: ['banana', 'bear'], C: ['cat', 'carrot'], D: ['dog', 'duck'], E: ['egg', 'elephant'], F: ['fish', 'frog'],
   G: ['grapes', 'goat'], H: ['horse', 'house'], I: ['ice cream'], J: ['jellyfish', 'jeans'], K: ['kite', 'key'], L: ['lion', 'lemon'],
-  M: ['monkey', 'mouse'], N: ['nest with eggs', 'nose'], O: ['octopus', 'owl'], P: ['pig', 'pear'], Q: [], R: ['rabbit', 'rainbow'],
+  M: ['monkey', 'mouse'], N: ['nest with eggs', 'nose'], O: ['octopus', 'owl'], P: ['pig', 'pear'], Q: ['person with crown'], R: ['rabbit', 'rainbow'],
   S: ['sun', 'snail'], T: ['tiger', 'turtle'], U: ['umbrella', 'unicorn'], V: ['violin', 'volcano'], W: ['whale', 'watermelon'],
-  X: [], Y: ['yarn', 'yo-yo'], Z: ['zebra']
+  X: ['x-ray', 'fox'], Y: ['yarn', 'yo-yo'], Z: ['zebra']
 };
 const COUNT_PICS = ['red apple', 'strawberry', 'star', 'fish', 'duck', 'butterfly', 'carrot', 'cookie', 'balloon', 'red heart', 'soccer ball', 'sunflower', 'turtle', 'banana', 'cherries', 'lady beetle'];
 const MATCH_PICS = ['cat', 'dog', 'rabbit', 'duck', 'fish', 'frog', 'lion', 'pig', 'cow', 'horse', 'elephant', 'monkey', 'owl', 'turtle', 'penguin', 'butterfly'];
@@ -160,9 +161,23 @@ const preHeader = (title, nameLine = true) => [
   T(nameLine ? 'Name: ____________________     Date: ____________' : 'Date: ____________', 48, 112, { width: 720, fontSize: 22, textAlign: 'center', kbName: 'Name line' })];
 
 // ---- Name tracing: a page per child, their name to look at, three to trace and two lines to write on ----
+// How a name from a class list is written: "Smith, Ava" turns round, `first` keeps only the first name, and `style`
+// 'nice' gives a big first letter and small ones after (ALL-CAPS and all-small names; McKenzie keeps its K),
+// 'caps' all capitals, 'typed' leaves it be.
+function nameToTrace(raw, style, first) {
+  let name = raw.trim().replace(/\s+/g, ' ');
+  const comma = name.match(/^([^,]+),\s*(.+)$/);
+  if (comma) name = comma[2] + ' ' + comma[1];
+  if (first) name = name.split(' ')[0];
+  if (style === 'caps') name = name.toUpperCase();
+  else if (style === 'nice') name = name.split(' ').map(w => w === w.toUpperCase() || w === w.toLowerCase() ? w.toLowerCase().replace(/(^|[-'])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : w).join(' ');
+  return traceable(name).trim();
+}
+// Below this many pixels per unit (letters about 0.6 in tall) a name is small for little hands, so it is noted.
+const NAME_MIN_K = 0.6;
+const nameK = text => Math.min(820 / 6 / 165, 680 / Math.max(1, glyphsWidth(text)));
 function nameTracePage(name, title) {
-  const text = traceable(name.trim()), rows = 6, top0 = 175, pitch = 820 / rows;
-  const k = Math.min(pitch / 165, 680 / Math.max(1, glyphsWidth(text))), parts = [...preHeader(title, false)];
+  const text = name, rows = 6, top0 = 175, pitch = 820 / rows, k = nameK(text), parts = [...preHeader(title, false)];
   for (let r = 0; r < rows; r++) {
     const top = top0 + r * pitch + 8 * k;
     parts.push(...writingLines(60, top, 696, k));
@@ -187,6 +202,29 @@ async function letterTracePage(letter) {
     if (!c) continue;
     const times = Math.max(1, Math.floor((680 + GLYPH_SPACE) / ((GLYPHS[c][0] + GLYPH_SPACE + GLYPH_GAP * 2) * k)));
     parts.push(traceText(Array(times).fill(c).join(' '), 68, top, k, true));
+  }
+  return toPage(parts.filter(Boolean));
+}
+// ---- Number tracing: the number big with its word, that many pictures to count, then rows of it to trace ----
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+async function numberTracePage(n, picName) {
+  const s = String(n), parts = [...preHeader('Number ' + s)], bigK = 1.35;
+  parts.push(...writingLines(60, 185, 250, bigK).map(l => l.set({ opacity: 0.6 })), traceText(s, 72, 185, bigK, false));
+  parts.push(T(NUMBER_WORDS[n], 300, 205, { width: 456, fontSize: 64, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', fill: '#7f63c9', kbName: 'Number word' }));
+  // Count them: up to 10 in a row, a second row for 11 to 20; zero gets an empty box to show "none".
+  const box = { left: 300, top: 290, width: 456, height: 96 }, perLine = 10, lines = Math.max(1, Math.ceil(n / perLine)), size = Math.min(80, (box.width - 16) / Math.min(Math.max(n, 1), perLine) - 4, (box.height - 8) / lines - 4);
+  parts.push(R(box.left, box.top, box.width, box.height, { rx: 14, ry: 14, stroke: '#b9a3e3', strokeWidth: 2.5, kbName: 'Picture box' }));
+  for (let p = 0; p < n; p++) {
+    const line = Math.floor(p / perLine), inLine = Math.min(perLine, n - line * perLine), span = inLine * (size + 4);
+    parts.push(await pic(picName, box.left + box.width / 2 - span / 2 + (p % perLine) * (size + 4) + size / 2 + 2, box.top + box.height / 2 + (line - (lines - 1) / 2) * (size + 4), size));
+  }
+  const k = 0.72, pitch = 128;
+  for (let r = 0; r < 5; r++) {
+    const top = 400 + r * pitch;
+    parts.push(...writingLines(60, top, 696, k));
+    if (r === 4) continue;
+    const times = Math.max(1, Math.floor((680 + GLYPH_SPACE) / ((glyphsWidth(s) + GLYPH_SPACE + GLYPH_GAP) * k)));
+    parts.push(traceText(Array(times).fill(s).join(' '), 68, top, k, true));
   }
   return toPage(parts.filter(Boolean));
 }
@@ -346,20 +384,187 @@ async function mazePage(title, m, pair, answers) {
   return toPage(parts);
 }
 
+// ---- Beginning sounds: a picture, and three letters to circle the one it starts with ----
+// Pictures whose word starts with their letter (X's fox ends in x, so it isn't one; Q's crowned head looks like a
+// prince as much as a queen).
+const SOUND_PICS = Object.entries(LETTER_PICS).filter(([l]) => l !== 'Q').flatMap(([l, pics]) => pics.filter(p => picLabel(p)[0].toUpperCase() === l).map(p => ({ l, p })));
+function soundRows(rand, rows = 6) {
+  const picks = [], used = new Set();
+  for (const s of shuffled(SOUND_PICS, rand)) if (!used.has(s.l) && picks.length < rows) { used.add(s.l); picks.push(s); }
+  const letters = Object.keys(LETTER_PICS);
+  return picks.map(({ l, p }) => ({ pic: p, letter: l, choices: shuffled([l, ...shuffled(letters.filter(x => x !== l), rand).slice(0, 2)], rand) }));
+}
+async function soundPage(title, rows, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], pitch = 820 / rows.length;
+  parts.push(T('Circle the letter each picture starts with.', 48, 150, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }));
+  for (const [i, row] of rows.entries()) {
+    const top = 185 + i * pitch, h = pitch - 16, cy = top + h / 2;
+    parts.push(R(48, top, 720, h, { rx: 16, ry: 16, stroke: '#b9a3e3', strokeWidth: 2.5, kbName: 'Row box' }), await pic(row.pic, 140, cy, Math.min(100, h - 16)));
+    row.choices.forEach((c, j) => {
+      const cx = 360 + j * 150;
+      parts.push(T(c + c.toLowerCase(), cx - 60, cy - 32, { width: 120, fontSize: 52, textAlign: 'center', fontFamily: 'Fredoka', kbName: 'Letter choice' }));
+      if (answers && c === row.letter) parts.push(new fabric.Ellipse({ left: cx - 62, top: cy - 44, rx: 62, ry: 44, fill: '', stroke: SHEET_PINK, strokeWidth: 4, kbName: 'Answer' }));
+    });
+  }
+  return toPage(parts);
+}
+// ---- Find the letter: bubbles of letters to dot (a bingo dauber) or colour every one that is the letter ----
+const LOOKALIKE = { B: 'DPR', b: 'dpq', D: 'BOP', d: 'bpq', P: 'BRF', p: 'bdq', Q: 'OCG', q: 'pdg', M: 'NW', m: 'nw', N: 'MH', n: 'mh', W: 'MV', w: 'mv', E: 'FL', e: 'co', C: 'GO', c: 'eo', O: 'QC', o: 'ce', I: 'LT', i: 'jl', U: 'VO', u: 'nv' };
+function letterFind(letter, rand) {
+  const up = letter, low = letter.toLowerCase(), cols = 7, rows = 8, all = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const others = c => (LOOKALIKE[c] || '') + shuffled([...all.replace(up, '')], rand).slice(0, 4).join('');
+  return Array.from({ length: cols * rows }, () => {
+    const r = rand(), target = r < 0.3;
+    const upper = rand() < 0.5;
+    if (target) return { c: upper ? up : low, hit: true };
+    const pool = upper ? others(up).toUpperCase() : others(low).toLowerCase(), c = pool[Math.floor(rand() * pool.length)];
+    return { c: c === up || c === low ? (upper ? 'K' : 'k') : c, hit: false };
+  });
+}
+async function findPage(title, letter, cells, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], cols = 7, size = 96, left = (816 - cols * size) / 2, top = 200;
+  parts.push(T(`Dot or colour every ${letter} and ${letter.toLowerCase()}.`, 48, 150, { width: 720, fontSize: 24, textAlign: 'center', fontFamily: 'Fredoka', kbName: 'Instructions' }));
+  for (const [i, cell] of cells.entries()) {
+    const x = left + (i % cols) * size, y = top + Math.floor(i / cols) * size;
+    parts.push(new fabric.Circle({ left: x + 6, top: y + 6, radius: size / 2 - 6, fill: answers && cell.hit ? '#f6c8e0' : '', stroke: answers && cell.hit ? SHEET_PINK : '#9a86d6', strokeWidth: 2.5, kbName: answers && cell.hit ? 'Answer' : 'Bubble' }));
+    parts.push(T(cell.c, x, y + size / 2 - 30, { width: size, fontSize: 48, textAlign: 'center', fontFamily: 'Fredoka', kbName: 'Letter' }));
+  }
+  return toPage(parts);
+}
+// ---- Ten frames: dots in a ten frame (two for 11 to 20) and a box to write how many ----
+async function tenFramePage(title, rows, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], pitch = 820 / rows.length;
+  parts.push(T('Count the dots. Write how many.', 48, 150, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }));
+  for (const [i, row] of rows.entries()) {
+    const top = 185 + i * pitch, h = pitch - 16, frames = row.n > 10 ? 2 : 1, cell = Math.min(52, (h - 8) / 2), fw = cell * 5;
+    for (let f = 0; f < frames; f++) {
+      const fx = 60 + f * (fw + 24), fy = top + (h - cell * 2) / 2;
+      for (let c = 0; c < 10; c++) {
+        const x = fx + (c % 5) * cell, y = fy + Math.floor(c / 5) * cell;
+        parts.push(R(x, y, cell, cell, { stroke: '#555555', strokeWidth: 2, kbName: 'Ten frame box' }));
+        if (f * 10 + c < row.n) parts.push(new fabric.Circle({ left: x + cell * 0.15, top: y + cell * 0.15, radius: cell * 0.35, fill: f ? '#e7779f' : '#7f63c9', strokeWidth: 0, kbName: 'Dot' }));
+      }
+    }
+    parts.push(R(650, top + h / 2 - 45, 100, 90, { rx: 12, ry: 12, stroke: '#555555', strokeWidth: 2.5, kbName: 'Write the number' }));
+    if (answers) parts.push(T(String(row.n), 650, top + h / 2 - 30, { width: 100, fontSize: 48, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', fill: SHEET_PINK, kbName: 'Answer' }));
+  }
+  return toPage(parts);
+}
+// ---- I spy and count: pictures of a few kinds scattered over the page, and a row of boxes for how many of each ----
+function spyScene(rand, kinds = 5) {
+  const pics = shuffled(COUNT_PICS, rand).slice(0, kinds), counts = pics.map(() => 2 + Math.floor(rand() * 6)), size = 66, spots = [];
+  const area = { left: 60, top: 190, width: 696, height: 560 };
+  for (const [k, p] of pics.entries()) for (let n = 0; n < counts[k]; n++) {
+    for (let tries = 0; tries < 400; tries++) {
+      const x = area.left + size / 2 + rand() * (area.width - size), y = area.top + size / 2 + rand() * (area.height - size);
+      if (spots.every(s => Math.hypot(s.x - x, s.y - y) > size * 1.05)) { spots.push({ x, y, p, angle: Math.round((rand() - 0.5) * 40) }); break; }
+    }
+  }
+  return { pics, counts: pics.map(p => spots.filter(s => s.p === p).length), spots, size, area };
+}
+async function spyPage(title, scene, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], { area } = scene;
+  parts.push(R(area.left - 12, area.top - 12, area.width + 24, area.height + 24, { rx: 20, ry: 20, stroke: '#b9a3e3', strokeWidth: 3, kbName: 'Picture box' }));
+  for (const s of scene.spots) parts.push(await pic(s.p, s.x, s.y, scene.size, { angle: s.angle }));
+  const w = 696 / scene.pics.length;
+  for (const [k, p] of scene.pics.entries()) {
+    const cx = 60 + w * (k + 0.5);
+    parts.push(await pic(p, cx, 830, 64), R(cx - 46, 875, 92, 84, { rx: 12, ry: 12, stroke: '#555555', strokeWidth: 2.5, kbName: 'Write how many' }));
+    if (answers) parts.push(T(String(scene.counts[k]), cx - 46, 888, { width: 92, fontSize: 48, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', fill: SHEET_PINK, kbName: 'Answer' }));
+  }
+  return toPage(parts);
+}
+// ---- Dot-to-dot: numbered dots around a shape's outline; the key joins them and shows what it is ----
+const heartPoints = n => Array.from({ length: n }, (_, i) => { const t = Math.PI * 2 * i / n; return [0.5 + 0.5 * Math.pow(Math.sin(t), 3), 0.42 - (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 34]; });
+const DOT_SHAPES = {
+  star: { pic: 'star', label: 'a star', points: () => Array.from({ length: 10 }, (_, i) => { const a = -Math.PI / 2 + Math.PI * i / 5, r = i % 2 ? 0.2 : 0.5; return [0.5 + r * Math.cos(a), 0.52 + r * Math.sin(a)]; }) },
+  heart: { pic: 'red heart', label: 'a heart', points: n => heartPoints(n) },
+  house: { pic: 'house', label: 'a house', points: () => [[0.5, 0], [1, 0.42], [0.85, 0.42], [0.85, 1], [0.15, 1], [0.15, 0.42], [0, 0.42]] },
+  fish: { pic: 'fish', label: 'a fish', points: () => [[1, 0.5], [0.9, 0.32], [0.75, 0.24], [0.55, 0.24], [0.36, 0.33], [0.2, 0.46], [0, 0.26], [0.06, 0.5], [0, 0.74], [0.2, 0.54], [0.36, 0.67], [0.55, 0.76], [0.75, 0.76], [0.9, 0.68]] },
+  tree: { pic: 'evergreen tree', label: 'a tree', points: () => [[0.5, 0], [0.76, 0.3], [0.63, 0.3], [0.86, 0.62], [0.58, 0.62], [0.58, 1], [0.42, 1], [0.42, 0.62], [0.14, 0.62], [0.37, 0.3], [0.24, 0.3]] }
+};
+// `n` dots on the outline: every corner, then more along the longest sides until there are enough.
+function dotPoints(shape, n) {
+  let pts = DOT_SHAPES[shape].points(n).map(p => p.slice());
+  if (pts.length > n) return Array.from({ length: n }, (_, i) => pts[Math.round(i * pts.length / n)]); // fewer dots than corners: evenly spaced corners
+  while (pts.length < n) {
+    let best = 0, len = 0;
+    for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], d = Math.hypot(b[0] - a[0], b[1] - a[1]); if (d > len) { len = d; best = i; } }
+    const a = pts[best], b = pts[(best + 1) % pts.length];
+    pts.splice(best + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+  }
+  return pts;
+}
+async function dotsPage(title, shape, n, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], box = { left: 128, top: 210, size: 560 };
+  parts.push(T('Join the dots from 1 to ' + n + '. What is it?', 48, 150, { width: 720, fontSize: 24, textAlign: 'center', fontFamily: 'Fredoka', kbName: 'Instructions' }));
+  const pts = dotPoints(shape, n).map(([x, y]) => [box.left + x * box.size, box.top + y * box.size]);
+  const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  if (answers) parts.push(new fabric.Path(pointsPath([...pts, pts[0]]), { fill: '', stroke: SHEET_PINK, strokeWidth: 4, strokeLineJoin: 'round', kbName: 'Answer' }));
+  for (const [i, [x, y]] of pts.entries()) {
+    const d = Math.hypot(x - cx, y - cy) || 1, ox = (x - cx) / d * 26, oy = (y - cy) / d * 26;
+    parts.push(new fabric.Circle({ left: x - 7, top: y - 7, radius: 7, fill: i === 0 ? '#2e9d5b' : '#333333', strokeWidth: 0, kbName: 'Dot' }));
+    parts.push(T(String(i + 1), x + ox - 20, y + oy - 14, { width: 40, fontSize: 22, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', kbName: 'Dot number' }));
+  }
+  if (answers) parts.push(await pic(DOT_SHAPES[shape].pic, 408, 880, 90), T('It is ' + DOT_SHAPES[shape].label + '!', 48, 935, { width: 720, fontSize: 26, textAlign: 'center', fontFamily: 'Fredoka', fill: SHEET_PINK, kbName: 'Answer' }));
+  return toPage(parts);
+}
+
 // ---- The makers, as Puzzles and worksheets kinds ----
 const MAZE_SIZES = { easy: 5, medium: 8, hard: 12 };
 Object.assign(SHEET_KINDS, {
   'trace-name': { title: 'Trace your name', words: true, key: false, wordsLabel: 'Their names', hint: 'One name per line, and each child gets a page. Pick your class list above to fill it in.', placeholder: 'Ava\nBen\nCharlie',
     async make(title, key, seed, words) {
-      const names = words.split(/\r?\n/).map(w => w.trim()).filter(w => traceable(w).trim()).slice(0, 60);
-      if (!names.length) return { error: 'Type a name first, one per line, or pick your class list.' };
-      return { pages: names.map(n => nameTracePage(n, title)), note: `Made a name page for each of the ${names.length} name${names.length === 1 ? '' : 's'}.` };
+      const typed = words.split(/\r?\n/).map(w => w.trim()).filter(Boolean), style = $('#sheet-name-style').value, first = $('#sheet-name-first').checked;
+      const names = [], skipped = [], small = [];
+      for (const raw of typed) {
+        const name = nameToTrace(raw, style, first);
+        if (!name) skipped.push(raw);
+        else if (names.length < 60) { names.push(name); if (nameK(name) < NAME_MIN_K) small.push(name); }
+      }
+      if (!names.length) return { error: skipped.length ? `These names have no letters it can draw (only A to Z): ${skipped.join(', ')}.` : 'Type a name first, one per line, or pick your class list.' };
+      const notes = [`Made a name page for each of the ${names.length} name${names.length === 1 ? '' : 's'}.`];
+      if (typed.length - skipped.length > 60) notes.push('Only the first 60 names fit in one design.');
+      if (skipped.length) notes.push(`Left out (no letters it can draw, only A to Z): ${skipped.join(', ')}.`);
+      if (small.length) notes.push(`Long, so written smaller: ${small.join(', ')}${first ? '' : '. Tick “First names only” for bigger letters'}.`);
+      return { pages: names.map(n => nameTracePage(n, title)), note: notes.join(' ') };
     } },
   'trace-letter': { title: 'Letter tracing', words: false, key: false,
     async make(title) {
       const pick = $('#sheet-letter').value, letters = pick === 'all' ? Object.keys(LETTER_PICS) : [pick], pages = [];
       for (const l of letters) pages.push(await letterTracePage(l));
       return { pages, title: title + (letters.length > 1 ? ' A to Z' : ' ' + pick) };
+    } },
+  'trace-number': { title: 'Number tracing', words: false, key: false,
+    async make(title) {
+      const pick = $('#sheet-number').value, [from, to] = pick.includes('-') ? pick.split('-').map(Number) : [+pick, +pick], pages = [];
+      for (let n = from; n <= to; n++) pages.push(await numberTracePage(n, COUNT_PICS[n % COUNT_PICS.length]));
+      return { pages, title: title + (from === to ? ' ' + from : ` ${from} to ${to}`) };
+    } },
+  sounds: { title: 'Beginning sounds',
+    async make(title, key, seed) {
+      const rows = soundRows(seededRandom(seed));
+      return { pages: [await soundPage(title, rows, false), ...(key ? [await soundPage(title, rows, true)] : [])] };
+    } },
+  'find-letter': { title: 'Find the letter',
+    async make(title, key, seed) {
+      const rand = seededRandom(seed), pick = $('#sheet-letter').value, letter = pick === 'all' ? Object.keys(LETTER_PICS)[Math.floor(rand() * 26)] : pick, cells = letterFind(letter, rand);
+      return { pages: [await findPage(title, letter, cells, false), ...(key ? [await findPage(title, letter, cells, true)] : [])], title: title + ' ' + letter };
+    } },
+  tenframe: { title: 'Ten frames',
+    async make(title, key, seed) {
+      const rows = countRows(+$('#sheet-count-upto').value, seededRandom(seed));
+      return { pages: [await tenFramePage(title, rows, false), ...(key ? [await tenFramePage(title, rows, true)] : [])] };
+    } },
+  spy: { title: 'I spy and count',
+    async make(title, key, seed) {
+      const scene = spyScene(seededRandom(seed));
+      return { pages: [await spyPage(title, scene, false), ...(key ? [await spyPage(title, scene, true)] : [])] };
+    } },
+  dots: { title: 'Dot-to-dot',
+    async make(title, key, seed) {
+      const rand = seededRandom(seed), pick = $('#sheet-dots-shape').value, shape = pick === 'surprise' ? Object.keys(DOT_SHAPES)[Math.floor(rand() * 5)] : pick, n = +$('#sheet-dots-upto').value;
+      return { pages: [await dotsPage(title, shape, n, false), ...(key ? [await dotsPage(title, shape, n, true)] : [])] };
     } },
   'trace-lines': { title: 'Trace the lines', words: false, key: false,
     async make(title, key, seed) { return { pages: await linesPages(title, seededRandom(seed)), note: 'Lines on page 1, shapes on page 2.' }; } },
@@ -384,5 +589,7 @@ Object.assign(SHEET_KINDS, {
       return { pages: [await mazePage(title, m, pair, false), ...(key ? [await mazePage(title, m, pair, true)] : [])] };
     } }
 });
+$('#sheet-number').replaceChildren(...NUMBER_WORDS.map((w, n) => new Option(`${n} ${w}`, String(n))), new Option('0 to 10 (11 pages)', '0-10'), new Option('1 to 20 (20 pages)', '1-20'));
+$('#sheet-number').value = '1';
 $('#sheet-letter').replaceChildren(...Object.keys(LETTER_PICS).map(l => new Option(l + ' ' + l.toLowerCase(), l)), new Option('Every letter, A to Z (26 pages)', 'all'));
-for (const [id, kind] of [['#sheet-trace-name', 'trace-name'], ['#sheet-trace-letter', 'trace-letter'], ['#sheet-trace-lines', 'trace-lines'], ['#sheet-count-pics', 'count'], ['#sheet-match-pics', 'match'], ['#sheet-pattern-pics', 'pattern'], ['#sheet-maze', 'maze']]) $(id).onclick = () => openSheet(kind);
+for (const [id, kind] of [['#sheet-trace-name', 'trace-name'], ['#sheet-trace-letter', 'trace-letter'], ['#sheet-trace-number', 'trace-number'], ['#sheet-trace-lines', 'trace-lines'], ['#sheet-count-pics', 'count'], ['#sheet-match-pics', 'match'], ['#sheet-pattern-pics', 'pattern'], ['#sheet-maze', 'maze'], ['#sheet-sounds', 'sounds'], ['#sheet-find-letter', 'find-letter'], ['#sheet-tenframe', 'tenframe'], ['#sheet-spy', 'spy'], ['#sheet-dots', 'dots']]) $(id).onclick = () => openSheet(kind);

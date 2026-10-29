@@ -2916,6 +2916,12 @@ const test = `<script>
         const ava = traceText('Ava', 68, 200, 0.8, true), at = ava.getBoundingRect();
         step(Math.abs(at.left - 68) < 8 && Math.abs(at.top - 200) < 8 && Math.abs(at.top + at.height - 280) < 8 && ava.strokeDashArray, () => 'a traced word sits on its writing lines, dotted: ' + JSON.stringify(at));
         step(traceable('Zoë-Lynn O\\'Brien!') === 'Zoe-Lynn O\\'Brien', () => 'accents become plain letters and unknown marks are left out: ' + traceable('Zoë-Lynn O\\'Brien!'));
+        await emojiReady;
+        const picNames = [...Object.values(LETTER_PICS).flat(), ...COUNT_PICS, ...MATCH_PICS, ...PATTERN_PICS, ...Object.values(MAZE_PAIRS).flat()], missingPics = picNames.filter(n => !emojiEntries.some(e => e.name === n));
+        step(!missingPics.length && Object.values(LETTER_PICS).every(l => l.length), () => 'every preschool picture is in the clip art and every letter has one: ' + missingPics);
+        step(nameToTrace('SMITH, AVA', 'nice', true) === 'Ava' && nameToTrace('McKenzie Lee', 'nice', true) === 'McKenzie' && nameToTrace("mary-kate o'brien", 'nice', false) === "Mary-Kate O'Brien" && nameToTrace('Zoë', 'caps', true) === 'ZOE' && nameToTrace('李明', 'nice', true) === '' && nameToTrace('J.J. Watt', 'typed', true) === 'J.J.',
+          () => 'names: turned round, first name, big first letter, capitals: ' + [nameToTrace('SMITH, AVA', 'nice', true), nameToTrace('McKenzie Lee', 'nice', true), nameToTrace("mary-kate o'brien", 'nice', false), nameToTrace('J.J. Watt', 'typed', true)]);
+        step(nameK('Ava') >= nameK('Alexandria') && nameK('Maximilian Montgomery') < NAME_MIN_K && nameK('Alexandria') >= NAME_MIN_K, () => 'long names are noted as smaller: ' + [nameK('Alexandria'), nameK('Maximilian Montgomery')]);
         const mz = maze(8, seededRandom(4)), passages = mz.walls.reduce((n, w) => n + !w.r + !w.b, 0);
         step(mz.path[0] === 0 && mz.path.at(-1) === 63 && passages === 63, () => 'a maze has exactly one way between any two cells, start to finish: ' + [mz.path.length, passages]);
         const mt = matchPairs('letters', seededRandom(9), 5);
@@ -2936,6 +2942,12 @@ const test = `<script>
         const shownRow = sel => getComputedStyle($(sel).closest('label')).display !== 'none';
         await made('#sheet-trace-name', () => { step(!shownRow('#sheet-key') && !shownRow('#sheet-letter') && !$('#sheet-words-part').hidden && $('#sheet-words-label').textContent === 'Their names', 'name tracing asks for names, with no answer key'); $('#sheet-words').value = 'Ava\\nBenjamin\\nZoë'; },
           pages => pages.length === 3 && pages.every(p => p.objects.filter(o => o.kbName === 'Letters to trace').length === 3 && p.objects.filter(o => o.kbName === 'Letters').length === 1), 'Trace your name');
+        await made('#sheet-trace-name', () => { step(shownRow('#sheet-name-style') && $('#sheet-name-first').checked, 'name tracing offers how to write the names'); $('#sheet-words').value = 'SMITH, AVA\\n李明\\nMaximilian Montgomery'; $('#sheet-name-first').checked = false; },
+          pages => pages.length === 2, 'Trace your name, from a school list');
+        await until(() => /Left out \\(no letters it can draw/.test($('#sheet-done').textContent) && /written smaller: Maximilian Montgomery/.test($('#sheet-done').textContent), () => 'it says which names were left out or written smaller: ' + $('#sheet-done').textContent);
+        $('#sheet-name-first').checked = true;
+        await made('#sheet-trace-number', () => { step(shownRow('#sheet-number') && !shownRow('#sheet-key') && $('#sheet-number').value === '1', 'number tracing asks which number'); $('#sheet-number').value = '0-10'; },
+          pages => pages.length === 11 && design.title.endsWith(' 0 to 10') && pages[3].objects.filter(o => /^image$/i.test(o.type)).length === 3 && pages[0].objects.filter(o => /^image$/i.test(o.type)).length === 0 && pages[10].objects.filter(o => /^image$/i.test(o.type)).length === 10, 'Number tracing');
         await made('#sheet-trace-letter', () => { step(shownRow('#sheet-letter') && $('#sheet-letter').options.length === 27, 'letter tracing offers every letter'); $('#sheet-letter').value = 'B'; },
           pages => pages.length === 1 && design.title.endsWith(' B') && pages[0].objects.some(o => o.kbName === 'banana') && pages[0].objects.filter(o => o.kbName === 'Letters to trace').length === 4, 'Letter tracing');
         await made('#sheet-trace-lines', null, pages => pages.length === 2 && pages[0].objects.filter(o => /line$/.test(o.kbName) && o.strokeDashArray).length === 6 && pages[1].objects.filter(o => /to trace$/.test(o.kbName)).length === 8, 'Tracing lines and shapes');
@@ -2944,6 +2956,20 @@ const test = `<script>
         await made('#sheet-match-pics', () => { $('#sheet-match').value = 'numbers'; }, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Line dot').length === 10 && pages[1].objects.filter(o => o.kbName === 'Answer').length === 5, 'Matching');
         await made('#sheet-pattern-pics', null, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Draw what comes next').length === 12 && pages[0].objects.filter(o => /^image$/i.test(o.type)).length === 36 && pages[1].objects.filter(o => /^image$/i.test(o.type)).length === 48, 'What comes next');
         await made('#sheet-maze', () => { $('#sheet-maze-size').value = 'easy'; $('#sheet-maze-pair').value = 'bee'; }, pages => pages.length === 2 && pages[0].objects.some(o => o.kbName === 'Maze walls') && pages[0].objects.some(o => o.kbName === 'bee') && pages[1].objects.some(o => o.kbName === 'Answer'), 'Maze');
+        await made('#sheet-sounds', null, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Letter choice').length === 18 && pages[1].objects.filter(o => o.kbName === 'Answer').length === 6, 'Beginning sounds');
+        const sr = soundRows(seededRandom(5));
+        step(sr.every(r => r.choices.includes(r.letter) && new Set(r.choices).size === 3 && picLabel(r.pic)[0].toUpperCase() === r.letter) && new Set(sr.map(r => r.letter)).size === 6, () => 'each picture starts with its letter, among three different ones: ' + JSON.stringify(sr));
+        await made('#sheet-find-letter', () => { step(shownRow('#sheet-letter') && shownRow('#sheet-key'), 'find the letter asks which letter'); $('#sheet-letter').value = 'B'; },
+          pages => pages.length === 2 && design.title.endsWith(' B') && pages[0].objects.filter(o => o.kbName === 'Bubble').length === 56 && pages[1].objects.filter(o => o.kbName === 'Answer').length > 5, 'Find the letter');
+        const lf = letterFind('B', seededRandom(6));
+        step(lf.every(c => c.hit === (c.c === 'B' || c.c === 'b')), () => 'only the letter itself counts as found: ' + lf.filter(c => c.hit !== (c.c === 'B' || c.c === 'b')).map(c => c.c));
+        await made('#sheet-tenframe', () => { step(shownRow('#sheet-count-upto'), 'ten frames ask how high'); $('#sheet-count-upto').value = '20'; },
+          pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Ten frame box').length >= 60 && pages[1].objects.filter(o => o.kbName === 'Answer').length === 6, 'Ten frames');
+        const scene = spyScene(seededRandom(8));
+        step(scene.spots.length === scene.counts.reduce((a, b) => a + b, 0) && scene.spots.every((s, i) => scene.spots.every((t, j) => i === j || Math.hypot(s.x - t.x, s.y - t.y) > scene.size)), () => 'I spy pictures never overlap and the counts are what is on the page: ' + scene.counts);
+        await made('#sheet-spy', null, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Write how many').length === 5 && pages[1].objects.filter(o => o.kbName === 'Answer').length === 5, 'I spy and count');
+        step(['star', 'heart', 'house', 'fish', 'tree'].every(s => [10, 15, 20].every(n => dotPoints(s, n).length === n)), 'dot-to-dot always has the number of dots asked for');
+        await made('#sheet-dots', () => { $('#sheet-dots-shape').value = 'house'; $('#sheet-dots-upto').value = '20'; }, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Dot number').length === 20 && pages[1].objects.some(o => o.kbName === 'house'), 'Dot-to-dot');
         $('#sheet-math').click(); step(!shownRow('#sheet-maze-size') && !shownRow('#sheet-count-upto') && shownRow('#sheet-key'), 'Math practice hides the preschool choices'); $('#sheet-close').click();
       }
       $('#sheet-key').checked = true;

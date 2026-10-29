@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.46.0
+
+- 🖍️ More preschool pages, in Classroom → Puzzles and worksheets, now sorted into Writing, Letters and sounds, Numbers, and Thinking and puzzles:
+  - **Number tracing**: the number big with its word ("three"), that many pictures to count, and rows to trace. One number from 0 to 20, or 0 to 10 and 1 to 20 as a page each.
+  - **Beginning sounds**: circle the letter each picture starts with.
+  - **Find the letter (dot it)**: a page of letter bubbles to dot with a bingo dauber or colour in every B and b, with look-alikes (d, p, q) mixed in.
+  - **Ten frames**: count the dots in a ten frame (two for 11 to 20) and write how many.
+  - **I spy and count**: pictures scattered over the page, never overlapping, and a box under each kind for how many.
+  - **Dot-to-dot**: join 10, 15 or 20 numbered dots to make a star, heart, house, fish or tree (or a surprise). The answer key shows what it is.
+- Trace your name works from real class lists:
+  - "Smith, Ava" turns round to Ava Smith, and **First names only** (on unless you untick it) gives bigger letters.
+  - Names in ALL CAPITALS or all small letters are written with a big first letter (Ava), the way preschoolers learn them. McKenzie keeps its K. You can also choose "just as they're typed" or "in capitals".
+  - Names with no letters it can draw (only A to Z) are listed instead of quietly left out, and long names that had to be written smaller are named.
+- Letter tracing has pictures for Q (a crown) and X (an x-ray, and a fox that ends in x).
+- The What's new card appears once more.
+
 ## 0.45.0
 
 - 🙂 Photos keep their faces when they fill a frame. Until now a photo was cropped from its middle, so a tall frame on a wide photo, or a wide frame on a tall one, could cut a child's head in half. Now KB Studio finds the faces first and crops around them, with the heads a little above the middle and their hair kept in. This happens everywhere a photo fills a frame:
