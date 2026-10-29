@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 
 /// Faces scoring below this are left out (libfacedetection's own threshold for a reliable face).
 const MIN_SCORE: f32 = 0.5;
+/// Real faces score about 0.9; things that only look a bit like a face (a row of bottles) score 0.5 to 0.65 and are
+/// tiny. A face scoring below this is kept only if it is at least a quarter as wide as the biggest one.
+const SURE_SCORE: f32 = 0.8;
 
 /// One face, in pixels of the picture it was found in.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -24,7 +27,13 @@ pub struct Face {
 pub fn find(w: usize, h: usize, rgba: &[u8]) -> Result<Vec<Face>, String> {
     let px: Vec<[f32; 4]> = rgba.as_chunks::<4>().0.iter().map(|p| p.map(|v| v as f32 / 255.0)).collect();
     let found = photocraft_faces::detect(&px, w, h, MIN_SCORE).ok_or("the picture is not the size it says")?;
-    Ok(found.into_iter().map(|f| Face { score: f.score, rect: f.rect, landmarks: f.landmarks }).collect())
+    Ok(likely(found.into_iter().map(|f| Face { score: f.score, rect: f.rect, landmarks: f.landmarks }).collect()))
+}
+
+/// The faces worth touching up: sure ones, and less sure ones that are a fair size next to the biggest.
+fn likely(faces: Vec<Face>) -> Vec<Face> {
+    let biggest = faces.iter().map(|f| f.rect[2]).fold(0.0, f32::max);
+    faces.into_iter().filter(|f| f.score >= SURE_SCORE || (f.score >= 0.6 && f.rect[2] >= biggest / 4.0)).collect()
 }
 
 /// How much of each touch-up, 0 to 1.
@@ -228,6 +237,13 @@ mod tests {
     fn a_flat_picture_has_no_faces_and_a_wrong_size_is_refused() {
         assert_eq!(find(32, 24, &vec![128; 32 * 24 * 4]), Ok(vec![]));
         assert!(find(4, 4, &[0; 12]).is_err());
+    }
+
+    #[test]
+    fn specks_that_look_a_little_like_faces_are_left_out() {
+        let at = |score, width| Face { score, rect: [0.0, 0.0, width, width], ..face() };
+        let kept = likely(vec![at(0.93, 230.0), at(0.63, 23.0), at(0.51, 200.0), at(0.7, 80.0), at(0.85, 20.0)]);
+        assert_eq!(kept.iter().map(|f| f.rect[2]).collect::<Vec<_>>(), [230.0, 80.0, 20.0]);
     }
 
     #[test]

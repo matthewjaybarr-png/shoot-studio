@@ -523,6 +523,7 @@ async function stepHistory(by) {
   restoring = false;
   here = to;
   paintAll(); fitBoard(); schedule();
+  if (drawer === 'retouch' && typeof paintTouch === 'function') paintTouch(); // Edit photo's tabs follow the picture Undo brought back
 }
 const undoDesign = () => stepHistory(-1), redoDesign = () => stepHistory(1);
 $('#create-undo').onclick = undoDesign;

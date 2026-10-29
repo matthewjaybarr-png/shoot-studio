@@ -2,12 +2,13 @@
 
 ## 0.41.0
 
-- 🙂 Faces, a new tab in Edit photo: it finds the faces in the photo and circles them. Then move a slider:
+- 🙂 Faces, a new tab in Edit photo: it finds the faces in the photo and circles them (a row of bottles that only looks a little like a face is ignored). Then move a slider:
   - **Smooth skin** evens out blotches and redness but keeps pores, so skin still looks like skin.
   - **Brighter eyes** and **Whiter teeth** (lips and gums are left alone).
   - **Bigger eyes**, **Smile** (lifts the corners of the mouth), **Slimmer face** and **Smaller nose**.
   - With several people, touch up **All faces** or pick **Face 1**, **Face 2**… Moving a slider back really goes back, **Back to the photo** puts it all back, and Undo works too. A cut-out picture keeps its edge.
 - Edit photo's tabs are in two rows of four, with Faces next to Retouch.
+- Undo with Edit photo open now updates the tab you're on (Faces, Effects, Straighten…) for the picture that came back, instead of showing the sliders as they were.
 - The What's new card appears once more.
 
 ## 0.40.0

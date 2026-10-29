@@ -2622,7 +2622,7 @@ const test = `<script>
       undoDesign(); await until(() => board.getObjects().find(o => o.kbName === "Photo straighten")?.width === 300, 'Undo puts the tilted picture back');
       // 0.37: Split a scan: each photo Rust finds comes out straight as its own picture where it lay; Undo brings the scan back.
       const scan = board.getObjects().find(o => o.kbName === 'Photo straighten');
-      chooseStraighten(scan); await until(() => !straightTool.busy, 'the scan is chosen');
+      chooseStraighten(scan); paintStraighten(); await until(() => !straightTool.busy, 'the scan is chosen'); // as a click on it does
       step(seen('#straight-scan'), 'Straighten offers Split a scan into photos');
       window.scanPhotos = [];
       $('#straight-scan').click();
@@ -2758,9 +2758,14 @@ const test = `<script>
       $('#face-back').click();
       await until(() => !faceFx.busy && !faceTouched(), 'Back to the photo');
       step(await green() === 100 && $('#face-back').disabled && $('#face-smooth').value === '0', 'Back to the photo puts it back');
+      faceFx.smooth = 70; paintFaces(); // as if a slider were part-way, then Undo
+      undoDesign(); await until(() => faceFx.image !== pic && !faceFx.smooth && $('#face-smooth').value === '0', 'Undo resets Faces by itself');
+      const back = board.getObjects().find(o => o.type === 'image' && o.kbName === pic.kbName && o !== pic); selectObjects([back]); paintFaces();
+      await until(() => faceFx.image === back && faceFx.faces?.length === 1 && !faceFx.finding, 'the picture Undo brought back');
+      step(await (async () => { const w = await touchPixels(back.getSrc()); return w.ctx.getImageData(5, 5, 1, 1).data[1]; })() === 40 && faceFx.base === back.getSrc(), 'Undo brings the touched-up picture back, and Faces starts afresh from it');
       $('#face-done').click();
       step(drawer !== 'retouch', 'Done puts Faces away');
-      board.remove(pic); commitDesign();
+      [pic, back].forEach(o => board.remove(o)); commitDesign();
     }
     // 0.39: Backups: the start screen says there are none, choosing a folder backs up at once, a missed one warns, restore reports.
     { const seen = sel => !$(sel).closest('[hidden]');
