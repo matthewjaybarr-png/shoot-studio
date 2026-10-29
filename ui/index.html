@@ -225,6 +225,9 @@
             <label>Thickness <output id="draw-width-out"></output><input id="draw-width" type="range" min="1" max="40" value="3"></label>
             <label>Transparency <output id="draw-see-out"></output><input id="draw-see" type="range" min="0" max="90" step="5" value="0"></label>
           </div>
+          <div id="draw-eraser-options" hidden>
+            <div id="draw-rub" class="fun-grid" role="group" aria-label="What the eraser takes"><button type="button" data-rub="part">Just where I rub</button><button type="button" data-rub="whole">Whole lines</button></div>
+          </div>
           <p class="hint" id="draw-hint"></p>
         </section>
         <section data-panel="retouch" hidden>

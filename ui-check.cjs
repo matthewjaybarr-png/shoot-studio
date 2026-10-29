@@ -1377,7 +1377,23 @@ const test = `<script>
     step(glow.kbName === 'Glow pen' && glow.shadow?.blur >= 14 && glow.shadow.color === '#fdd835' && glow.stroke === '#feefae' && glow.opacity === 0.5 && JSON.parse(JSON.stringify(glow.toObject(KEEP))).shadow, 'the glow pen glows, Transparency applies, and both are saved');
     see.value = 0; see.dispatchEvent(new Event('input'));
     $('#draw-tools [data-draw=eraser]').click();
-    step(!board.isDrawingMode && board.skipTargetFind && /Undo brings it back/.test($('#draw-hint').textContent) && $('#draw-pen-options').hidden, 'the Eraser stops drawing and takes the mouse');
+    step(!board.isDrawingMode && board.skipTargetFind && /Undo brings it back/.test($('#draw-hint').textContent) && $('#draw-pen-options').hidden && !$('#draw-eraser-options').hidden && drawing.rub === 'part', 'the Eraser stops drawing and takes the mouse, rubbing out part of a line to start with');
+    // 0.43: rubbing out the middle of a line leaves its two ends, each where it was, looking the same.
+    const rubbed = stroke(200, 420, 400, 420), rubCount = board.getObjects().length, rubAt = board.getObjects().indexOf(rubbed), rubHere = here;
+    drawing.down = true; eraseAt(new fabric.Point(300, 424)); drawToolsUp();
+    const ends = board.getObjects().slice(rubAt, rubAt + 2), endBox = ends.map(o => o.getBoundingRect());
+    step(!board.getObjects().includes(rubbed) && board.getObjects().length === rubCount + 1 && ends.every(o => o.type === 'path' && o.kbName === rubbed.kbName && o.opacity === rubbed.opacity && o.stroke === rubbed.stroke && o.strokeWidth === rubbed.strokeWidth) && here === rubHere + 1, () => 'the line is cut in two, keeping its look, as one Undo step: ' + board.getObjects().map(o => o.type + ':' + o.kbName + ':' + o.opacity));
+    step(Math.abs(endBox[0].left - (rubbed.getBoundingRect().left)) < 2 && endBox[0].left + endBox[0].width < 290 && endBox[1].left > 310 && Math.abs(endBox[1].left + endBox[1].width - (rubbed.getBoundingRect().left + rubbed.getBoundingRect().width)) < 2, () => 'the ends stay put and the middle is gone: ' + JSON.stringify(endBox));
+    ends.forEach(o => board.remove(o)); commitDesign();
+    const turned = stroke(200, 520, 400, 520); turned.set({ angle: 30, scaleX: 1.5, scaleY: 1.5 }); turned.setCoords();
+    const tipsOf = o => { const m = o.calcTransformMatrix(), p = o.path, a = new fabric.Point(p[0][1], p[0][2]).subtract(o.pathOffset), b = new fabric.Point(p.at(-1).at(-2), p.at(-1).at(-1)).subtract(o.pathOffset); return [fabric.util.transformPoint(a, m), fabric.util.transformPoint(b, m)]; };
+    const [tipA, tipB] = tipsOf(turned), mid = tipA.lerp(tipB, 0.5), turnedAt = board.getObjects().indexOf(turned);
+    drawing.down = true; eraseAt(mid); drawToolsUp();
+    const [halfA, halfB] = board.getObjects().slice(turnedAt, turnedAt + 2);
+    step(halfA.angle === 30 && halfB.scaleX === 1.5 && tipsOf(halfA)[0].distanceFrom(tipA) < 1 && tipsOf(halfB)[1].distanceFrom(tipB) < 1 && tipsOf(halfA)[1].distanceFrom(mid) > 5, () => 'a turned, enlarged line keeps its ends in place: ' + [tipsOf(halfA)[0], tipA, tipsOf(halfB)[1], tipB].map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)));
+    [halfA, halfB].forEach(o => board.remove(o)); commitDesign();
+    $('#draw-rub [data-rub=whole]').click();
+    step(drawing.rub === 'whole' && /whole line/.test($('#draw-hint').textContent) && $('#draw-rub [data-rub=whole]').classList.contains('on'), 'Whole lines can be chosen instead');
     const count = board.getObjects().length, history0 = here;
     drawing.down = true; eraseAt(new fabric.Point(300, 200)); drawToolsUp();
     step(board.getObjects().length === count - 1 && !board.getObjects().includes(lit) && board.getObjects().includes(glow) && here === history0 + 1, 'the Eraser takes away the line it touches, and only that line, as one Undo step');
@@ -1388,6 +1404,7 @@ const test = `<script>
     drawing.down = true; eraseAt(new fabric.Point(250, 708)); drawToolsUp();
     step(!board.getObjects().includes(thin), 'the eraser catches a thin line when zoomed out');
     zoomBoard(zoom0);
+    $('#draw-rub [data-rub=part]').click();
     $('#draw-tools [data-draw=pen]').click(); showDrawer('elements');
     step(!board.isDrawingMode && !board.skipTargetFind, 'leaving Draw stops drawing and gives the mouse back');
     [glow].forEach(o => board.remove(o)); commitDesign();
