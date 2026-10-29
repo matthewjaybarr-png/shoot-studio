@@ -132,9 +132,21 @@ async function picUrl(name) {
   prePics.set(name, out.toDataURL('image/png'));
   return prePics.get(name);
 }
-// A picture `size` pixels square, centred on (cx, cy).
+// The same picture as a flat dark shadow: everything it covers painted one colour (source-in keeps its outline).
+async function shadowUrl(name) {
+  const key = 'shadow:' + name;
+  if (prePics.has(key)) return prePics.get(key);
+  const img = new Image(); img.src = await picUrl(name); await img.decode();
+  const out = Object.assign(document.createElement('canvas'), { width: 160, height: 160 }), ctx = out.getContext('2d');
+  ctx.drawImage(img, 0, 0); ctx.globalCompositeOperation = 'source-in'; ctx.fillStyle = '#3b3446'; ctx.fillRect(0, 0, 160, 160);
+  prePics.set(key, out.toDataURL('image/png'));
+  return prePics.get(key);
+}
+// A picture `size` pixels square, centred on (cx, cy); `o.shadow` draws it as its shadow.
 async function pic(name, cx, cy, size, o = {}) {
-  const image = await fabric.FabricImage.fromURL(await picUrl(name));
+  const { shadow: asShadow, ...rest } = o;
+  const image = await fabric.FabricImage.fromURL(await (asShadow ? shadowUrl(name) : picUrl(name)));
+  o = rest;
   image.set({ left: cx - size / 2, top: cy - size / 2, scaleX: size / image.width, scaleY: size / image.height, kbName: picLabel(name), ...o });
   return image;
 }
@@ -309,7 +321,7 @@ function matchPairs(kind, rand, rows = 5) {
   let left;
   if (kind === 'letters') left = shuffled('ABCDEFGHIJKLMNOPRSTUWYZ'.split(''), rand).slice(0, rows).map(c => ({ a: c, b: c.toLowerCase() }));
   else if (kind === 'numbers') left = shuffled(Array.from({ length: 10 }, (_, i) => i + 1), rand).slice(0, rows).map(n => ({ a: String(n), b: n }));
-  else left = shuffled(MATCH_PICS, rand).slice(0, rows).map(p => ({ a: p, b: p }));
+  else left = shuffled(MATCH_PICS, rand).slice(0, rows).map(p => ({ a: p, b: p })); // pictures, and pictures to their shadows
   // The right side in a new order where nothing sits straight across from its partner.
   let order = shuffled(left.map((_, i) => i), rand);
   for (let tries = 0; tries < 30 && order.some((j, i) => j === i); tries++) order = shuffled(order, rand);
@@ -317,7 +329,7 @@ function matchPairs(kind, rand, rows = 5) {
 }
 const DOT_SPOTS = n => Array.from({ length: n }, (_, i) => { const perRow = n > 5 ? Math.ceil(n / 2) : n, row = Math.floor(i / perRow), col = i % perRow, inRow = Math.min(perRow, n - row * perRow); return [(col - (inRow - 1) / 2) * 30, n > 5 ? (row - 0.5) * 30 : 0]; });
 async function matchItem(kind, value, cx, cy, side) {
-  if (kind === 'pictures') return [await pic(value, cx, cy, 90)];
+  if (kind === 'pictures' || kind === 'shadows') return [await pic(value, cx, cy, 90, { shadow: kind === 'shadows' && side === 'right', kbName: kind === 'shadows' && side === 'right' ? 'Shadow' : picLabel(value) })];
   if (kind === 'letters' || side === 'left') { const k = 0.7, w = glyphsWidth(String(value)) * k; return [traceText(String(value), cx - w / 2, cy - (/[a-z]/.test(value) ? 75 : 50) * k, k, false, { kbName: 'Letter' })]; }
   return DOT_SPOTS(value).map(([x, y]) => new fabric.Circle({ left: cx + x - 11, top: cy + y - 11, radius: 11, fill: '#7f63c9', strokeWidth: 0, kbName: 'Dot' }));
 }
@@ -451,9 +463,8 @@ async function tenFramePage(title, rows, answers) {
   return toPage(parts);
 }
 // ---- I spy and count: pictures of a few kinds scattered over the page, and a row of boxes for how many of each ----
-function spyScene(rand, kinds = 5) {
-  const pics = shuffled(COUNT_PICS, rand).slice(0, kinds), counts = pics.map(() => 2 + Math.floor(rand() * 6)), size = 66, spots = [];
-  const area = { left: 60, top: 190, width: 696, height: 560 };
+function spyScene(rand, kinds = 5, area = { left: 60, top: 190, width: 696, height: 560 }, size = 66) {
+  const pics = shuffled(COUNT_PICS, rand).slice(0, kinds), counts = pics.map(() => 2 + Math.floor(rand() * 6)), spots = [];
   for (const [k, p] of pics.entries()) for (let n = 0; n < counts[k]; n++) {
     for (let tries = 0; tries < 400; tries++) {
       const x = area.left + size / 2 + rand() * (area.width - size), y = area.top + size / 2 + rand() * (area.height - size);
@@ -507,6 +518,108 @@ async function dotsPage(title, shape, n, answers) {
     parts.push(T(String(i + 1), x + ox - 20, y + oy - 14, { width: 40, fontSize: 22, textAlign: 'center', fontFamily: 'Fredoka', fontWeight: 'bold', kbName: 'Dot number' }));
   }
   if (answers) parts.push(await pic(DOT_SHAPES[shape].pic, 408, 880, 90), T('It is ' + DOT_SHAPES[shape].label + '!', 48, 935, { width: 720, fontSize: 26, textAlign: 'center', fontFamily: 'Fredoka', fill: SHEET_PINK, kbName: 'Answer' }));
+  return toPage(parts);
+}
+
+// ---- Cutting practice: thick dashed lines from the page edge, with scissors where to start; then a spiral ----
+const cutLine = (d, o = {}) => new fabric.Path(d, { fill: '', stroke: '#333333', strokeWidth: 5, strokeDashArray: [18, 11], strokeLineCap: 'butt', strokeLineJoin: 'round', kbName: 'Line to cut', ...o });
+async function cuttingPages(title) {
+  const kinds = ['Straight', 'Zigzag', 'Waves', 'Hills', 'Steps'], pitch = 840 / kinds.length, one = [...preHeader(title)];
+  one.push(T('Cut along the dashed lines, from the scissors to the end.', 48, 150, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }));
+  for (const [i, kind] of kinds.entries()) {
+    const y = 200 + pitch * (i + 0.5);
+    one.push(await pic('scissors', 50, y - 34, 44), cutLine(pointsPath(strokePoints(kind, 24, 792, y, 28)), { kbName: kind + ' line to cut' }));
+  }
+  // A spiral from the outside in: the radius shrinks steadily as it turns, so the strip stays the same width.
+  const two = [...preHeader(title)], cx = 408, cy = 610, turns = 3.5, outer = 330, pts = [];
+  for (let i = 0; i <= 900; i++) { const t = i / 900, a = t * turns * 2 * Math.PI, r = outer * (1 - t * 0.86); pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
+  two.push(T('Cut round and round the spiral to the middle.', 48, 150, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }),
+    await pic('scissors', cx + outer + 30, cy - 40, 48), cutLine(pointsPath(pts), { kbName: 'Spiral to cut' }), await pic('snail', cx, cy, 70));
+  return [toPage(one), toPage(two)];
+}
+// ---- Odd one out: rows of four pictures, all the same but one ----
+function oddRows(rand, rows = 6) {
+  const pool = shuffled([...new Set(MATCH_PICS.concat(COUNT_PICS))], rand); // two new pictures a row, none used twice on the page
+  return Array.from({ length: rows }, (_, i) => {
+    const [same, odd] = pool.slice(i * 2, i * 2 + 2), at = Math.floor(rand() * 4);
+    return { pics: [0, 1, 2, 3].map(i => i === at ? odd : same), at };
+  });
+}
+async function oddPage(title, rows, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], pitch = 820 / rows.length;
+  parts.push(T('Circle the one that is different.', 48, 150, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }));
+  for (const [i, row] of rows.entries()) {
+    const top = 185 + i * pitch, h = pitch - 16, cy = top + h / 2;
+    parts.push(R(48, top, 720, h, { rx: 16, ry: 16, stroke: '#b9a3e3', strokeWidth: 2.5, kbName: 'Row box' }));
+    for (const [j, p] of row.pics.entries()) {
+      const cx = 138 + j * 180;
+      parts.push(await pic(p, cx, cy, Math.min(90, h - 20)));
+      if (answers && j === row.at) parts.push(new fabric.Circle({ left: cx - 56, top: cy - 56, radius: 56, fill: '', stroke: SHEET_PINK, strokeWidth: 4, kbName: 'Answer' }));
+    }
+  }
+  return toPage(parts);
+}
+// ---- Big and small: three sizes of one picture; each row asks for the biggest or the smallest ----
+function sizeRows(rand, rows = 6) {
+  return shuffled([...new Set(COUNT_PICS.concat(MATCH_PICS))], rand).slice(0, rows).map((p, i) => ({ pic: p, sizes: shuffled([44, 70, 100], rand), ask: i % 2 ? 'smallest' : 'biggest' }));
+}
+async function sizePage(title, rows, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], pitch = 820 / rows.length;
+  for (const [i, row] of rows.entries()) {
+    const top = 175 + i * pitch, h = pitch - 16, cy = top + h / 2 + 8, want = row.ask === 'biggest' ? Math.max(...row.sizes) : Math.min(...row.sizes);
+    parts.push(R(48, top, 720, h, { rx: 16, ry: 16, stroke: '#b9a3e3', strokeWidth: 2.5, kbName: 'Row box' }),
+      T('Circle the ' + row.ask + '.', 64, top + 6, { width: 400, fontSize: 18, fontFamily: 'Fredoka', fill: '#7f63c9', kbName: 'Instructions' }));
+    for (const [j, s] of row.sizes.entries()) {
+      const cx = 220 + j * 190, size = s * Math.min(1, (h - 30) / 100);
+      parts.push(await pic(row.pic, cx, cy, size));
+      if (answers && s === want) parts.push(new fabric.Circle({ left: cx - size / 2 - 12, top: cy - size / 2 - 12, radius: size / 2 + 12, fill: '', stroke: SHEET_PINK, strokeWidth: 4, kbName: 'Answer' }));
+    }
+  }
+  return toPage(parts);
+}
+// ---- Cut and paste sorting: two groups to glue into, and pictures along the bottom to cut out ----
+const SORTS = {
+  'animals-food': [['Animals', 'paw prints', ['cat', 'dog', 'cow', 'pig', 'horse', 'rabbit', 'lion', 'monkey']], ['Food', 'fork and knife', ['banana', 'red apple', 'carrot', 'grapes', 'cookie', 'strawberry', 'cherries', 'pear']]],
+  'land-water': [['Lives on land', 'evergreen tree', ['cat', 'dog', 'cow', 'horse', 'lion', 'elephant', 'giraffe', 'rabbit']], ['Lives in water', 'water wave', ['fish', 'octopus', 'whale', 'jellyfish', 'crab', 'dolphin', 'shark', 'tropical fish']]],
+  'hot-cold': [['Hot', 'sun', ['fire', 'hot beverage', 'hot pepper', 'pizza', 'volcano', 'sun']], ['Cold', 'snowflake', ['snowman', 'ice cream', 'gloves', 'scarf', 'shaved ice', 'penguin', 'snowflake']]],
+  'go-fly': [['Goes on the road', 'automobile', ['automobile', 'bus', 'bicycle', 'tractor', 'fire engine', 'police car']], ['Flies in the sky', 'cloud', ['airplane', 'helicopter', 'rocket', 'kite', 'balloon', 'bird']]]
+};
+function sortPicks(kind, rand, each = 4) {
+  const [a, b] = SORTS[kind];
+  const pick = g => shuffled(g[2], rand).slice(0, each).map(p => ({ p, group: g[0] }));
+  return shuffled([...pick(a), ...pick(b)], rand);
+}
+async function sortPage(title, kind, picks, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], groups = SORTS[kind], colW = 340;
+  parts.push(T('Cut out the pictures at the bottom. Glue each one where it belongs.', 48, 150, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }));
+  for (const [g, [name, icon]] of groups.entries()) {
+    const left = 58 + g * (colW + 20);
+    parts.push(R(left, 190, colW, 560, { rx: 18, ry: 18, stroke: g ? '#7fb3e8' : '#e7779f', strokeWidth: 3, kbName: 'Sorting box' }),
+      await pic(icon, left + 44, 232, 50), T(name, left + 76, 214, { width: colW - 90, fontSize: 28, fontFamily: 'Fredoka', fontWeight: 'bold', kbName: 'Group name' }));
+    if (answers) for (const [i, it] of picks.filter(it => it.group === name).entries()) parts.push(await pic(it.p, left + 90 + (i % 2) * 160, 340 + Math.floor(i / 2) * 150, 100, { kbName: 'Answer' }));
+  }
+  if (!answers) {
+    parts.push(new fabric.Line([24, 778, 792, 778], { stroke: '#999999', strokeWidth: 2, strokeDashArray: [10, 8], kbName: 'Cut here' }), await pic('scissors', 40, 778, 30));
+    for (const [i, it] of picks.entries()) {
+      const x = 58 + (i % 4) * 180, y = 800 + Math.floor(i / 4) * 112;
+      parts.push(R(x, y, 160, 104, { stroke: '#555555', strokeWidth: 2, strokeDashArray: [8, 6], kbName: 'Picture to cut out' }), await pic(it.p, x + 80, y + 52, 84));
+    }
+  }
+  return toPage(parts);
+}
+// ---- Picture graph: count each kind of picture, then colour that many boxes above it ----
+const GRAPH_AREA = { left: 60, top: 160, width: 696, height: 250 };
+async function graphPage(title, scene, answers) {
+  const parts = [...preHeader(answers ? keyTitle(title) : title)], { area } = scene;
+  parts.push(R(area.left - 8, area.top - 8, area.width + 16, area.height + 16, { rx: 18, ry: 18, stroke: '#b9a3e3', strokeWidth: 3, kbName: 'Picture box' }));
+  for (const s of scene.spots) parts.push(await pic(s.p, s.x, s.y, scene.size, { angle: s.angle }));
+  parts.push(T('Colour one box for each picture you count.', 48, 430, { width: 720, fontSize: 20, textAlign: 'center', fill: '#666666', kbName: 'Instructions' }));
+  const kinds = scene.pics.length, colW = 120, box = 54, rows = 8, left = (816 - kinds * colW) / 2, base = 470 + rows * box;
+  for (let k = 0; k < kinds; k++) {
+    const x = left + k * colW + (colW - box) / 2;
+    for (let r = 0; r < rows; r++) parts.push(R(x, base - (r + 1) * box, box, box, { stroke: '#555555', strokeWidth: 2, fill: answers && r < scene.counts[k] ? '#f6c8e0' : 'transparent', kbName: answers && r < scene.counts[k] ? 'Answer' : 'Graph box' }));
+    parts.push(await pic(scene.pics[k], x + box / 2, base + 44, 60));
+  }
   return toPage(parts);
 }
 
@@ -566,6 +679,28 @@ Object.assign(SHEET_KINDS, {
       const rand = seededRandom(seed), pick = $('#sheet-dots-shape').value, shape = pick === 'surprise' ? Object.keys(DOT_SHAPES)[Math.floor(rand() * 5)] : pick, n = +$('#sheet-dots-upto').value;
       return { pages: [await dotsPage(title, shape, n, false), ...(key ? [await dotsPage(title, shape, n, true)] : [])] };
     } },
+  cutting: { title: 'Cutting practice', words: false, key: false,
+    async make(title) { return { pages: await cuttingPages(title), note: 'Lines on page 1, a spiral on page 2.' }; } },
+  odd: { title: 'Odd one out',
+    async make(title, key, seed) {
+      const rows = oddRows(seededRandom(seed));
+      return { pages: [await oddPage(title, rows, false), ...(key ? [await oddPage(title, rows, true)] : [])] };
+    } },
+  sizes: { title: 'Big and small',
+    async make(title, key, seed) {
+      const rows = sizeRows(seededRandom(seed));
+      return { pages: [await sizePage(title, rows, false), ...(key ? [await sizePage(title, rows, true)] : [])] };
+    } },
+  sort: { title: 'Sort them',
+    async make(title, key, seed) {
+      const kind = $('#sheet-sort').value, picks = sortPicks(kind, seededRandom(seed));
+      return { pages: [await sortPage(title, kind, picks, false), ...(key ? [await sortPage(title, kind, picks, true)] : [])] };
+    } },
+  graph: { title: 'Count and graph',
+    async make(title, key, seed) {
+      const scene = spyScene(seededRandom(seed), 4, GRAPH_AREA, 46);
+      return { pages: [await graphPage(title, scene, false), ...(key ? [await graphPage(title, scene, true)] : [])] };
+    } },
   'trace-lines': { title: 'Trace the lines', words: false, key: false,
     async make(title, key, seed) { return { pages: await linesPages(title, seededRandom(seed)), note: 'Lines on page 1, shapes on page 2.' }; } },
   count: { title: 'Count and write', words: false,
@@ -592,4 +727,7 @@ Object.assign(SHEET_KINDS, {
 $('#sheet-number').replaceChildren(...NUMBER_WORDS.map((w, n) => new Option(`${n} ${w}`, String(n))), new Option('0 to 10 (11 pages)', '0-10'), new Option('1 to 20 (20 pages)', '1-20'));
 $('#sheet-number').value = '1';
 $('#sheet-letter').replaceChildren(...Object.keys(LETTER_PICS).map(l => new Option(l + ' ' + l.toLowerCase(), l)), new Option('Every letter, A to Z (26 pages)', 'all'));
-for (const [id, kind] of [['#sheet-trace-name', 'trace-name'], ['#sheet-trace-letter', 'trace-letter'], ['#sheet-trace-number', 'trace-number'], ['#sheet-trace-lines', 'trace-lines'], ['#sheet-count-pics', 'count'], ['#sheet-match-pics', 'match'], ['#sheet-pattern-pics', 'pattern'], ['#sheet-maze', 'maze'], ['#sheet-sounds', 'sounds'], ['#sheet-find-letter', 'find-letter'], ['#sheet-tenframe', 'tenframe'], ['#sheet-spy', 'spy'], ['#sheet-dots', 'dots']]) $(id).onclick = () => openSheet(kind);
+for (const [id, kind] of [['#sheet-trace-name', 'trace-name'], ['#sheet-trace-letter', 'trace-letter'], ['#sheet-trace-number', 'trace-number'], ['#sheet-trace-lines', 'trace-lines'], ['#sheet-count-pics', 'count'], ['#sheet-pattern-pics', 'pattern'], ['#sheet-maze', 'maze'], ['#sheet-sounds', 'sounds'], ['#sheet-find-letter', 'find-letter'], ['#sheet-tenframe', 'tenframe'], ['#sheet-spy', 'spy'], ['#sheet-dots', 'dots'], ['#sheet-cutting', 'cutting'], ['#sheet-odd', 'odd'], ['#sheet-sizes', 'sizes'], ['#sheet-sort', 'sort'], ['#sheet-graph', 'graph']]) $(id).onclick = () => openSheet(kind);
+// Match the shadows is the matching window with shadows picked; plain matching goes back to pictures from there.
+$('#sheet-shadows').onclick = () => { openSheet('match'); $('#sheet-match').value = 'shadows'; $('#sheet-heading').textContent = $('#sheet-title').value = 'Match the shadows'; };
+$('#sheet-match-pics').onclick = () => { openSheet('match'); if ($('#sheet-match').value === 'shadows') $('#sheet-match').value = 'pictures'; };

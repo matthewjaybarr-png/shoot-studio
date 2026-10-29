@@ -65,10 +65,11 @@
       <label data-kinds="trace-number">Number <select id="sheet-number"></select></label>
       <label data-kinds="count tenframe">Count up to <select id="sheet-count-upto"><option>5</option><option selected>10</option><option>20</option></select></label>
       <label data-kinds="count">They answer by <select id="sheet-count-style"><option value="write">Writing the number in a box</option><option value="circle">Circling the right number</option></select></label>
-      <label data-kinds="match">Match <select id="sheet-match"><option value="pictures">Pictures to the same picture</option><option value="letters">Big letters to small letters</option><option value="numbers">Numbers to that many dots</option></select></label>
+      <label data-kinds="match">Match <select id="sheet-match"><option value="pictures">Pictures to the same picture</option><option value="shadows">Pictures to their shadows</option><option value="letters">Big letters to small letters</option><option value="numbers">Numbers to that many dots</option></select></label>
       <label data-kinds="pattern">How hard <select id="sheet-pattern"><option value="easy">Easy: apple, banana, apple, banana…</option><option value="harder">Harder: patterns of two and three</option></select></label>
       <label data-kinds="dots">Picture <select id="sheet-dots-shape"><option value="surprise">A surprise</option><option value="star">Star</option><option value="heart">Heart</option><option value="house">House</option><option value="fish">Fish</option><option value="tree">Tree</option></select></label>
       <label data-kinds="dots">Dots <select id="sheet-dots-upto"><option>10</option><option selected>15</option><option>20</option></select></label>
+      <label data-kinds="sort">Sort into <select id="sheet-sort"><option value="animals-food">Animals and food</option><option value="land-water">Lives on land or in water</option><option value="hot-cold">Hot and cold</option><option value="go-fly">On the road or in the sky</option></select></label>
       <label data-kinds="maze">How big <select id="sheet-maze-size"><option value="easy">Easy: 5 × 5</option><option value="medium" selected>Medium: 8 × 8</option><option value="hard">Hard: 12 × 12</option></select></label>
       <label data-kinds="maze">Who's going where <select id="sheet-maze-pair"><option value="rabbit">Bunny to the carrot</option><option value="bee">Bee to the flower</option><option value="mouse">Mouse to the cheese</option><option value="dog">Dog to the bone</option><option value="monkey">Monkey to the banana</option><option value="chick">Chick to the corn</option></select></label>
     </div>
@@ -244,6 +245,7 @@
           <div class="sheet-buttons">
             <button id="sheet-trace-name" type="button">✍️ Trace your name (a page per child)</button>
             <button id="sheet-trace-lines" type="button">〰️ Tracing lines and shapes</button>
+            <button id="sheet-cutting" type="button">✂️ Cutting practice</button>
           </div>
           <h4 class="sheet-group">Letters and sounds</h4>
           <div class="sheet-buttons">
@@ -257,10 +259,15 @@
             <button id="sheet-count-pics" type="button">🍎 Count and write</button>
             <button id="sheet-tenframe" type="button">🟣 Ten frames</button>
             <button id="sheet-spy" type="button">🔍 I spy and count</button>
+            <button id="sheet-graph" type="button">📊 Count and graph</button>
           </div>
           <h4 class="sheet-group">Thinking and puzzles</h4>
           <div class="sheet-buttons">
             <button id="sheet-match-pics" type="button">🔗 Draw a line to match</button>
+            <button id="sheet-shadows" type="button">🌑 Match the shadows</button>
+            <button id="sheet-odd" type="button">🔎 Odd one out</button>
+            <button id="sheet-sizes" type="button">🐘 Big and small</button>
+            <button id="sheet-sort" type="button">🗂️ Cut and paste sorting</button>
             <button id="sheet-pattern-pics" type="button">🧩 What comes next?</button>
             <button id="sheet-dots" type="button">⭐ Dot-to-dot</button>
             <button id="sheet-maze" type="button">🐰 Maze</button>
@@ -531,6 +538,7 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>✂️ Cutting practice, Match the shadows, Odd one out, Big and small, Cut and paste sorting and Count and graph</b> (Classroom → Puzzles and worksheets).</li>
         <li><b>🖍️ More preschool pages</b> (Classroom → Puzzles and worksheets): number tracing, beginning sounds, find the letter, ten frames, I spy and count, and dot-to-dot. Trace your name now handles real class lists (first names, “Smith, Ava”, ALL CAPS).</li>
         <li><b>🙂 Faces stay in the frame</b>: a photo that fills a frame (dropped on one, on a name tag, or in a collage or photo strip) is now cropped around the faces in it, not from the middle, so nobody loses half their head.</li>
         <li><b>🖍️ Preschool pages</b> (Classroom → Puzzles and worksheets): trace your name (a page for every child), letter tracing with pictures, tracing lines and shapes, count and write, draw a line to match, what comes next, and mazes.</li>

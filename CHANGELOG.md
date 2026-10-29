@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.47.0
+
+- ✂️ Preschool pages for little hands and thinking, in Classroom → Puzzles and worksheets:
+  - **Cutting practice**: thick dashed lines from the edge of the page (straight, zigzag, waves, hills, steps), each with scissors where to start, and a spiral to cut round to the snail in the middle.
+  - **Match the shadows**: draw a line from each picture to its shadow. (Also in Draw a line to match, as "Pictures to their shadows".)
+  - **Odd one out**: rows of four pictures, all alike but one, to circle.
+  - **Big and small**: three sizes of one picture; each row asks for the biggest or the smallest.
+  - **Cut and paste sorting**: pictures along the bottom to cut out and glue into two groups: animals and food, land and water, hot and cold, or on the road and in the sky. The answer key shows them sorted.
+  - **Count and graph**: count each kind of picture and colour that many boxes in its column.
+- The What's new card appears once more.
+
 ## 0.46.0
 
 - 🖍️ More preschool pages, in Classroom → Puzzles and worksheets, now sorted into Writing, Letters and sounds, Numbers, and Thinking and puzzles:
