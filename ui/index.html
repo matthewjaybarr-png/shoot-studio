@@ -77,6 +77,12 @@
         <div id="bulk-fields"></div>
         <label id="bulk-fill-row" class="check" hidden><input id="bulk-fill" type="checkbox" checked> <span id="bulk-fill-label"></span></label>
         <p class="hint">Tip: type {Name} in a text box to fill in just that part, as in “Happy birthday, {Name}!”</p>
+        <div id="bulk-photo-row" hidden>
+          <h4>Each child's photo</h4>
+          <label class="bulk-field"><span>Goes in</span><select id="bulk-photo-box"></select></label>
+          <div class="bulk-save-row"><button id="bulk-photo-add" type="button">📷 Choose their photos…</button><input id="bulk-photo-file" type="file" accept="image/*" multiple hidden><button id="bulk-photo-clear" type="button" hidden>Remove the photos</button></div>
+          <p id="bulk-photo-note" class="hint" role="status"></p>
+        </div>
         <p id="bulk-count" role="status"></p>
         <div class="bulk-actions"><button id="bulk-cancel" type="button">Cancel</button><button id="bulk-make" type="button" class="primary">Make the pages</button></div>
       </div>

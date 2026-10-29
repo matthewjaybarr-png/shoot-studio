@@ -1959,6 +1959,26 @@ const test = `<script>
       const [sheet1, sheet2] = allPages();
       step([at(sheet1, 16, 30), at(sheet1, 300, 30), at(sheet1, 16, 200), at(sheet1, 300, 200)].join() === 'Ava,Ben,Cy,Dee' && at(sheet1, 16, 400) === 'Our class', () => 'page 1 reads left to right, then down: ' + sheet1.objects.map(o => o.text).join('|'));
       step(at(sheet2, 16, 30) === 'Ed' && [at(sheet2, 300, 30), at(sheet2, 16, 200), at(sheet2, 300, 200)].every(t => t === ''), () => 'the last page leaves its spare tags blank: ' + sheet2.objects.map(o => o.text).join('|'));
+      // 0.43: each child's photo goes in the tag's photo frame, matched by file name.
+      await settle(newDesign(), 'photo name tags');
+      board.add(makeFrame(120, 120, 'circle', { left: 300, top: 30 }), makeFrame(120, 120, 'circle', { left: 16, top: 30 }), tag(16, 170), tag(300, 170));
+      commitDesign();
+      $('#file-bulk').click();
+      $('#bulk-list').value = 'Ava\\nBen\\nCy'; $('#bulk-list').dispatchEvent(new Event('input'));
+      step(!$('#bulk-photo-row').hidden && $('#bulk-photo-box').options.length === 2 && $('#bulk-photo-note').textContent.includes('Ava.jpg'), () => 'a design with photo frames offers to fill them: ' + $('#bulk-photo-row').textContent);
+      const kidPhoto = async (name, colour) => { const c = Object.assign(document.createElement('canvas'), { width: 80, height: 60 }), x = c.getContext('2d'); x.fillStyle = colour; x.fillRect(0, 0, 80, 60); return new File([await new Promise(done => c.toBlob(done, 'image/png'))], name, { type: 'image/png' }); };
+      const picked = new DataTransfer();
+      for (const f of [await kidPhoto('Ava.png', '#f00'), await kidPhoto('ben smith 2026.png', '#0f0'), await kidPhoto('IMG_0001.png', '#00f')]) picked.items.add(f);
+      $('#bulk-photo-file').files = picked.files; $('#bulk-photo-file').dispatchEvent(new Event('change'));
+      const photoNote = $('#bulk-photo-note').textContent;
+      step(photoNote.startsWith('2 of 3 names') && photoNote.includes('No photo for Cy') && photoNote.includes('IMG_0001.png') && !$('#bulk-photo-clear').hidden, () => 'Ava and Ben match by file name, Cy and the camera file are pointed out: ' + photoNote);
+      step(matchPhotos([['Ava'], ['Ava'], ['Ben']], 0, [new File([], 'ava.jpg'), new File([], 'Ben.jpg'), new File([], 'Benjamin.jpg')]).map(f => f?.name).join() === 'ava.jpg,,Ben.jpg', 'one file per name, exact names first');
+      const photoFrom = design.title;
+      $('#bulk-make').click();
+      await until(() => design.title !== photoFrom && designPages.length === 2, () => 'two pages of photo tags: ' + $('#bulk-count').textContent);
+      const [ph1, ph2] = allPages(), pic = (page, left) => page.objects.find(o => Math.abs(o.left - left) < 2 && o.top < 160);
+      step(pic(ph1, 16).kbName === 'Photo Ava' && pic(ph1, 300).kbName === 'Photo ben smith 2026' && /^image$/i.test(pic(ph1, 16).type) && pic(ph1, 16).clipPath && Math.round(pic(ph1, 16).width * pic(ph1, 16).scaleX) === 120, () => 'Ava and Ben are in the frames above their names, cropped round: ' + ph1.objects.map(o => o.type + ' ' + o.kbName).join('|'));
+      step(at(ph1, 16, 170) === 'Ava' && at(ph1, 300, 170) === 'Ben' && pic(ph2, 16).kbFrame === 'circle' && !/^image$/i.test(pic(ph2, 16).type) && at(ph2, 16, 170) === 'Cy', () => 'Cy has no photo, so the frame stays empty: ' + ph2.objects.map(o => o.type + ' ' + o.kbName).join('|'));
     }
     // 0.17: Import from Canva (PowerPoint, or a picture).
     await settle($('#create-home').onclick(), 'home for import');

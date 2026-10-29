@@ -621,8 +621,8 @@ function addShape(kind, at) {
   return place(shapes[kind](), at);
 }
 // Pictures are shrunk to 3300 px on the long edge (JPEGs stay JPEG) so a few of them fit in her memory.
-async function shrink(file) {
-  const bitmap = await createImageBitmap(file), long = Math.max(bitmap.width, bitmap.height), k = Math.min(1, IMAGE_EDGE / long);
+async function shrink(file, edge = IMAGE_EDGE) {
+  const bitmap = await createImageBitmap(file), long = Math.max(bitmap.width, bitmap.height), k = Math.min(1, edge / long);
   const out = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(bitmap.width * k)), height: Math.max(1, Math.round(bitmap.height * k)) });
   out.getContext('2d').drawImage(bitmap, 0, 0, out.width, out.height);
   bitmap.close?.();
@@ -769,15 +769,21 @@ async function fillingFrame(target, file, name) {
   const image = await fabric.FabricImage.fromURL(await shrink(file));
   image.kbName = name ? 'Photo ' + name : 'Picture';
   if (!board.getObjects().includes(target)) return place(image, target.getCenterPoint()); // undone or deleted meanwhile
+  fitInFrame(image, target);
+  const at = board.getObjects().indexOf(target);
+  board.remove(target); board.insertAt(at, image);
+  board.setActiveObject(image); image.setCoords();
+  commitDesign();
+  return image;
+}
+
+// Sizes and crops a new picture to the target's box, angle and frame shape (Bulk create uses it for frames off the board).
+function fitInFrame(image, target) {
   const w = target.width * target.scaleX, h = target.height * target.scaleY, k = Math.max(w / image.width, h / image.height);
   const width = w / k, height = h / k, kind = frameKind(target);
   image.set({ cropX: (image.width - width) / 2, cropY: (image.height - height) / 2, width, height, scaleX: k, scaleY: k, angle: target.angle, opacity: target.opacity, shadow: target.shadow });
   if (kind !== 'rect') image.set({ clipPath: pictureFrame(image, kind) });
   image.setPositionByOrigin(target.getCenterPoint(), 'center', 'center');
-  const at = board.getObjects().indexOf(target);
-  board.remove(target); board.insertAt(at, image);
-  board.setActiveObject(image); image.setCoords();
-  commitDesign();
   return image;
 }
 

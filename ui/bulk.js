@@ -2,7 +2,8 @@
 // certificates. It makes a new design with a page per line (every page of the design, per line). A one-page design
 // with the same box several times (a sheet of eight name tags) instead fills each box with the next line, in reading
 // order, and starts a new page when they're used up. Each column of the
-// list goes into the text box chosen for it, or into {Column} wherever that is typed. Needs create.js and doctools.js.
+// list goes into the text box chosen for it, or into {Column} wherever that is typed. Each child's photo, named after
+// them (Ava.jpg), can go into a photo frame on the design. Needs create.js and doctools.js.
 const isTextJSON = o => /^(textbox|i-?text|text)$/i.test(o?.type || '');
 
 // The list as columns and rows. Pasted from a spreadsheet, columns come tab-separated, and the first line can be
@@ -35,6 +36,63 @@ function bulkSlots() {
 }
 const bulkFilling = () => { const fill = bulkSlots(); return fill.per > 1 && $('#bulk-fill').checked ? fill : null; };
 
+// ---- Each child's photo: picked files matched to the names by file name, put in the chosen photo frame ----
+let bulkFiles = [];
+const plainName = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const isFrameJSON = o => (!!o?.kbFrame && !/^image$/i.test(o.type)) || /^image$/i.test(o?.type || '');
+// Every empty photo frame and picture in the design, as "page:index".
+const bulkFrames = () => allPages().flatMap((page, p) => page.objects.flatMap((o, i) => isFrameJSON(o) && !o.kbLocked ? [{ key: `${p}:${i}`, p, o }] : []));
+// The column holding the names: one headed Name, or the first.
+const nameColumn = names => Math.max(0, names.findIndex(n => /name/i.test(n)));
+// Each row's photo file, or null. Exact names first, then a file starting with the name (Ava Smith 2026.jpg), then
+// the same first name; a file is used once, and a guess that fits two files is left for her to see.
+function matchPhotos(rows, column, files = bulkFiles) {
+  const left = files.map(f => ({ f, n: plainName(f.name.replace(/\.[^.]*$/, '')) })), out = rows.map(() => null);
+  const tests = [(n, name) => n === name, (n, name) => n.startsWith(name + ' ') || name.startsWith(n + ' '), (n, name) => n.split(' ')[0] === name.split(' ')[0]];
+  for (const test of tests) rows.forEach((row, r) => {
+    const name = plainName(row[column] || '');
+    if (out[r] || !name) return;
+    const hits = left.filter(l => test(l.n, name));
+    if (hits.length === 1) { out[r] = hits[0].f; left.splice(left.indexOf(hits[0]), 1); }
+  });
+  return out;
+}
+// The frames that take a photo: the chosen one, and on a sheet of alike tags every frame its size and shape, in reading order.
+function photoSlots() {
+  const pick = $('#bulk-photo-box').value, template = allPages();
+  if (!pick || !bulkFiles.length) return [];
+  const [p, i] = pick.split(':').map(Number), chosen = template[p]?.objects[i];
+  if (!chosen || template.length !== 1) return chosen ? [i] : [];
+  const size = o => [Math.round(o.width * (o.scaleX || 1)), Math.round(o.height * (o.scaleY || 1)), o.kbFrame || o.type].join();
+  const alike = template[0].objects.flatMap((o, j) => isFrameJSON(o) && !o.kbLocked && size(o) === size(chosen) ? [j] : []);
+  return alike.sort((a, b) => { const A = template[0].objects[a], B = template[0].objects[b]; return Math.abs(A.top - B.top) < 4 ? A.left - B.left : A.top - B.top; });
+}
+function paintBulkPhotos() {
+  const frames = bulkFrames(), box = $('#bulk-photo-box'), keep = box.value, pages = allPages().length;
+  $('#bulk-photo-row').hidden = !frames.length;
+  box.replaceChildren(...frames.map(({ key, p, o }, n) => new Option(`${pages > 1 ? `Page ${p + 1}: ` : ''}${o.kbName && !/^Photo /.test(o.kbName) ? o.kbName : /^image$/i.test(o.type) ? 'Picture' : 'Photo frame'} ${n + 1}`, key)));
+  if ([...box.options].some(o => o.value === keep)) box.value = keep;
+  $('#bulk-photo-clear').hidden = !bulkFiles.length;
+  const { names, rows } = bulkList(), column = nameColumn(names), matched = matchPhotos(rows, column);
+  const note = $('#bulk-photo-note');
+  if (!bulkFiles.length) { note.textContent = 'Name each photo after the child (Ava.jpg, Ben Smith.jpg) and it goes on their tag.'; return; }
+  const missing = rows.filter((_, r) => !matched[r]).map(row => row[column]).filter(Boolean), spare = bulkFiles.filter(f => !matched.includes(f)).map(f => f.name);
+  note.textContent = `${matched.filter(Boolean).length} of ${rows.length} names have a photo.`
+    + (missing.length ? ` No photo for ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ` and ${missing.length - 6} more` : ''}; their frame stays empty.` : '')
+    + (spare.length ? ` Not matched to a name: ${spare.slice(0, 4).join(', ')}${spare.length > 4 ? ` and ${spare.length - 4} more` : ''}.` : '');
+}
+$('#bulk-photo-add').onclick = () => $('#bulk-photo-file').click();
+$('#bulk-photo-file').onchange = e => { bulkFiles = [...e.target.files].filter(f => f.type.startsWith('image/') || pictureType(f.name)); e.target.value = ''; paintBulkPhotos(); };
+$('#bulk-photo-clear').onclick = () => { bulkFiles = []; paintBulkPhotos(); };
+$('#bulk-photo-box').onchange = paintBulkPhotos;
+// A photo in a frame that isn't on the board: shrunk once per file (a name tag doesn't need 24 megapixels).
+async function bulkPicture(json, file, cache) {
+  if (!cache.has(file)) cache.set(file, await shrink(file, 1600));
+  const [target] = await fabric.util.enlivenObjects([json]), image = await fabric.FabricImage.fromURL(cache.get(file));
+  image.kbName = 'Photo ' + file.name.replace(/\.[^.]*$/, '');
+  return fitInFrame(image, target).toObject(KEEP);
+}
+
 // The column-to-text-box choices, guessed from the words: a box saying "Student Name" gets the Name column.
 function paintBulk() {
   const { tabbed, names, rows } = bulkList(), texts = bulkTexts(), pages = allPages().length, box = $('#bulk-fields');
@@ -53,6 +111,7 @@ function paintBulk() {
     row.append(Object.assign(document.createElement('span'), { textContent: name }), pick);
     return row;
   }));
+  paintBulkPhotos();
   paintBulkCount();
 }
 function paintBulkCount() {
@@ -85,12 +144,16 @@ async function refillText(json, text) {
 }
 async function bulkPages() {
   const { names, rows } = bulkList(), template = allPages(), picks = names.map((_, c) => $('#bulk-field-' + c)?.value || '');
-  const pages = [], fill = bulkFilling();
+  const pages = [], fill = bulkFilling(), photos = photoSlots(), matched = matchPhotos(rows, nameColumn(names)), cache = new Map();
+  const status = n => { if (photos.length) $('#bulk-count').textContent = `Putting in the photos… ${n} of ${rows.length}`; };
   if (fill) { // each box takes the next line; boxes past the end of the list are left blank
     const page = template[0];
     for (let first = 0; first < rows.length; first += fill.per) {
       const objects = [];
+      status(first);
       for (const [i, o] of page.objects.entries()) {
+        const slot = photos.indexOf(i), file = slot >= 0 && slot < fill.per ? matched[first + slot] : null;
+        if (file) { objects.push(await bulkPicture(o, file, cache)); continue; }
         if (!isTextJSON(o)) { objects.push(o); continue; }
         let text = o.text;
         for (const [c, name] of names.entries()) {
@@ -105,9 +168,11 @@ async function bulkPages() {
     }
     return pages;
   }
-  for (const row of rows) for (const [p, page] of template.entries()) {
+  for (const [r, row] of rows.entries()) for (const [p, page] of template.entries()) {
     const objects = [];
+    status(r);
     for (const [i, o] of page.objects.entries()) {
+      if (matched[r] && photos.includes(i) && $('#bulk-photo-box').value.startsWith(p + ':')) { objects.push(await bulkPicture(o, matched[r], cache)); continue; }
       if (!isTextJSON(o)) { objects.push(o); continue; }
       let text = o.text;
       names.forEach((name, c) => { text = text.replace(new RegExp('\\{' + escapeRe(name) + '\\}', 'gi'), row[c] ?? ''); });
@@ -206,7 +271,7 @@ async function openBulk() {
   paintBulk(); paintClassSave();
   $('#bulk-list').focus();
 }
-function closeBulk() { $('#bulk').hidden = true; }
+function closeBulk() { $('#bulk').hidden = true; bulkFiles = []; }
 $('#bulk-list').oninput = () => { paintBulk(); paintClassSave(); };
 $('#bulk-headings').onchange = () => { paintBulk(); paintClassSave(); };
 $('#bulk-make').onclick = () => makeBulk();
