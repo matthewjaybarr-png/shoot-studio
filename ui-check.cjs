@@ -126,6 +126,8 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'blur_picture_background') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([128, 128, 128, 255], i); return out.buffer; }
   if (command === 'see_through_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([20, 20, 20, i < out.length / 2 ? 0 : 255], i); return out.buffer; }
   if (command === 'red_eye_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255]); return b; }
+  if (command === 'find_faces') return [{ score: 0.9, rect: [20, 10, 40, 40], landmarks: [[32, 25], [48, 25], [40, 33], [33, 42], [47, 42]] }];
+  if (command === 'face_tones') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([args[8 + i], args[9 + i] + 10, args[10 + i], 255], i); return out.buffer; }
   if (command === 'effect_picture' || command === 'relight_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4), k = command === 'effect_picture' ? 10 : 20; for (let i = 0; i < out.length; i += 4) out.set([args[8 + i] + k, args[9 + i], args[10 + i], 255], i); return out.buffer; }
   if (command === 'carve_picture') { const w = +options.headers.width, h = +options.headers.height, b = new ArrayBuffer(8 + w * h * 4); new Uint32Array(b, 0, 2).set([w, h]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([90, 60, 200, 255], i); return b; }
   if (command === 'find_scan_photos') return window.scanPhotos || [];
@@ -2735,6 +2737,31 @@ const test = `<script>
       step(drawer !== 'retouch', 'Done puts Effects away');
       board.remove(board.getObjects().find(o => o.kbName === 'Photo effects')); commitDesign();
     }
+    // 0.41: Faces: found and circled, tones from Rust, shape through Reshape's warp, and Back to the photo.
+    { const seen = sel => !$(sel).closest('[hidden]');
+      const c = document.createElement('canvas'); c.width = 80; c.height = 60; c.getContext('2d').fillStyle = 'rgb(100,100,100)'; c.getContext('2d').fillRect(0, 0, 80, 60);
+      const pic = await settle(addImageBlob(await new Promise(r => c.toBlob(r, 'image/png')), 'faces'), 'a picture for faces');
+      pic.set({ left: 100, top: 100, scaleX: 1, scaleY: 1, angle: 0 }); pic.setCoords(); commitDesign(); selectObjects([pic]); paintPanel();
+      $('#prop-retouch').click(); $('#photo-tabs [data-photo-tab=faces]').click();
+      await until(() => faceFx.faces?.length === 1 && !faceFx.finding, 'Faces looks for faces');
+      step(seen('#face-sliders') && $('#face-sliders').querySelectorAll('input[type=range]').length === 7 && /one face/.test($('#face-hint').textContent) && $('#face-which').hidden && $('#face-back').disabled, () => 'one face found, seven sliders, nothing to go back to: ' + $('#face-hint').textContent);
+      board.renderAll();
+      const green = async () => { const w = await touchPixels(pic.getSrc()); return w.ctx.getImageData(5, 5, 1, 1).data[1]; };
+      const before = calls.length, slide = (key, v) => { const el = $('#face-' + key); el.value = v; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); };
+      slide('smooth', 50);
+      await until(() => !faceFx.busy && calls.slice(before).some(c => c.command === 'face_tones'), 'Smooth skin');
+      const toned = calls.slice(before).find(c => c.command === 'face_tones');
+      step(await green() === 110 && toned.options.headers.smooth === '50' && JSON.parse(toned.options.headers.faces).length === 1 && !$('#face-back').disabled, () => 'Smooth skin sends the face to Rust: ' + JSON.stringify(toned.options.headers));
+      slide('bigEyes', 40);
+      await until(() => !faceFx.busy && calls.slice(before).some(c => c.command === 'reshape_picture'), 'Bigger eyes');
+      step(calls.slice(before).filter(c => c.command === 'face_tones').length === 2 && await green() === 40, 'Bigger eyes warps it, with the skin still smoothed from the photo as it was');
+      $('#face-back').click();
+      await until(() => !faceFx.busy && !faceTouched(), 'Back to the photo');
+      step(await green() === 100 && $('#face-back').disabled && $('#face-smooth').value === '0', 'Back to the photo puts it back');
+      $('#face-done').click();
+      step(drawer !== 'retouch', 'Done puts Faces away');
+      board.remove(pic); commitDesign();
+    }
     // 0.39: Backups: the start screen says there are none, choosing a folder backs up at once, a missed one warns, restore reports.
     { const seen = sel => !$(sel).closest('[hidden]');
       settings.backup = { folder: '', every: 'week', last: 0, failed: '' }; paintBackup();
@@ -2935,8 +2962,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

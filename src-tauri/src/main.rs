@@ -10,7 +10,9 @@ mod reshape;
 mod straighten;
 mod desktop;
 mod effects;
+mod faces;
 mod photocraft;
+mod photocraft_faces;
 mod photocraft_redeye;
 mod photocraft_remove;
 mod photocraft_scancrop;
@@ -794,6 +796,32 @@ async fn effect_picture(request: tauri::ipc::Request<'_>) -> Result<Response, St
         .map_err(|e| e.to_string())?
 }
 
+/// Touch up faces in Edit a photo: the faces in the picture (the body, as retouch_picture's), best first.
+#[tauri::command]
+async fn find_faces(request: tauri::ipc::Request<'_>) -> Result<Vec<faces::Face>, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("find_faces needs the picture as its body".into());
+    };
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || faces::find(w, h, &rgba)).await.map_err(|e| e.to_string())?
+}
+
+/// Touch up faces: `faces` is find_faces' answer (JSON) for the faces to change, and `smooth`, `eyes` and `teeth`
+/// 0–100 are the sliders. Returns the new RGBA.
+#[tauri::command]
+async fn face_tones(request: tauri::ipc::Request<'_>) -> Result<Response, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("face_tones needs the picture as its body".into());
+    };
+    let number = |key| -> Result<f32, String> { Ok((header(&request, key)?.parse::<f32>().map_err(|_| format!("bad {key}"))? / 100.0).clamp(0.0, 1.0)) };
+    let tones = faces::Tones { smooth: number("smooth")?, eyes: number("eyes")?, teeth: number("teeth")? };
+    let list: Vec<faces::Face> = serde_json::from_str(&header(&request, "faces")?).map_err(|_| "bad faces")?;
+    let (w, h, rgba) = picture_body(body, 0)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(Response::new(faces::tones(w, h, &rgba, &list, tones))))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Relight in Edit a photo: the body is retouch_picture's; `angle` is where the lamp is (degrees, 0 from the right, 90
 /// from above) or "front", and `amount`, `even` 0–100 and `warmth` −100–100 are Relight's sliders. Returns the new RGBA.
 #[tauri::command]
@@ -1411,7 +1439,7 @@ fn main() {
             save_thumb,
             retouch_picture,
             select_picture,
-            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos, carve_picture, effect_picture, relight_picture, backup_designs, pick_backup, restore_backup,
+            cutout_picture, straighten_picture, find_picture_corners, reshape_picture, blur_picture_background, red_eye_picture, see_through_picture, find_scan_photos, carve_picture, effect_picture, relight_picture, find_faces, face_tones, backup_designs, pick_backup, restore_backup,
             load_shoot,
             save_shoot,
             develop_source,

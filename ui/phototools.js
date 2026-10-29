@@ -31,7 +31,7 @@ const touch = { tool: null, px: 20, strengths: { soften: 0.5, dodge: 0.25, burn:
 let touchQueue = Promise.resolve();
 const touchStrength = t => touch.strengths[t] ?? 1;
 const touchSay = text => { $('#create-saved').textContent = text; };
-let photoTab = 'retouch'; // which part of the Edit photo drawer shows: retouch, cutout, straighten, reshape, stretch or effects
+let photoTab = 'retouch'; // which part of the Edit photo drawer shows: retouch, faces, cutout, straighten, reshape, stretch or effects
 const brushing = () => mode === 'create' && !!board && !!design && drawer === 'retouch' && photoTab === 'retouch' && !!touch.tool && !cropSession;
 const cuttingOut = () => typeof cutting === 'function' && cutting();
 
@@ -92,12 +92,13 @@ function pickTouchTool(name) {
 }
 function paintTouch() {
   for (const b of document.querySelectorAll('#photo-tabs [data-photo-tab]')) { b.classList.toggle('on', b.dataset.photoTab === photoTab); b.setAttribute('aria-pressed', b.dataset.photoTab === photoTab); }
-  $('#photo-retouch').hidden = photoTab !== 'retouch'; $('#photo-cutout').hidden = photoTab !== 'cutout'; $('#photo-straighten').hidden = photoTab !== 'straighten'; $('#photo-reshape').hidden = photoTab !== 'reshape'; $('#photo-stretch').hidden = photoTab !== 'stretch'; $('#photo-effects').hidden = photoTab !== 'effects';
+  $('#photo-retouch').hidden = photoTab !== 'retouch'; $('#photo-cutout').hidden = photoTab !== 'cutout'; $('#photo-straighten').hidden = photoTab !== 'straighten'; $('#photo-reshape').hidden = photoTab !== 'reshape'; $('#photo-stretch').hidden = photoTab !== 'stretch'; $('#photo-effects').hidden = photoTab !== 'effects'; $('#photo-faces').hidden = photoTab !== 'faces';
   if (photoTab === 'cutout' && typeof paintCut === 'function') paintCut();
   if (photoTab === 'straighten' && typeof paintStraighten === 'function') paintStraighten();
   if (photoTab === 'reshape' && typeof paintReshape === 'function') paintReshape();
   if (photoTab === 'stretch' && typeof paintStretch === 'function') paintStretch();
   if (photoTab === 'effects' && typeof paintFun === 'function') paintFun();
+  if (photoTab === 'faces' && typeof paintFaces === 'function') paintFaces();
   const tools = $('#touch-tools');
   if (!tools.children.length) tools.append(...PHOTO_TOOLS.map(([key, label, icon]) => {
     const b = button('', () => pickTouchTool(key)); b.dataset.touch = key; b.title = label;

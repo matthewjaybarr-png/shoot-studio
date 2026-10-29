@@ -43,8 +43,8 @@ $('#shape-strength').oninput = e => { shape.strength = +e.target.value; paintRes
 $('#shape-done').onclick = () => { Object.assign(shape, { image: null, grid: null, preview: null, drag: null }); photoTab = 'retouch'; showDrawer('retouch'); };
 
 // ---- The field: gw × gh points over the picture, each (dx, dy) in the picture's own pixels ----
-function newShapeField(image) {
-  const [nw, nh] = naturalSize(image), long = Math.max(nw, nh);
+function newShapeField(image, [nw, nh] = naturalSize(image)) {
+  const long = Math.max(nw, nh);
   const gw = Math.max(2, Math.round(SHAPE_GRID * nw / long) + 1), gh = Math.max(2, Math.round(SHAPE_GRID * nh / long) + 1);
   return { nw, nh, gw, gh, sx: (nw - 1) / (gw - 1), sy: (nh - 1) / (gh - 1), d: new Float32Array(gw * gh * 2) };
 }
@@ -58,8 +58,8 @@ function shapeAt(f, d, x, y) {
 }
 // One dab of the brush at picture pixel (cx, cy) with radius r: each grid point's sampling place moves by `move`
 // (weighted by a soft falloff), carrying the field it lands on with it so long pushes stretch smoothly.
-function shapeDab(cx, cy, r, move) {
-  const f = shape.grid, old = f.d.slice(), k = shape.strength / 100;
+function shapeDab(cx, cy, r, move, f = shape.grid, k = shape.strength / 100) {
+  const old = f.d.slice();
   const i0 = Math.max(0, Math.floor((cx - r) / f.sx)), i1 = Math.min(f.gw - 1, Math.ceil((cx + r) / f.sx));
   const j0 = Math.max(0, Math.floor((cy - r) / f.sy)), j1 = Math.min(f.gh - 1, Math.ceil((cy + r) / f.sy));
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {

@@ -189,7 +189,7 @@ function startBoard() {
   if (typeof startStraightenTools === 'function') startStraightenTools();
   if (typeof startReshapeTools === 'function') startReshapeTools();
   for (const e of ['selection:created', 'selection:updated', 'selection:cleared']) board.on(e, paintPanel);
-  for (const e of ['selection:created', 'selection:updated']) board.on(e, () => { if (drawer === 'retouch' && photoTab === 'stretch' && typeof paintStretch === 'function') paintStretch(); if (drawer === 'retouch' && photoTab === 'effects' && typeof paintFun === 'function') paintFun(); });
+  for (const e of ['selection:created', 'selection:updated']) board.on(e, () => { if (drawer === 'retouch' && photoTab === 'stretch' && typeof paintStretch === 'function') paintStretch(); if (drawer === 'retouch' && photoTab === 'effects' && typeof paintFun === 'function') paintFun(); if (drawer === 'retouch' && photoTab === 'faces' && typeof paintFaces === 'function') paintFaces(); });
   board.on('object:added', () => { if (!restoring) paintLayers(); });
   board.on('object:removed', () => { if (!restoring) paintLayers(); });
   // The stage changes size with the window and when a drawer opens or closes.
@@ -302,6 +302,7 @@ function drawPageOverlay() {
   if (typeof drawCut === 'function') drawCut(ctx);
   if (typeof drawStraighten === 'function') drawStraighten(ctx);
   if (typeof drawReshape === 'function') drawReshape(ctx);
+  if (typeof drawFaces === 'function') drawFaces(ctx);
   ctx.strokeStyle = '#d22';
   for (const [axis, v] of pageGuides) { ctx.beginPath(); ctx.moveTo(axis === 'x' ? v : 0, axis === 'y' ? v : 0); ctx.lineTo(axis === 'x' ? v : w, axis === 'y' ? v : h); ctx.stroke(); }
   ctx.restore();
@@ -1603,7 +1604,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 29;
+const WHATS_NEW = 30;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

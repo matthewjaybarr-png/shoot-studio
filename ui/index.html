@@ -192,7 +192,7 @@
           <p class="hint">Draw on the page with the mouse. Each stroke is its own item you can move, recolour or delete.</p>
         </section>
         <section data-panel="retouch" hidden>
-          <div id="photo-tabs" class="segmented" role="group" aria-label="Photo tools"><button type="button" data-photo-tab="retouch">Retouch</button><button type="button" data-photo-tab="cutout">Cut out</button><button type="button" data-photo-tab="straighten">Straighten</button><button type="button" data-photo-tab="reshape">Reshape</button><button type="button" data-photo-tab="stretch">Stretch</button><button type="button" data-photo-tab="effects">Effects</button></div>
+          <div id="photo-tabs" class="segmented" role="group" aria-label="Photo tools"><button type="button" data-photo-tab="retouch">Retouch</button><button type="button" data-photo-tab="faces">Faces</button><button type="button" data-photo-tab="cutout">Cut out</button><button type="button" data-photo-tab="straighten">Straighten</button><button type="button" data-photo-tab="reshape">Reshape</button><button type="button" data-photo-tab="stretch">Stretch</button><button type="button" data-photo-tab="effects">Effects</button></div>
           <div id="photo-retouch">
           <h3>Retouch a picture</h3>
           <div id="touch-tools" class="effect-grid" role="group" aria-label="Brushes"></div>
@@ -272,6 +272,16 @@
             <button id="stretch-fill" type="button" class="wide">Make it fill the page</button>
           </div>
           <button id="stretch-done" type="button" class="wide">Done</button>
+          </div>
+          <div id="photo-faces" hidden>
+          <h3>Touch up faces</h3>
+          <p class="hint" id="face-hint"></p>
+          <div id="face-which" class="fun-grid" role="group" aria-label="Which faces" hidden></div>
+          <div id="face-actions" hidden>
+            <div id="face-sliders"></div>
+            <button id="face-back" type="button" class="wide">Back to the photo</button>
+          </div>
+          <button id="face-done" type="button" class="wide">Done</button>
           </div>
           <div id="photo-effects" hidden>
           <h3>Fun effects</h3>
@@ -431,6 +441,7 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>Faces</b> (Edit photo): finds the faces in a photo, then sliders smooth skin, brighten eyes and whiten teeth, and make eyes bigger, add a smile or slim a face. Pick one face or touch up everyone at once.</li>
         <li><b>🍎 Classroom</b> (in Create): save your name, school, room and logo once and add them with one click, keep class lists and spelling lists as easy tables, and see birthdays coming up with a 🎂 Make a card button.</li>
         <li><b>🛟 Back up my designs</b> (start screen and File): pick a USB stick or Google Drive folder, and your designs, class lists and settings are backed up there every week by themselves.</li>
         <li><b>Stretch</b> (Edit photo): make a photo wider or taller without squashing anyone, or <b>Make it fill the page</b>. <b>Effects</b>: oil paint, pop-art dots, mosaic and pencil sketch, plus <b>Relight</b> to light a photo from any side.</li>
@@ -439,7 +450,6 @@
         <li><b>Make the paper see-through</b> in Cut out (Edit photo): a child's drawing or your handwriting loses its paper and becomes a sticker. <b>Red eye</b> fixes a pupil in one click.</li>
         <li><b>Class lists</b>: in Bulk create, <b>💾 Save this list</b> keeps your class by name. Next time, pick it from <b>Class list</b> and it's ready, with no pasting.</li>
         <li><b>👥 Bulk create</b> (in File and Text): paste your class list and get a name tag, desk plate or certificate for each child. New <b>label sheets</b> (Avery address labels, name badges, business cards and more) under Resize print right onto the labels.</li>
-        <li><b>Print</b> now opens the print window. <b>Download</b> asks where to save, then shows where it went with <b>Open it</b> and <b>Show in folder</b>. Drag pictures in from your files. <b>My elements</b> can save to Shapes, Graphics, Text and more. <b>✨ Auto fix</b> in Filters fixes a dark or tinted picture in one click.</li>
         <li><b>Blur the background</b> in Cut out keeps the main thing sharp and makes the rest soft. <b>Straighten</b> now finds a page's corners for you.</li>
         <li><b>Straighten</b> and <b>Reshape</b> in Edit photo: drag four corners onto a worksheet or poster photographed at an angle to flatten it, or push, grow and shrink parts of a picture. <b>Filters</b> has Highlights, Shadows, Sharpen and Smooth grain.</li>
       </ul>
@@ -516,6 +526,7 @@
   <script src="reshape.js"></script>
   <script src="stretch.js"></script>
   <script src="effects.js"></script>
+  <script src="faces.js"></script>
   <script src="bulk.js"></script>
   <script src="classroom.js"></script>
   <script src="backup.js"></script>
