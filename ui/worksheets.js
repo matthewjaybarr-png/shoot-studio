@@ -191,6 +191,7 @@ function openSheet(kind) {
   $('#sheet-math-part').hidden = kind !== 'math';
   $('#sheet-key-row').hidden = k.key === false;
   $('#sheet-words-hint').textContent = k.hint || '';
+  $('#sheet-words-label').textContent = k.wordsLabel || 'Your words';
   $('#sheet-words').placeholder = k.placeholder || (kind === 'crossword' ? 'cat: A pet that purrs\nsun: It shines in the day\nfrog: It hops and says ribbit' : 'apple\nbanana\ncherry');
   const lists = typeof classLists !== 'undefined' ? [...classLists.keys()].sort((a, b) => a.localeCompare(b)) : [];
   $('#sheet-list').replaceChildren(new Option('Type them below', ''), ...lists.map(n => new Option(n, n)));

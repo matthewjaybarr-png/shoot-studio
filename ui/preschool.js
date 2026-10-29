@@ -349,7 +349,7 @@ async function mazePage(title, m, pair, answers) {
 // ---- The makers, as Puzzles and worksheets kinds ----
 const MAZE_SIZES = { easy: 5, medium: 8, hard: 12 };
 Object.assign(SHEET_KINDS, {
-  'trace-name': { title: 'Trace your name', words: true, key: false, hint: 'One name per line, and each child gets a page. Pick your class list above to fill it in.', placeholder: 'Ava\nBen\nCharlie',
+  'trace-name': { title: 'Trace your name', words: true, key: false, wordsLabel: 'Their names', hint: 'One name per line, and each child gets a page. Pick your class list above to fill it in.', placeholder: 'Ava\nBen\nCharlie',
     async make(title, key, seed, words) {
       const names = words.split(/\r?\n/).map(w => w.trim()).filter(w => traceable(w).trim()).slice(0, 60);
       if (!names.length) return { error: 'Type a name first, one per line, or pick your class list.' };

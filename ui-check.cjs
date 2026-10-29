@@ -2924,7 +2924,7 @@ const test = `<script>
           if (window.uiDump) for (const [i, page] of allPages().entries()) uiDump.push([label + ' ' + (i + 1), await render(0.75, 'png', 0.92, page)]);
         };
         const shownRow = sel => getComputedStyle($(sel).closest('label')).display !== 'none';
-        await made('#sheet-trace-name', () => { step(!shownRow('#sheet-key') && !shownRow('#sheet-letter') && !$('#sheet-words-part').hidden, 'name tracing asks for names, with no answer key'); $('#sheet-words').value = 'Ava\\nBenjamin\\nZoë'; },
+        await made('#sheet-trace-name', () => { step(!shownRow('#sheet-key') && !shownRow('#sheet-letter') && !$('#sheet-words-part').hidden && $('#sheet-words-label').textContent === 'Their names', 'name tracing asks for names, with no answer key'); $('#sheet-words').value = 'Ava\\nBenjamin\\nZoë'; },
           pages => pages.length === 3 && pages.every(p => p.objects.filter(o => o.kbName === 'Letters to trace').length === 3 && p.objects.filter(o => o.kbName === 'Letters').length === 1), 'Trace your name');
         await made('#sheet-trace-letter', () => { step(shownRow('#sheet-letter') && $('#sheet-letter').options.length === 27, 'letter tracing offers every letter'); $('#sheet-letter').value = 'B'; },
           pages => pages.length === 1 && design.title.endsWith(' B') && pages[0].objects.some(o => o.kbName === 'banana') && pages[0].objects.filter(o => o.kbName === 'Letters to trace').length === 4, 'Letter tracing');
