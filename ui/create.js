@@ -761,10 +761,10 @@ const frameKind = o => o.kbFrame || clipKind(o);
 // The picture takes the target's place, size, angle and frame shape, cropped from its middle to fill it, as in Canva.
 const fillFrame = (target, file, name) => track(fillingFrame(target, file, name));
 async function fillingFrame(target, file, name) {
-  const image = await fabric.FabricImage.fromURL(await shrink(file));
+  const image = await fabric.FabricImage.fromURL(await shrink(file)), faces = await faceBox(image);
   image.kbName = name ? 'Photo ' + name : 'Picture';
   if (!board.getObjects().includes(target)) return place(image, target.getCenterPoint()); // undone or deleted meanwhile
-  fitInFrame(image, target);
+  fitInFrame(image, target, faces);
   const at = board.getObjects().indexOf(target);
   board.remove(target); board.insertAt(at, image);
   board.setActiveObject(image); image.setCoords();
@@ -773,13 +773,41 @@ async function fillingFrame(target, file, name) {
 }
 
 // Sizes and crops a new picture to the target's box, angle and frame shape (Bulk create uses it for frames off the board).
-function fitInFrame(image, target) {
+// With `faces` (faceBox's answer) the crop keeps the heads in, a little above the middle, instead of cutting from
+// the picture's middle, so a frame narrower than the photo doesn't take half a face.
+function fitInFrame(image, target, faces) {
   const w = target.width * target.scaleX, h = target.height * target.scaleY, k = Math.max(w / image.width, h / image.height);
   const width = w / k, height = h / k, kind = frameKind(target);
-  image.set({ cropX: (image.width - width) / 2, cropY: (image.height - height) / 2, width, height, scaleX: k, scaleY: k, angle: target.angle, opacity: target.opacity, shadow: target.shadow });
+  const clamp = (v, most) => Math.min(Math.max(v, 0), most);
+  let cropX = (image.width - width) / 2, cropY = (image.height - height) / 2;
+  if (faces) {
+    const [l, t, r, b] = faces;
+    cropX = clamp((l + r) / 2 - width / 2, image.width - width);
+    cropY = clamp(Math.min(t, (t + b) / 2 - height * 0.42), image.height - height); // never above the hair, never past it
+  }
+  image.set({ cropX, cropY, width, height, scaleX: k, scaleY: k, angle: target.angle, opacity: target.opacity, shadow: target.shadow });
   if (kind !== 'rect') image.set({ clipPath: pictureFrame(image, kind) });
   image.setPositionByOrigin(target.getCenterPoint(), 'center', 'center');
   return image;
+}
+
+// The heads in a picture as one box [left, top, right, bottom] in its pixels, or null when no face is found (or it
+// can't be looked for): Faces' finder runs on a copy at most FACE_EDGE across, quick and still enough for a class
+// photo. A face box is eyebrows to chin, so the head takes some hair above and a little chin below.
+const FACE_EDGE = 1024;
+async function faceBox(image) {
+  try {
+    const el = image.getElement(), iw = el.naturalWidth || el.width, ih = el.naturalHeight || el.height, k = Math.min(1, FACE_EDGE / Math.max(iw, ih));
+    const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(iw * k), height: Math.round(ih * k) }), ctx = canvas.getContext('2d');
+    ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data, body = new Uint8Array(8 + data.length), view = new DataView(body.buffer);
+    view.setUint32(0, canvas.width, true); view.setUint32(4, canvas.height, true); body.set(data, 8);
+    const faces = await invoke('find_faces', body);
+    if (!faces?.length) return null;
+    const box = faces.reduce(([l, t, r, b], { rect: [x, y, fw, fh] }) => [Math.min(l, x), Math.min(t, y - fh * 0.4), Math.max(r, x + fw), Math.max(b, y + fh * 1.1)], [Infinity, Infinity, -Infinity, -Infinity]);
+    const s = iw / canvas.width;
+    return [Math.max(0, box[0] * s), Math.max(0, box[1] * s), Math.min(iw, box[2] * s), Math.min(ih, box[3] * s)];
+  } catch { return null; }
 }
 
 // Previews for the Elements drawer, drawn in a 40 x 32 box.
@@ -1607,7 +1635,7 @@ async function useTemplate(name, source) {
 }
 
 // ---- What's new, shown once ----
-const WHATS_NEW = 33;
+const WHATS_NEW = 34;
 function paintWhatsNew() { $('#create-whatsnew').hidden = mode !== 'create' || settings.seen >= WHATS_NEW; }
 $('#whatsnew-ok').onclick = () => { settings.seen = WHATS_NEW; saveSettings(); paintWhatsNew(); };
 

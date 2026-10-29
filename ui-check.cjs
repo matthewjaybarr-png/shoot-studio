@@ -126,7 +126,7 @@ window.__TAURI__ = { core: { Channel: class { onmessage() {} }, invoke: async (c
   if (command === 'blur_picture_background') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([128, 128, 128, 255], i); return out.buffer; }
   if (command === 'see_through_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([20, 20, 20, i < out.length / 2 ? 0 : 255], i); return out.buffer; }
   if (command === 'red_eye_picture') { const b = new ArrayBuffer(32); new Uint32Array(b, 0, 4).set([0, 0, 2, 2]); new Uint8Array(b, 16).set([40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255, 40, 40, 40, 255]); return b; }
-  if (command === 'find_faces') return [{ score: 0.9, rect: [20, 10, 40, 40], landmarks: [[32, 25], [48, 25], [40, 33], [33, 42], [47, 42]] }];
+  if (command === 'find_faces') return window.mockFaces || [{ score: 0.9, rect: [20, 10, 40, 40], landmarks: [[32, 25], [48, 25], [40, 33], [33, 42], [47, 42]] }];
   if (command === 'face_tones') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4); for (let i = 0; i < out.length; i += 4) out.set([args[8 + i], args[9 + i] + 10, args[10 + i], 255], i); return out.buffer; }
   if (command === 'effect_picture' || command === 'relight_picture') { const v = new DataView(args.buffer, args.byteOffset), w = v.getUint32(0, true), h = v.getUint32(4, true), out = new Uint8Array(w * h * 4), k = command === 'effect_picture' ? 10 : 20; for (let i = 0; i < out.length; i += 4) out.set([args[8 + i] + k, args[9 + i], args[10 + i], 255], i); return out.buffer; }
   if (command === 'carve_picture') { const w = +options.headers.width, h = +options.headers.height, b = new ArrayBuffer(8 + w * h * 4); new Uint32Array(b, 0, 2).set([w, h]); const px = new Uint8Array(b, 8); for (let i = 0; i < px.length; i += 4) px.set([90, 60, 200, 255], i); return b; }
@@ -1736,10 +1736,20 @@ const test = `<script>
     $('#create-stage').dispatchEvent(new DragEvent('dragover', over));
     step(dropHover === filled, 'dragging a picture over a picture outlines it');
     const objectsBefore = board.getObjects().length;
+    window.mockFaces = [];
     $('#create-stage').dispatchEvent(new DragEvent('drop', over));
     await until(() => board.getObjects()[frameIndex]?.kbName === 'Photo swap', 'dropping a picture file on a picture replaces it');
     const swapped = board.getObjects()[frameIndex];
     step(board.getObjects().length === objectsBefore && dropHover === null && swapped.clipPath?.type === 'circle' && Math.abs(swapped.getScaledWidth() - 300) < 1 && Math.round(swapped.cropX) === 100 && swapped.cropY === 0, () => 'it keeps the place, size and circle, cropped from the middle: ' + swapped.cropX + ',' + swapped.cropY);
+    // A face near the photo's right edge: the crop moves over to keep it, as far as the photo goes.
+    window.mockFaces = [{ score: 0.9, rect: [330, 60, 40, 40], landmarks: [[340, 72], [360, 72], [350, 82], [342, 90], [358, 90]] }];
+    const faceFiles = new DataTransfer(); faceFiles.items.add(new File([swapFile], 'face.png', { type: 'image/png' }));
+    $('#create-stage').dispatchEvent(new DragEvent('drop', { ...over, dataTransfer: faceFiles }));
+    await until(() => board.getObjects()[frameIndex]?.kbName === 'Photo face', 'a photo with a face replaces it too');
+    const faced = board.getObjects()[frameIndex];
+    step(Math.round(faced.cropX) === 200 && faced.cropY === 0 && Math.abs(faced.getScaledWidth() - 300) < 1, () => 'the crop keeps the face in instead of the middle: ' + faced.cropX + ',' + faced.cropY);
+    delete window.mockFaces;
+    stepHistory(-1); await until(() => board.getObjects()[frameIndex]?.kbName === 'Photo swap', 'undo takes the face photo back out');
     stepHistory(-1);
     await until(() => board.getObjects()[frameIndex]?.kbName?.startsWith('Photo IMG'), () => 'undo brings the previous picture back: ' + board.getObjects()[frameIndex]?.kbName);
     // 0.13: print and social sizes, photographer templates.

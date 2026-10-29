@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.45.0
+
+- 🙂 Photos keep their faces when they fill a frame. Until now a photo was cropped from its middle, so a tall frame on a wide photo, or a wide frame on a tall one, could cut a child's head in half. Now KB Studio finds the faces first and crops around them, with the heads a little above the middle and their hair kept in. This happens everywhere a photo fills a frame:
+  - dropping or dragging a photo onto a frame or onto another picture,
+  - **Photo name tags** in Bulk create, so every child's face lands in their tag's frame,
+  - **Use in a design** in Photos: collages and photo strips.
+- Photos with no faces in them (or faces too small or turned away) are still cropped from the middle, as before.
+- The What's new card appears once more.
+
 ## 0.44.0
 
 - 🖍️ Preschool pages, a new part of Classroom's Puzzles and worksheets. Each is one click, with pictures, ready to print:

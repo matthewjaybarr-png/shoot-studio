@@ -85,12 +85,16 @@ $('#bulk-photo-add').onclick = () => $('#bulk-photo-file').click();
 $('#bulk-photo-file').onchange = e => { bulkFiles = [...e.target.files].filter(f => f.type.startsWith('image/') || pictureType(f.name)); e.target.value = ''; paintBulkPhotos(); };
 $('#bulk-photo-clear').onclick = () => { bulkFiles = []; paintBulkPhotos(); };
 $('#bulk-photo-box').onchange = paintBulkPhotos;
-// A photo in a frame that isn't on the board: shrunk once per file (a name tag doesn't need 24 megapixels).
+// A photo in a frame that isn't on the board: shrunk and its faces found once per file (a name tag doesn't need 24
+// megapixels, and a sheet of tags repeats the same photo).
 async function bulkPicture(json, file, cache) {
-  if (!cache.has(file)) cache.set(file, await shrink(file, 1600));
-  const [target] = await fabric.util.enlivenObjects([json]), image = await fabric.FabricImage.fromURL(cache.get(file));
+  if (!cache.has(file)) {
+    const url = await shrink(file, 1600);
+    cache.set(file, { url, faces: await faceBox(await fabric.FabricImage.fromURL(url)) });
+  }
+  const { url, faces } = cache.get(file), [target] = await fabric.util.enlivenObjects([json]), image = await fabric.FabricImage.fromURL(url);
   image.kbName = 'Photo ' + file.name.replace(/\.[^.]*$/, '');
-  return fitInFrame(image, target).toObject(KEEP);
+  return fitInFrame(image, target, faces).toObject(KEEP);
 }
 
 // The column-to-text-box choices, guessed from the words: a box saying "Student Name" gets the Name column.

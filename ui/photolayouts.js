@@ -71,7 +71,7 @@ async function usePage(layout, pictures) {
     if (!picture) { objects.push(frame.toObject(KEEP)); continue; } // a short last strip keeps empty frames to drop photos in
     const image = await fabric.FabricImage.fromURL(picture.url);
     image.kbName = 'Photo ' + picture.id;
-    objects.push(fitInFrame(image, frame).toObject(KEEP));
+    objects.push(fitInFrame(image, frame, await faceBox(image)).toObject(KEEP));
   }
   if (layout === 'strip') for (const s of [0, 1]) objects.push(new fabric.Textbox('Say cheese!', { left: cells[s * 4][0], top: 6 * PX - 64, width: cells[0][2], fontSize: 24, fontFamily: 'Caveat', textAlign: 'center', fill: '#333333', kbName: 'Strip words' }).toObject(KEEP));
   return { objects, background: '#ffffff' };
