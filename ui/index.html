@@ -58,7 +58,16 @@
       <label>Numbers up to <select id="sheet-upto"><option>5</option><option selected>10</option><option>12</option><option>20</option><option>100</option><option>1000</option></select></label>
       <label>How many <select id="sheet-count"><option>10</option><option selected>20</option><option>30</option></select></label>
     </div>
-    <label class="check"><input id="sheet-key" type="checkbox" checked> Answer key on page 2</label>
+    <div id="sheet-pre-part">
+      <label data-kinds="trace-letter">Letter <select id="sheet-letter"></select></label>
+      <label data-kinds="count">Count up to <select id="sheet-count-upto"><option>5</option><option selected>10</option><option>20</option></select></label>
+      <label data-kinds="count">They answer by <select id="sheet-count-style"><option value="write">Writing the number in a box</option><option value="circle">Circling the right number</option></select></label>
+      <label data-kinds="match">Match <select id="sheet-match"><option value="pictures">Pictures to the same picture</option><option value="letters">Big letters to small letters</option><option value="numbers">Numbers to that many dots</option></select></label>
+      <label data-kinds="pattern">How hard <select id="sheet-pattern"><option value="easy">Easy: apple, banana, apple, banana…</option><option value="harder">Harder: patterns of two and three</option></select></label>
+      <label data-kinds="maze">How big <select id="sheet-maze-size"><option value="easy">Easy: 5 × 5</option><option value="medium" selected>Medium: 8 × 8</option><option value="hard">Hard: 12 × 12</option></select></label>
+      <label data-kinds="maze">Who's going where <select id="sheet-maze-pair"><option value="rabbit">Bunny to the carrot</option><option value="bee">Bee to the flower</option><option value="mouse">Mouse to the cheese</option><option value="dog">Dog to the bone</option><option value="monkey">Monkey to the banana</option><option value="chick">Chick to the corn</option></select></label>
+    </div>
+    <label id="sheet-key-row" class="check"><input id="sheet-key" type="checkbox" checked> Answer key on page 2</label>
     <p id="sheet-note" role="status"></p>
     <div class="row"><button id="sheet-close" type="button">Cancel</button><button id="sheet-make" type="button" class="primary">Make it</button></div>
   </dialog>
@@ -223,6 +232,17 @@
             <button id="sheet-search" type="button">🔎 Word search</button>
             <button id="sheet-crossword" type="button">✏️ Crossword</button>
             <button id="sheet-math" type="button">➕ Math practice</button>
+          </div>
+          <h3>Preschool</h3>
+          <p class="hint">Big, simple pages for little ones, with pictures.</p>
+          <div class="sheet-buttons">
+            <button id="sheet-trace-name" type="button">✍️ Trace your name (a page per child)</button>
+            <button id="sheet-trace-letter" type="button">🔤 Letter tracing</button>
+            <button id="sheet-trace-lines" type="button">〰️ Tracing lines and shapes</button>
+            <button id="sheet-count-pics" type="button">🍎 Count and write</button>
+            <button id="sheet-match-pics" type="button">🔗 Draw a line to match</button>
+            <button id="sheet-pattern-pics" type="button">🧩 What comes next?</button>
+            <button id="sheet-maze" type="button">🐰 Maze</button>
           </div>
           <p class="hint" id="sheet-done" role="status"></p>
         </section>
@@ -490,6 +510,7 @@
     <div id="create-whatsnew" role="dialog" aria-labelledby="whatsnew-title" hidden>
       <h3 id="whatsnew-title">What's new</h3>
       <ul>
+        <li><b>🖍️ Preschool pages</b> (Classroom → Puzzles and worksheets): trace your name (a page for every child), letter tracing with pictures, tracing lines and shapes, count and write, draw a line to match, what comes next, and mazes.</li>
         <li><b>🧩 Puzzles and worksheets</b> (Classroom): word searches, crosswords and math practice from your words, with an answer key. <b>Photo name tags</b>: Bulk create puts each child's photo on their tag. The Eraser now rubs out just part of a line, and Photos makes collages and photo strips from your picks.</li>
         <li><b>Draw</b> has more pens: <b>Marker</b>, <b>Highlighter</b> (words still show through), <b>Glow pen</b> and an <b>Eraser</b>, with colours to click and Transparency.</li>
         <li><b>Faces</b> (Edit photo): finds the faces in a photo, then sliders smooth skin, brighten eyes and whiten teeth, and make eyes bigger, add a smile or slim a face. Pick one face or touch up everyone at once.</li>
@@ -500,8 +521,7 @@
         <li><b>Name tag sheets</b>: Bulk create now fills every name box on the page, a different child in each, and starts a new page when they're full.</li>
         <li><b>Make the paper see-through</b> in Cut out (Edit photo): a child's drawing or your handwriting loses its paper and becomes a sticker. <b>Red eye</b> fixes a pupil in one click.</li>
         <li><b>Class lists</b>: in Bulk create, <b>💾 Save this list</b> keeps your class by name. Next time, pick it from <b>Class list</b> and it's ready, with no pasting.</li>
-        <li><b>👥 Bulk create</b> (in File and Text): paste your class list and get a name tag, desk plate or certificate for each child. New <b>label sheets</b> (Avery address labels, name badges, business cards and more) under Resize print right onto the labels.</li>
-      </ul>
+</ul>
       <button id="whatsnew-ok" type="button" class="primary">Got it</button>
     </div>
     <div id="create-import-note" role="dialog" aria-labelledby="import-note-title" hidden>
@@ -578,6 +598,7 @@
   <script src="faces.js"></script>
   <script src="drawtools.js"></script>
   <script src="worksheets.js"></script>
+  <script src="preschool.js"></script>
   <script src="photolayouts.js"></script>
   <script src="bulk.js"></script>
   <script src="classroom.js"></script>

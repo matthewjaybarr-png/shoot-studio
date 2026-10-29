@@ -186,8 +186,12 @@ function openSheet(kind) {
   $('#sheet-title').value = k.title;
   $('#sheet-words-part').hidden = !k.words; $('#sheet-math-part').hidden = k.words;
   $('#sheet-level-row').hidden = kind !== 'search';
+  // The preschool makers' own choices (preschool.js): each row says which kinds it belongs to.
+  for (const row of document.querySelectorAll('#sheet-dialog [data-kinds]')) row.hidden = !row.dataset.kinds.split(' ').includes(kind);
+  $('#sheet-math-part').hidden = kind !== 'math';
+  $('#sheet-key-row').hidden = k.key === false;
   $('#sheet-words-hint').textContent = k.hint || '';
-  $('#sheet-words').placeholder = kind === 'crossword' ? 'cat: A pet that purrs\nsun: It shines in the day\nfrog: It hops and says ribbit' : 'apple\nbanana\ncherry';
+  $('#sheet-words').placeholder = k.placeholder || (kind === 'crossword' ? 'cat: A pet that purrs\nsun: It shines in the day\nfrog: It hops and says ribbit' : 'apple\nbanana\ncherry');
   const lists = typeof classLists !== 'undefined' ? [...classLists.keys()].sort((a, b) => a.localeCompare(b)) : [];
   $('#sheet-list').replaceChildren(new Option('Type them below', ''), ...lists.map(n => new Option(n, n)));
   $('#sheet-list-row').hidden = !lists.length;
@@ -205,9 +209,14 @@ $('#sheet-close').onclick = () => $('#sheet-dialog').close();
 $('#sheet-make').onclick = () => makeSheet().catch(error => { $('#sheet-note').textContent = `Couldn't make it: ${error.message || error}`; });
 
 async function makeSheet() {
-  const kind = sheet.kind, title = $('#sheet-title').value.trim() || SHEET_KINDS[kind].title, key = $('#sheet-key').checked, pages = [];
-  let note = '';
-  if (kind === 'search') {
+  const kind = sheet.kind, k = SHEET_KINDS[kind], key = k.key !== false && $('#sheet-key').checked, pages = [];
+  let title = $('#sheet-title').value.trim() || k.title, note = '';
+  if (k.make) {
+    $('#sheet-note').textContent = 'Making it…';
+    const made = await k.make(title, key, sheet.seed, $('#sheet-words').value);
+    if (made.error) return void ($('#sheet-note').textContent = made.error);
+    pages.push(...made.pages); note = made.note || ''; title = made.title || title;
+  } else if (kind === 'search') {
     const s = wordSearch($('#sheet-words').value.split(/\r?\n/), $('#sheet-level').value, sheet.seed);
     if (!s) return void ($('#sheet-note').textContent = 'Type a few words first, one per line.');
     pages.push(searchPage(title, s, false)); if (key) pages.push(searchPage(title, s, true));
@@ -228,7 +237,7 @@ async function makeSheet() {
     await open({ format: 2, page: 'letter', pages }, await uniqueTitle(title), null);
     commitDesign(); // saved, with its page thumbnails and Layers
   });
-  $('#sheet-done').textContent = note || `Made “${design.title}”${key ? ', with the answer key on page 2' : ''}. Click again for a new one.`;
+  $('#sheet-done').textContent = `Made “${design.title}”${key ? ', with the answer key on page 2' : ''}. ${note ? note + ' ' : ''}Click again for a new one.`;
   sheet.seed++; // the next one is a new puzzle
 }
 for (const [id, kind] of [['#sheet-search', 'search'], ['#sheet-crossword', 'crossword'], ['#sheet-math', 'math']]) $(id).onclick = () => openSheet(kind);

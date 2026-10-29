@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.44.0
+
+- 🖍️ Preschool pages, a new part of Classroom's Puzzles and worksheets. Each is one click, with pictures, ready to print:
+  - **Trace your name**: a page for every child on your class list, with their name to look at, three times to trace and two lines to write it alone.
+  - **Letter tracing**: a big letter, pictures that start with it (B: banana, bear) and rows of capitals and small letters to trace. One letter, or all 26.
+  - **Tracing lines and shapes**: lines to trace from one picture to another (straight, zigzag, waves, hills, loops, steps), and a page of shapes.
+  - **Count and write**: groups of pictures to count, with a box to write how many or three numbers to circle. Up to 5, 10 or 20.
+  - **Draw a line to match**: pictures to the same picture, big letters to small letters, or numbers to that many dots.
+  - **What comes next?**: picture patterns with the last two boxes left to draw. Easy (apple, banana, apple, banana) or harder.
+  - **Maze**: from a bunny to its carrot (or a bee to a flower, and more), easy, medium or hard.
+  - The letters to trace are "ball and stick" letters, the kind preschools teach, dotted along the middle of each stroke on school-style writing lines.
+  - Answer keys for counting, matching, patterns and mazes, as for the other puzzles.
+- The What's new card appears once more.
+
 ## 0.43.0
 
 - 🧩 Puzzles and worksheets, in Classroom: type your words and get a printable page, with the answer key on page 2:

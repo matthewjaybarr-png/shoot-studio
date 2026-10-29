@@ -2899,6 +2899,43 @@ const test = `<script>
       $('#sheet-op').value = 'mul'; $('#sheet-key').checked = false; $('#sheet-make').click();
       await until(() => design.title.startsWith('Math practice') && !$('#sheet-dialog').open, 'Make the math page');
       step(designPages.length === 1 && board.getObjects().filter(o => /^Problem /.test(o.kbName)).length === 20 && board.getObjects().every(o => !/answer key/.test(o.text || '')), 'twenty problems and no answer key when it is unticked');
+      // 0.44: preschool pages.
+      { const box = Object.entries(GLYPHS).map(([c, [w, d]]) => { const p = new fabric.Path(d), r = { x0: p.left, y0: p.top, x1: p.left + p.width, y1: p.top + p.height }; return [c, r, r.x0 >= -1 && r.x1 <= w + 1 && r.y0 >= -6 && r.y1 <= 141]; });
+        step(box.length >= 64 && box.every(b => b[2]), () => 'every ball-and-stick letter stays inside its box: ' + JSON.stringify(box.filter(b => !b[2])));
+        step(shiftPath('M0 0 L10 20 A5 5 0 1 0 30 40 Q1 2 3 4', 100, 50, 2) === 'M100 50 L120 90 A10 10 0 1 0 160 130 Q102 54 106 58', () => 'paths move and scale: ' + shiftPath('M0 0 L10 20 A5 5 0 1 0 30 40 Q1 2 3 4', 100, 50, 2));
+        const ava = traceText('Ava', 68, 200, 0.8, true), at = ava.getBoundingRect();
+        step(Math.abs(at.left - 68) < 8 && Math.abs(at.top - 200) < 8 && Math.abs(at.top + at.height - 280) < 8 && ava.strokeDashArray, () => 'a traced word sits on its writing lines, dotted: ' + JSON.stringify(at));
+        step(traceable('Zoë-Lynn O\\'Brien!') === 'Zoe-Lynn O\\'Brien', () => 'accents become plain letters and unknown marks are left out: ' + traceable('Zoë-Lynn O\\'Brien!'));
+        const mz = maze(8, seededRandom(4)), passages = mz.walls.reduce((n, w) => n + !w.r + !w.b, 0);
+        step(mz.path[0] === 0 && mz.path.at(-1) === 63 && passages === 63, () => 'a maze has exactly one way between any two cells, start to finish: ' + [mz.path.length, passages]);
+        const mt = matchPairs('letters', seededRandom(9), 5);
+        step(mt.order.every((j, i) => j !== i) && new Set(mt.order).size === 5 && mt.left.every(p => p.b === p.a.toLowerCase()), () => 'matching never puts a pair straight across: ' + mt.order);
+        const cr = countRows(10, seededRandom(2));
+        step(cr.length === 6 && new Set(cr.map(r => r.n)).size === 6 && cr.every(r => r.n >= 1 && r.n <= 10 && r.choices.includes(r.n) && r.choices.length === 3), () => 'six different counts, each with the right number among three: ' + JSON.stringify(cr.map(r => [r.n, r.choices])));
+        const pr = patternRows('harder', seededRandom(3));
+        step(pr.every(r => r.seq.length === 8) && pr[1].seq[0] === pr[1].seq[1] && pr[1].seq[2] !== pr[1].seq[0] && pr[1].seq[3] === pr[1].seq[0], () => 'patterns repeat their unit (row 2 is AAB): ' + pr[1].seq);
+        const made = async (button, setup, check, label) => {
+          const before = design.title;
+          $(button).click(); $('#sheet-key').checked = true; setup?.();
+          step($('#sheet-dialog').open, label + ' opens the window');
+          $('#sheet-make').click();
+          await until(() => design.title !== before && !$('#sheet-dialog').open, () => label + ': ' + $('#sheet-note').textContent);
+          step(check(allPages()), () => label + ' makes its pages: ' + allPages().map(p => p.objects.map(o => o.kbName).join(',')).join(' / '));
+          if (window.uiDump) for (const [i, page] of allPages().entries()) uiDump.push([label + ' ' + (i + 1), await render(0.75, 'png', 0.92, page)]);
+        };
+        const shownRow = sel => getComputedStyle($(sel).closest('label')).display !== 'none';
+        await made('#sheet-trace-name', () => { step(!shownRow('#sheet-key') && !shownRow('#sheet-letter') && !$('#sheet-words-part').hidden, 'name tracing asks for names, with no answer key'); $('#sheet-words').value = 'Ava\\nBenjamin\\nZoë'; },
+          pages => pages.length === 3 && pages.every(p => p.objects.filter(o => o.kbName === 'Letters to trace').length === 3 && p.objects.filter(o => o.kbName === 'Letters').length === 1), 'Trace your name');
+        await made('#sheet-trace-letter', () => { step(shownRow('#sheet-letter') && $('#sheet-letter').options.length === 27, 'letter tracing offers every letter'); $('#sheet-letter').value = 'B'; },
+          pages => pages.length === 1 && design.title.endsWith(' B') && pages[0].objects.some(o => o.kbName === 'banana') && pages[0].objects.filter(o => o.kbName === 'Letters to trace').length === 4, 'Letter tracing');
+        await made('#sheet-trace-lines', null, pages => pages.length === 2 && pages[0].objects.filter(o => /line$/.test(o.kbName) && o.strokeDashArray).length === 6 && pages[1].objects.filter(o => /to trace$/.test(o.kbName)).length === 8, 'Tracing lines and shapes');
+        await made('#sheet-count-pics', () => { step(shownRow('#sheet-count-upto') && shownRow('#sheet-key') && !shownRow('#sheet-letter'), 'count and write shows its own choices'); $('#sheet-count-upto').value = '5'; $('#sheet-count-style').value = 'circle'; },
+          pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Number').length === 18 && pages[1].objects.filter(o => o.kbName === 'Answer').length === 6 && !pages[0].objects.some(o => o.kbName === 'Answer'), 'Count and write');
+        await made('#sheet-match-pics', () => { $('#sheet-match').value = 'numbers'; }, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Line dot').length === 10 && pages[1].objects.filter(o => o.kbName === 'Answer').length === 5, 'Matching');
+        await made('#sheet-pattern-pics', null, pages => pages.length === 2 && pages[0].objects.filter(o => o.kbName === 'Draw what comes next').length === 12 && pages[0].objects.filter(o => /^image$/i.test(o.type)).length === 36 && pages[1].objects.filter(o => /^image$/i.test(o.type)).length === 48, 'What comes next');
+        await made('#sheet-maze', () => { $('#sheet-maze-size').value = 'easy'; $('#sheet-maze-pair').value = 'bee'; }, pages => pages.length === 2 && pages[0].objects.some(o => o.kbName === 'Maze walls') && pages[0].objects.some(o => o.kbName === 'bee') && pages[1].objects.some(o => o.kbName === 'Answer'), 'Maze');
+        $('#sheet-math').click(); step(!shownRow('#sheet-maze-size') && !shownRow('#sheet-count-upto') && shownRow('#sheet-key'), 'Math practice hides the preschool choices'); $('#sheet-close').click();
+      }
       $('#sheet-key').checked = true;
       await settle(openDesign(titleBefore), 'back to the design being tested');
       if (drawer !== drawerBefore) showDrawer(drawerBefore || drawer); // as it was: open on the same drawer, or closed
@@ -3103,10 +3140,10 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="worksheets.js"></script>', '').replace('<script src="photolayouts.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('worksheets.js') + '</script><script>' + ui('photolayouts.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="worksheets.js"></script>', '').replace('<script src="preschool.js"></script>', '').replace('<script src="photolayouts.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('worksheets.js') + '</script><script>' + ui('preschool.js') + '</script><script>' + ui('photolayouts.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
-fs.writeFileSync(file, html);
+fs.writeFileSync(file, process.env.UI_DUMP ? html.replace('<script', '<script>window.uiDump = [];</script><script') : html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.
 // Chromium runs with a DevTools port; we poll the page's result until it reports or stays silent too long.
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -3135,6 +3172,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (step !== lastStep) { lastStep = step; lastChange = Date.now(); }
     }
     skipped = await read('document.body && document.body.dataset.skipped');
+    // UI_DUMP=folder saves the pages some tests render (window.uiDump), to look at by eye.
+    if (process.env.UI_DUMP) for (const [name, url] of await read('JSON.stringify(window.uiDump || [])').then(JSON.parse)) fs.writeFileSync(path.join(process.env.UI_DUMP, name.replace(/[^\w]+/g, '-') + '.png'), Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
     socket.close();
   } catch (e) { error = e; } finally { const exited = new Promise(r => chromium.once('exit', r)); chromium.kill(); await exited; }
   // Chromium's helper processes can still be writing to the profile after it exits; a leftover temp folder is harmless.
