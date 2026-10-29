@@ -1678,8 +1678,34 @@ const test = `<script>
     await flush();
     $('#home-photos').click();
     move(2);
+    // 0.43: the picks as a collage, and as photo strips.
+    { const pickIds = photos.slice(0, 5).map(p => p.id), flagsBefore = pickIds.map(id => ratings[id]?.flag);
+      for (const id of pickIds) ratings[id] = { ...ratings[id], flag: 'pick' };
+      const usePicked = photos.filter(p => rating(p).flag === 'pick').length;
+      $('#use-in-design').click();
+      $('#use-which [data-which=picks]').click();
+      step($('#use-layout [data-layout=collage]').classList.contains('on') && $('#use-which [data-which=picks]').textContent === 'My picks (' + usePicked + ')' && $('#use-note').textContent.startsWith(usePicked + ' photos → 1 page'), () => 'the picks default to a collage: ' + $('#use-note').textContent);
+      const collageFrom = design.title;
+      $('#use-make').click();
+      await until(() => mode === 'create' && design.title !== collageFrom && board.getObjects().length === usePicked, () => 'a collage of the picks: ' + types());
+      const cells = board.getObjects().map(o => o.getBoundingRect());
+      step(design.page === 'letter' && board.getObjects().every(o => o.type === 'image' && o.kbName.startsWith('Photo ')) && cells.every(c => c.left >= 35 && c.top >= 35 && c.left + c.width <= 816 - 35 && c.top + c.height <= 1056 - 35) && design.title.endsWith('collage'), () => 'every pick fills a cell inside the margins: ' + JSON.stringify(cells.map(c => [c.left, c.top, c.width, c.height].map(Math.round))));
+      $('#home-photos').click();
+      $('#use-in-design').click(); $('#use-which [data-which=picks]').click(); $('#use-layout [data-layout=strip]').click();
+      step($('#use-note').textContent.includes('two strips'), () => 'photo strips say how they print: ' + $('#use-note').textContent);
+      const stripFrom = design.title;
+      $('#use-make').click();
+      await until(() => mode === 'create' && design.title !== stripFrom && designPages.length === Math.ceil(usePicked / 4), () => 'a 4 x 6 per four picks: ' + designPages.length);
+      const strip1 = allPages()[0].objects, lastStrip = allPages().at(-1).objects;
+      step(design.page === 'photo-4x6' && strip1.filter(o => /^image$/i.test(o.type)).length === 8 && strip1[0].kbName === strip1[4].kbName && strip1.filter(o => o.kbName === 'Strip words').length === 2, () => 'two matching strips of four on each print, with words under them: ' + strip1.map(o => o.kbName));
+      step(usePicked % 4 === 0 || lastStrip.some(o => o.kbFrame === 'rect' && !/^image$/i.test(o.type)), 'a short last strip keeps empty frames to fill');
+      pickIds.forEach((id, i) => { ratings[id] = { ...ratings[id], flag: flagsBefore[i] }; });
+      $('#home-photos').click(); move(2);
+    }
     const sends = count('export_source');
     $('#use-in-design').click();
+    step($('#use-dialog').open && $('#use-which [data-which=this]').classList.contains('on') && $('#use-layout [data-layout=page]').classList.contains('on') && $('#use-which [data-which=selected]').hidden, () => 'Use in a design asks which photos and how, starting with this photo on a page: ' + $('#use-note').textContent);
+    $('#use-make').click();
     await until(() => mode === 'create' && board.getObjects().length === 1 && board.getObjects()[0].kbName === 'Photo IMG_0002', () => 'Use in a design opens it in Create: ' + mode + ' ' + types());
     step(count('export_source') === sends + 1 && calls.filter(c => c.command === 'export_source').at(-1).args.full === false && Math.max(board.getObjects()[0].width, board.getObjects()[0].height) <= 2048, 'it was rendered at web size');
     // 0.13: frames, drop-to-replace and This shoot.
@@ -3061,8 +3087,8 @@ const html = ui('index.html')
   .replace('<script src="vendor/jspdf.umd.min.js"></script>', () => '<script>' + ui('vendor/jspdf.umd.min.js') + '</script>')
   .replace('<script src="vendor/qrcode.js"></script>', () => '<script>' + ui('vendor/qrcode.js') + '</script>')
   .replace('<script src="vendor/qrcode_UTF8.js"></script>', () => '<script>' + ui('vendor/qrcode_UTF8.js') + '</script>')
-  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="worksheets.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
-  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('worksheets.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
+  .replace('<script src="canva.js"></script>', '').replace('<script src="projects.js"></script>', '').replace('<script src="texttools.js"></script>', '').replace('<script src="decor.js"></script>', '').replace('<script src="charts.js"></script>', '').replace('<script src="fills.js"></script>', '').replace('<script src="tables.js"></script>', '').replace('<script src="myelements.js"></script>', '').replace('<script src="doctools.js"></script>', '').replace('<script src="viewtools.js"></script>', '').replace('<script src="phototools.js"></script>', '').replace('<script src="photolayers.js"></script>', '').replace('<script src="cutout.js"></script>', '').replace('<script src="straighten.js"></script>', '').replace('<script src="reshape.js"></script>', '').replace('<script src="stretch.js"></script>', '').replace('<script src="effects.js"></script>', '').replace('<script src="faces.js"></script>', '').replace('<script src="drawtools.js"></script>', '').replace('<script src="worksheets.js"></script>', '').replace('<script src="photolayouts.js"></script>', '').replace('<script src="bulk.js"></script>', '').replace('<script src="classroom.js"></script>', '').replace('<script src="backup.js"></script>', '')
+  .replace('<script src="create.js"></script>', () => '<script>' + ui('create.js') + '</script><script>' + ui('canva.js') + '</script><script>' + ui('projects.js') + '</script><script>' + ui('texttools.js') + '</script><script>' + ui('decor.js') + '</script><script>' + ui('charts.js') + '</script><script>' + ui('fills.js') + '</script><script>' + ui('tables.js') + '</script><script>' + ui('myelements.js') + '</script><script>' + ui('doctools.js') + '</script><script>' + ui('viewtools.js') + '</script><script>' + ui('phototools.js') + '</script><script>' + ui('photolayers.js') + '</script><script>' + ui('cutout.js') + '</script><script>' + ui('straighten.js') + '</script><script>' + ui('reshape.js') + '</script><script>' + ui('stretch.js') + '</script><script>' + ui('effects.js') + '</script><script>' + ui('faces.js') + '</script><script>' + ui('drawtools.js') + '</script><script>' + ui('worksheets.js') + '</script><script>' + ui('photolayouts.js') + '</script><script>' + ui('bulk.js') + '</script><script>' + ui('classroom.js') + '</script><script>' + ui('backup.js') + '</script>' + test);
 const file = path.join(temp, 'check.html');
 fs.writeFileSync(file, html);
 // Real time, not --virtual-time-budget: virtual time runs ahead of GPU readbacks and image decodes, ending the run early.

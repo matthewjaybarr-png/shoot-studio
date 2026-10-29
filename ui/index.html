@@ -10,7 +10,7 @@
     <label>Show <select id="filter"><option value="all">All</option><option value="picks">Picks</option><option value="unrated">Unrated</option></select></label>
     <span id="counts"></span>
     <span id="status" role="status"></span>
-    <button id="use-in-design" type="button" title="Put this photo on a page in Create" disabled>Use in a design</button>
+    <button id="use-in-design" type="button" title="Put this photo, or your picks, on a page in Create: a page each, a collage or photo strips" disabled>Use in a design</button>
     <button id="deliver-open" type="button" title="Ctrl+E" disabled>Deliver…</button>
   </header>
   <div id="photo-bar" role="toolbar" aria-label="Rate and adjust the photo" hidden>
@@ -61,6 +61,16 @@
     <label class="check"><input id="sheet-key" type="checkbox" checked> Answer key on page 2</label>
     <p id="sheet-note" role="status"></p>
     <div class="row"><button id="sheet-close" type="button">Cancel</button><button id="sheet-make" type="button" class="primary">Make it</button></div>
+  </dialog>
+  <dialog id="use-dialog" aria-labelledby="use-heading"><h3 id="use-heading">Use in a design</h3>
+    <div id="use-which" class="fun-grid" role="group" aria-label="Which photos"><button type="button" data-which="this">This photo</button><button type="button" data-which="selected">Selected</button><button type="button" data-which="picks">My picks</button></div>
+    <div id="use-layout" class="use-layouts" role="group" aria-label="How they go on the page">
+      <button type="button" data-layout="page"><svg viewBox="0 0 40 48" aria-hidden="true"><rect x="4" y="2" width="32" height="44" rx="2"/><rect x="10" y="12" width="20" height="24"/></svg>A page each</button>
+      <button type="button" data-layout="collage"><svg viewBox="0 0 40 48" aria-hidden="true"><rect x="4" y="2" width="32" height="44" rx="2"/><rect x="8" y="6" width="11" height="11"/><rect x="21" y="6" width="11" height="11"/><rect x="8" y="19" width="11" height="11"/><rect x="21" y="19" width="11" height="11"/><rect x="8" y="32" width="11" height="10"/><rect x="21" y="32" width="11" height="10"/></svg>Collage</button>
+      <button type="button" data-layout="strip"><svg viewBox="0 0 40 48" aria-hidden="true"><rect x="4" y="2" width="32" height="44" rx="2"/><rect x="7" y="5" width="12" height="8"/><rect x="7" y="15" width="12" height="8"/><rect x="7" y="25" width="12" height="8"/><rect x="21" y="5" width="12" height="8"/><rect x="21" y="15" width="12" height="8"/><rect x="21" y="25" width="12" height="8"/></svg>Photo strips</button>
+    </div>
+    <p id="use-note" role="status"></p>
+    <div class="row"><button id="use-close" type="button">Cancel</button><button id="use-make" type="button" class="primary">Make it</button></div>
   </dialog>
   <section id="create" aria-label="Create" hidden>
     <div id="bulk" hidden>
@@ -568,6 +578,7 @@
   <script src="faces.js"></script>
   <script src="drawtools.js"></script>
   <script src="worksheets.js"></script>
+  <script src="photolayouts.js"></script>
   <script src="bulk.js"></script>
   <script src="classroom.js"></script>
   <script src="backup.js"></script>

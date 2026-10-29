@@ -458,11 +458,6 @@ function newDesign(template, source) {
     schedule();
   });
 }
-// A developed photo from Photos becomes the first thing on a new Letter page.
-async function createFromPhoto(photoBlob, name) {
-  await newDesign();
-  await addImageBlob(photoBlob, name);
-}
 
 // ---- Saving ----
 function schedule() { dirty = true; edits++; clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; save().catch(() => {}); }, 1200); $('#create-saved').textContent = 'Saving…'; }

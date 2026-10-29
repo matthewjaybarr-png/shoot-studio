@@ -990,19 +990,6 @@ $('#deliver-go').onclick = async () => {
   }
 };
 
-// Send the current photo, developed, to Create at web size (2048 px).
-let sending = false;
-async function useInDesign() {
-  const photo = visible[cursor];
-  if (!photo || !dir || sending || delivering) return;
-  sending = true;
-  const shoot = dir;
-  status('Sending ' + photo.id + ' to Create…');
-  try {
-    await createFromPhoto(await developedJpeg(photo, shoot), photo.id);
-    setMode('create');
-  } catch (error) { status('Could not send the photo: ' + error, true); } finally { sending = false; }
-}
 // A photo with its edits, at 2048 px; Create's "This shoot" drawer uses it too. One at a time, as the exporter is shared.
 let developing = Promise.resolve();
 function developedJpeg(photo, shoot = dir) {
@@ -1030,7 +1017,6 @@ async function shootThumb(photo) {
   if (!thumbs.has(photo.id)) { const blob = await makeThumb(photo, shoot); stale(shoot); if (!thumbs.has(photo.id)) thumbs.set(photo.id, URL.createObjectURL(blob)); }
   return thumbs.get(photo.id);
 }
-$('#use-in-design').onclick = () => { $('#use-in-design').blur(); useInDesign(); };
 
 // Updates: one check at launch; nothing shows offline. Installing waits for the last rating to save, then restarts.
 async function checkForUpdate() {
