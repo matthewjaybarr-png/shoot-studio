@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.50.0
+
+- ✅ **Checklists**, in Classroom → Puzzles and worksheets under Checking progress: a page for each child on your class list, with three tick boxes on every item for three check-ins across the year (and a line for each check-in's date). Check:
+  - **Letters**: every capital and small letter.
+  - **Letter sounds**: every letter with a picture that starts with it.
+  - **Numbers, shapes and colours**: 0 to 20, nine shapes, ten colours, and how far they count out loud.
+- 📝 **Put these names on the page**, in Classroom → My lists: your list goes straight into the name rows of Monthly attendance, Sign-in sheet, Allergy alert and Class helpers, top to bottom. A shorter list leaves no names from before, and it says how many didn't fit. Printed without names, the rows stay blank.
+- The What's new card appears once more.
+
 ## 0.49.0
 
 - 🅰️ Posters and wall cards, a new part of Classroom → Puzzles and worksheets. Each comes four to a page (to cut apart) or one big card a page:

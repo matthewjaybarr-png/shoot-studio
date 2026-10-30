@@ -2993,6 +2993,16 @@ const test = `<script>
         await made('#sheet-colour-cards', () => { $('#sheet-card-layout').value = 'four'; }, pages => pages.length === 3 && pages[0].objects.filter(o => o.kbName === 'Colour').length === 4, 'Colour cards');
         await made('#sheet-shape-cards', null, pages => pages.length === 3 && pages.flatMap(p => p.objects).filter(o => o.kbName === 'Shape').length === 10, 'Shape cards');
         await made('#sheet-calendar-cards', () => step(!shownRow('#sheet-card-layout'), 'the calendar set has no choices'), pages => pages.length === 1 + 2 + 1 + 2 && pages[0].objects.filter(o => o.kbName === 'Day strip').length === 7, 'Calendar and weather');
+        for (const [kind, label, tiles] of [['letters', 'Letters I know', 52], ['sounds', 'Letter sounds I know', 26], ['numbers', 'Numbers, shapes and colours', 40]])
+          await made('#sheet-checklist', () => { step(shownRow('#sheet-check-kind') && !$('#sheet-words-part').hidden, 'checklists ask what to check and for names'); $('#sheet-check-kind').value = kind; $('#sheet-words').value = 'Smith, Ava\\nBen'; },
+            pages => pages.length === 2 && design.title.startsWith(label) && pages[0].objects.some(o => o.kbName === 'Child name' && o.text === 'Ava Smith') && pages[0].objects.filter(o => o.kbName === 'Tile').length === tiles && pages[0].objects.filter(o => o.kbName === 'Tick box').length >= tiles * 3, 'Checklist ' + kind);
+        await settle(newDesign('Sign-in sheet', 'starter'), 'a sign-in sheet to put names on');
+        const nameSlots = () => board.getObjects().filter(o => o.kbName === 'Name slot').sort((a, b) => a.top - b.top);
+        step(nameSlots().length === 17 && nameSlots().every(o => o.text === ''), () => 'the sign-in sheet has 17 empty name rows: ' + nameSlots().length);
+        step(fillNamesOnPage([['Name'], ['Ava'], ['Ben'], ['']]) === 'Put in 2 names.' && nameSlots()[0].text === 'Ava' && nameSlots()[1].text === 'Ben' && nameSlots()[2].text === '', () => 'a list fills the name rows from the top: ' + nameSlots().slice(0, 3).map(o => o.text));
+        fillNamesOnPage([['Name'], ['Cara']]);
+        step(nameSlots()[0].text === 'Cara' && nameSlots()[1].text === '', 'a shorter list leaves no names from before');
+        step(/^Put in 17 names; 3 more didn't fit/.test(fillNamesOnPage([['Name'], ...Array.from({ length: 20 }, (_, i) => ['Child ' + i])])), 'names that do not fit are counted');
         $('#sheet-math').click(); step(!shownRow('#sheet-maze-size') && !shownRow('#sheet-count-upto') && shownRow('#sheet-key'), 'Math practice hides the preschool choices'); $('#sheet-close').click();
       }
       $('#sheet-key').checked = true;

@@ -96,6 +96,7 @@ function paintListButtons() {
   $('#list-save').textContent = saved ? (listEdit.dirty ? '💾 Save changes' : '✓ Saved') : '💾 Save this list';
   $('#list-delete').hidden = !saved;
   $('#list-bulk').disabled = !has;
+  $('#list-fill').disabled = !has;
 }
 $('#list-pick').onchange = e => {
   const c = classLists.get(e.target.value);
@@ -130,6 +131,20 @@ async function bulkFromRows(rows, name) {
   paintBulk(); paintClassSave();
 }
 $('#list-bulk').onclick = () => bulkFromRows(listEdit.rows, listEdit.name);
+
+// The list's names into the page's name rows (attendance, sign-in, allergy, helpers), top to bottom then left to right.
+// Rows with no name left are emptied, so a shorter list leaves no names from before.
+function fillNamesOnPage(rows) {
+  const names = rows.slice(1).map(r => (r[0] || '').trim()).filter(Boolean);
+  const slots = board.getObjects().filter(o => o.type === 'textbox' && NAME_SLOTS.includes(o.kbName) && !o.kbLocked)
+    .sort((a, b) => Math.abs(a.top - b.top) < 6 ? a.left - b.left : a.top - b.top);
+  if (!slots.length) return 'This page has no name rows. Start from Monthly attendance, Sign-in sheet, Allergy alert or Class helpers in Templates.';
+  slots.forEach((o, i) => o.set({ text: names[i] || '' }));
+  board.requestRenderAll(); commitDesign();
+  const extra = names.length - slots.length;
+  return extra > 0 ? `Put in ${slots.length} names; ${extra} more didn't fit (${names.slice(slots.length, slots.length + 4).join(', ')}${extra > 4 ? '…' : ''}). Add a page for the rest.` : `Put in ${names.length} name${names.length === 1 ? '' : 's'}.`;
+}
+$('#list-fill').onclick = () => { $('#list-fill-note').textContent = board ? fillNamesOnPage(listEdit.rows) : ''; };
 
 // A birthday card for one child: a new design from the Birthday card starter, their name already on it.
 async function birthdayCard(name) {

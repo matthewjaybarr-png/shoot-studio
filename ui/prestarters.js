@@ -7,6 +7,8 @@
 // One of her class details, or what to show in its place while it's empty.
 const classDetail = (key, otherwise) => (typeof classroom === 'function' && classroom()[key]) || otherwise;
 const teacherName = () => classDetail('teacher', 'Teacher');
+// The text boxes a class list fills, in reading order: empty name cells, and the placeholder names on cards.
+const NAME_SLOT = 'Name slot', NAME_SLOTS = [NAME_SLOT, 'Helper name', 'Child name'];
 const PASTEL = { pink: ['#fde4ef', '#e7779f'], lilac: ['#ece4fb', '#9a86d6'], blue: ['#e1f0fd', '#6fa8dc'], mint: ['#e3f6ec', '#5bb88a'], yellow: ['#fff4d6', '#e0b84a'], peach: ['#ffe9dc', '#e89a6b'] };
 // A soft rounded box in one of the pastels, with an optional heading at its top left (and a picture before it).
 async function softBox(page, x, y, w, h, colour, heading, icon) {
@@ -19,6 +21,7 @@ const bigTitle = (text, top = 36, width = 720, left = 48, o = {}) => T(text, lef
 const tickBox = (x, y, size = 22) => R(x, y, size, size, { rx: 4, ry: 4, stroke: '#555555', strokeWidth: 2, kbName: 'Tick box' });
 const fillLine = (x, y, w) => new fabric.Line([x, y, x + w, y], { stroke: '#999999', strokeWidth: 1.5, kbName: 'Write here' });
 // A grid of boxes with words in some: `cols` widths, `rows` heights, `text(r, c)` the words (or '' for none), `fill(r, c)`.
+// `o.slot(r, c)` marks the cells that take a child's name: an empty text box My lists' Put these names on the page fills.
 function gridBoxes(page, left, top, cols, rows, text, fill = () => 'transparent', o = {}) {
   let y = top;
   for (const [r, h] of rows.entries()) {
@@ -26,6 +29,7 @@ function gridBoxes(page, left, top, cols, rows, text, fill = () => 'transparent'
     for (const [c, w] of cols.entries()) {
       page.add(R(x, y, w, h, { stroke: '#8f8f8f', strokeWidth: 1.5, fill: fill(r, c), kbName: 'Table cell' }));
       const words = text(r, c);
+      if (!words && o.slot?.(r, c)) page.add(T('', x + 6, y + Math.max(4, h / 2 - (o.size || 18) * 0.65), { width: w - 12, minWidth: 1, fontSize: o.size || 18, kbName: NAME_SLOT }));
       if (words) page.add(T(words, x + 6, y + Math.max(4, h / 2 - (o.size || 18) * 0.65), { width: w - 12, minWidth: 1, fontSize: o.size || 18, textAlign: o.align?.(r, c) || 'left', fontFamily: r === 0 ? 'Fredoka' : 'Lexend', fontWeight: r === 0 ? 'bold' : 'normal', kbName: 'Cell text' }));
       x += w;
     }
@@ -66,7 +70,7 @@ Object.assign(STARTERS, {
   },
   'Sign-in sheet': async page => {
     page.add(bigTitle('Sign In and Sign Out', 30), T(classDetail('klass', 'Class') + ' · ' + teacherName() + '        Week of: ______________', 48, 102, { width: 720, fontSize: 20, textAlign: 'center', kbName: 'Class' }));
-    gridBoxes(page, 48, 150, [200, 96, 172, 96, 156], [40, ...Array(17).fill(49)], (r, c) => r === 0 ? ["Child's name", 'Time in', 'Signature', 'Time out', 'Signature'][c] : '', r => r === 0 ? PASTEL.lilac[0] : 'transparent');
+    gridBoxes(page, 48, 150, [200, 96, 172, 96, 156], [40, ...Array(17).fill(49)], (r, c) => r === 0 ? ["Child's name", 'Time in', 'Signature', 'Time out', 'Signature'][c] : '', r => r === 0 ? PASTEL.lilac[0] : 'transparent', { slot: (r, c) => r > 0 && c === 0 });
   },
   'Visual schedule': async page => {
     page.add(bigTitle('Our Day', 24), T('Cut out the cards and put them up in the order of your day.', 48, 92, { width: 720, fontSize: 18, textAlign: 'center', fill: '#777777', kbName: 'Instructions' }));
@@ -87,7 +91,7 @@ Object.assign(STARTERS, {
   'Monthly attendance': async page => {
     page.add(bigTitle('Attendance', 18, 976, 40, { fontSize: 40 }), T('Month: ______________   ' + classDetail('klass', 'Class') + ' · ' + teacherName(), 40, 70, { width: 976, fontSize: 18, textAlign: 'center', kbName: 'Month line' }));
     const day = 24.5, cols = [216, ...Array(31).fill(day)];
-    gridBoxes(page, 40, 104, cols, [30, ...Array(21).fill(30)], (r, c) => r === 0 ? (c ? String(c) : 'Name') : '', r => r === 0 ? PASTEL.blue[0] : r % 2 ? 'transparent' : '#f7f4fd', { size: 12, align: (r, c) => c ? 'center' : 'left' });
+    gridBoxes(page, 40, 104, cols, [30, ...Array(21).fill(30)], (r, c) => r === 0 ? (c ? String(c) : 'Name') : '', r => r === 0 ? PASTEL.blue[0] : r % 2 ? 'transparent' : '#f7f4fd', { size: 12, align: (r, c) => c ? 'center' : 'left', slot: (r, c) => r > 0 && c === 0 });
     page.add(T('✓ here    A absent    T tardy', 40, 772, { width: 976, fontSize: 14, fill: '#777777', kbName: 'Key' }));
   },
   'Allergy alert': async page => {
